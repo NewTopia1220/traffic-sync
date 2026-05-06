@@ -1,0 +1,287 @@
+##################################################
+# Traffic-Sync .gitignore
+# Spring Boot + React + FastAPI/AI + ML Project
+##################################################
+
+
+##################################################
+# OS
+##################################################
+
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+
+##################################################
+# Logs
+##################################################
+
+*.log
+logs/
+**/logs/
+
+
+##################################################
+# Environment variables / Secrets
+##################################################
+
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Spring Boot local/secret configs
+**/application-local.yml
+**/application-local.yaml
+**/application-local.properties
+**/application-secret.yml
+**/application-secret.yaml
+**/application-secret.properties
+**/application-private.yml
+**/application-private.yaml
+**/application-private.properties
+
+# API keys / credentials
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+credentials.json
+service-account.json
+
+# ngrok local config
+ngrok.yml
+.ngrok2/
+
+
+##################################################
+# Maven / Spring Boot
+##################################################
+
+target/
+backend/target/
+
+# Keep target folders under src if intentionally created
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+HELP.md
+backend/HELP.md
+
+# Maven wrapper
+# 보통 팀원이 ./mvnw로 실행해야 하면 mvnw, mvnw.cmd,
+# .mvn/wrapper/maven-wrapper.properties는 Git에 올리는 것을 추천합니다.
+# maven-wrapper.jar는 팀 정책에 따라 올리거나 제외하세요.
+# **/.mvn/wrapper/maven-wrapper.jar
+
+
+##################################################
+# STS / Eclipse
+##################################################
+
+.apt_generated
+.apt_generated_test
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache
+bin/
+
+
+##################################################
+# IntelliJ IDEA / PyCharm
+##################################################
+
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+
+##################################################
+# NetBeans
+##################################################
+
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+
+##################################################
+# VS Code
+##################################################
+
+.vscode/
+
+
+##################################################
+# Gradle - 혹시 일부 도구에서 생길 경우
+##################################################
+
+.gradle/
+build/
+backend/build/
+
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+
+##################################################
+# React / Node / Vite
+##################################################
+
+node_modules/
+**/node_modules/
+
+frontend/dist/
+frontend/build/
+frontend/coverage/
+frontend/.vite/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.pnpm-store/
+.yarn/
+.yarn-cache/
+
+# Vercel local files
+.vercel/
+frontend/.vercel/
+
+
+##################################################
+# Python / FastAPI / PyCharm
+##################################################
+
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Python virtual environments
+venv/
+.venv/
+env/
+ENV/
+ai/venv/
+ai/.venv/
+ml/venv/
+ml/.venv/
+
+# Python cache / test / lint
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Python package/build files
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+
+##################################################
+# Jupyter / Colab / Notebook
+##################################################
+
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+
+##################################################
+# AI / ML model files
+##################################################
+
+*.pkl
+*.joblib
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.h5
+*.hdf5
+*.safetensors
+*.bin
+*.model
+
+# AI serving model folder
+ai/models/*
+!ai/models/README.md
+
+# 작은 발표용 모델 파일을 꼭 Git에 올려야 한다면 아래 줄의 주석을 해제하세요.
+# !ai/models/accident_model.pkl
+
+
+##################################################
+# ML datasets / outputs
+##################################################
+
+ml/data/*
+!ml/data/README.md
+
+ml/outputs/*
+!ml/outputs/README.md
+
+ml/runs/
+ml/checkpoints/
+ml/wandb/
+ml/mlruns/
+
+# 루트에 실수로 만든 데이터/결과 폴더
+datasets/
+outputs/
+runs/
+checkpoints/
+wandb/
+mlruns/
+
+
+##################################################
+# Redis / Docker local data
+##################################################
+
+infra/redis/data/
+redis-data/
+dump.rdb
+appendonly.aof
+
+docker-compose.override.yml
+docker-compose.local.yml
+
+
+##################################################
+# Upload / Temp files
+##################################################
+
+uploads/
+temp/
+tmp/
+.cache/
+**/.cache/
+
+
+##################################################
+# Misc
+##################################################
+
+*.swp
+*.swo
+*.bak
+*.tmp

@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Traffic-Sync 관제 시스템</title>
+    <script type="text/javascript"
+            th:src="@{'//dapi.kakao.com/v2/maps/sdk.js?appkey=' + ${kakaoAppKey} + '&libraries=clusterer'}">
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body { font-family: 'Malgun Gothic', sans-serif; background: #0d1117; color: #e6edf3; }
+
+        #header {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+            background: rgba(13,17,23,0.92); backdrop-filter: blur(8px);
+            padding: 10px 20px; display: flex; align-items: center; gap: 16px;
+            border-bottom: 1px solid #30363d;
+        }
+        #header h1 { font-size: 16px; color: #58a6ff; }
+        #status-bar { font-size: 12px; color: #8b949e; }
+        #status-dot { width: 8px; height: 8px; border-radius: 50%; background: #238636; display: inline-block; margin-right: 6px; }
+        #status-dot.disconnected { background: #da3633; }
+
+        #map { width: 100%; height: 100vh; }
+
+        /* ===== 신호 오버레이 (십자형 사거리 UI) ===== */
+        .signal-overlay {
+            display: grid;
+            grid-template-areas:
+                ".    north  ."
+                "west center east"
+                ".    south  .";
+            grid-template-columns: 90px 110px 90px;
+            grid-template-rows: auto auto auto;
+            gap: 4px;
+            pointer-events: none;
+        }
+
+        .signal-box {
+            background: rgba(13,17,23,0.88);
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 5px 7px;
+            text-align: center;
+            min-width: 80px;
+            backdrop-filter: blur(4px);
+        }
+
+        .signal-north { grid-area: north; }
+        .signal-west  { grid-area: west;  }
+        .signal-center{ grid-area: center; background: rgba(13,17,23,0.95); border-color: #58a6ff; }
+        .signal-east  { grid-area: east;  }
+        .signal-south { grid-area: south; }
+
+        .signal-center .crossroad-name {
+            font-size: 10px; color: #58a6ff; font-weight: bold; line-height: 1.3;
+        }
+
+        .dir-label {
+            font-size: 11px; font-weight: bold; color: #c9d1d9;
+            margin-bottom: 3px; letter-spacing: 1px;
+            border-bottom: 1px solid #30363d; padding-bottom: 2px;
+        }
+
+        .signal-row { display: flex; align-items: center; gap: 4px; justify-content: center; margin: 1px 0; }
+        .signal-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .signal-dot.green  { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+        .signal-dot.red    { background: #da3633; box-shadow: 0 0 6px #da3633; }
+        .signal-dot.gray   { background: #484f58; }
+
+        .signal-type { font-size: 9px; color: #8b949e; width: 22px; }
+        .signal-time { font-size: 11px; font-weight: bold; min-width: 36px; text-align: right; }
+        .signal-time.green  { color: #3fb950; }
+        .signal-time.red    { color: #da3633; }
+
+        .signal-time.expired { font-size: 9px; opacity: 0.5; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.3; }
+        }
+        .signal-time.loading {
+            font-size: 9px; color: #8b949e;
+            animation: pulse 1.4s ease-in-out infinite;
+        }
+
+        /* 줌 아웃 시 작은 마커 */
+        .mini-marker {
+            width: 14px; height: 14px; border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.6);
+            cursor: pointer;
+        }
+        .mini-marker.green  { background: #3fb950; }
+        .mini-marker.red    { background: #da3633; }
+        .mini-marker.mixed  { background: #d29922; }
+        .mini-marker.no-data{ background: #484f58; }
+
+        /* 정보 패널 */
+        #info-panel {
+            position: fixed; bottom: 20px; left: 20px; z-index: 999;
+            background: rgba(13,17,23,0.92); border: 1px solid #30363d;
+            border-radius: 8px; padding: 12px 16px; font-size: 12px;
+            min-width: 180px;
+        }
+        #info-panel .label { color: #8b949e; margin-bottom: 4px; }
+        #info-panel .value { color: #e6edf3; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="header">
+    <h1>🚦 Traffic-Sync 관제 시스템</h1>
+    <div id="status-bar">
+        <span id="status-dot"></span>
+        <span id="status-text">연결 중...</span>
+    </div>
+    <div style="margin-left:auto; font-size:11px; color:#8b949e;">
+        마지막 갱신: <span id="last-update">-</span>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<div id="info-panel">
+    <div class="label">교차로 수</div>
+    <div class="value" id="crossroad-count">0</div>
+    <div class="label" style="margin-top:8px;">줌 레벨</div>
+    <div class="value" id="zoom-level">-</div>
+    <div class="label" style="margin-top:8px;">PoC 영역</div>
+    <div class="value">잠실역 반경 1km</div>
+</div>
+
+<script th:inline="javascript">
+    const JAMSIL_LAT = /*[[${jamsilLat}]]*/ 37.5133;
+    const JAMSIL_LON = /*[[${jamsilLon}]]*/ 127.1002;
+    const ZOOM_THRESHOLD = 5;
+
+    // kakao 의존 코드와 WebSocket 코드가 공유하는 상태
+    const overlayMap = {};
+    let latestData = {};
+    let map = null;
+
+    // ===== 신호 상태 → CSS 클래스 =====
+    function statusClass(sttsNm) {
+        if (!sttsNm) return 'gray';
+        const s = sttsNm.toLowerCase();
+        if (s.includes('movement-allowed')) return 'green';
+        if (s.includes('stop'))             return 'red';
+        return 'gray';
+    }
+
+    // ===== 십자형 오버레이 HTML 생성 =====
+    function buildSignalRow(sig, typeLabel) {
+        if (!sig) return '';
+        if (sig.status && sig.status.toLowerCase().includes('clearance')) return '';
+        const cls = statusClass(sig.status);
+        const rmndSec = (sig.rmndCs / 10).toFixed(1);
+        return `
+            <div class="signal-row">
+                <div class="signal-dot ${cls}"></div>
+                <span class="signal-type">${typeLabel}</span>
+                <span class="signal-time ${cls}" data-rmnd="${sig.rmndCs}" data-cls="${cls}">${rmndSec}s</span>
+            </div>`;
+    }
+
+    const DIR_LABEL = {
+        north: '↑ 북(N)', south: '↓ 남(S)',
+        east:  '→ 동(E)', west:  '← 서(W)',
+        northeast: '↗ 북동', southeast: '↘ 남동',
+        southwest: '↙ 남서', northwest: '↖ 북서'
+    };
+
+    function buildDirectionBox(dirKey, signals) {
+        const label = DIR_LABEL[dirKey] || dirKey;
+        const dir = signals[dirKey];
+        if (!dir) return `<div class="signal-box signal-${dirKey}" style="opacity:0.15"><div class="dir-label">${label}</div><div style="font-size:9px;color:#484f58">-</div></div>`;
+        return `
+            <div class="signal-box signal-${dirKey}">
+                <div class="dir-label">${label}</div>
+                ${buildSignalRow(dir.stsg, '직진')}
+                ${buildSignalRow(dir.ltsg, '좌회전')}
+                ${buildSignalRow(dir.pdsg, '보행')}
+            </div>`;
+    }
+
+    function buildFullOverlayHtml(status) {
+        const s = status.signals || {};
+        return `
+            <div class="signal-overlay">
+                ${buildDirectionBox('north', s)}
+                ${buildDirectionBox('west',  s)}
+                <div class="signal-box signal-center">
+                    <div class="crossroad-name">${status.crsrdNm}<br/><span style="color:#8b949e;font-weight:normal">(${status.crsrdId})</span></div>
+                </div>
+                ${buildDirectionBox('east',  s)}
+                ${buildDirectionBox('south', s)}
+            </div>`;
+    }
+
+    function dominantColor(signals) {
+        if (!signals) return 'no-data';
+        const dirs = Object.values(signals);
+        if (dirs.length === 0) return 'no-data';
+        let green = 0, red = 0;
+        dirs.forEach(dir => {
+            if (!dir.stsg) return;
+            const cls = statusClass(dir.stsg.status);
+            if (cls === 'green') green++;
+            else if (cls === 'red') red++;
+        });
+        if (green > 0 && red > 0) return 'mixed';
+        if (green > 0) return 'green';
+        if (red > 0) return 'red';
+        return 'no-data';
+    }
+
+    function refreshOverlays() {
+        if (!map) return;
+        const isDetailed = map.getLevel() <= ZOOM_THRESHOLD;
+        Object.values(overlayMap).forEach(obj => {
+            if (obj.miniOverlay) obj.miniOverlay.setMap(isDetailed ? null : map);
+            if (obj.fullOverlay) obj.fullOverlay.setMap(isDetailed ? map : null);
+        });
+    }
+
+    function upsertOverlay(status) {
+        if (!map) return;
+        const pos = new kakao.maps.LatLng(status.lat, status.lon);
+        const id  = status.crsrdId;
+        const color   = dominantColor(status.signals);
+        const miniHtml = `<div class="mini-marker ${color}" title="${status.crsrdNm}"></div>`;
+        const fullHtml = buildFullOverlayHtml(status);
+
+        if (overlayMap[id]) {
+            const prev = overlayMap[id].status;
+            // totDt가 바뀐 경우(새 신호 데이터)에만 HTML 교체 → 깜빡임 방지
+            if (!prev || prev.totDt !== status.totDt) {
+                overlayMap[id].miniOverlay.setContent(miniHtml);
+                overlayMap[id].fullOverlay.setContent(fullHtml);
+            }
+        } else {
+            // xAnchor/yAnchor 0.5 = 콘텐츠 중앙이 좌표에 정확히 위치
+            const miniOverlay = new kakao.maps.CustomOverlay({
+                position: pos, content: miniHtml, zIndex: 3,
+                xAnchor: 0.5, yAnchor: 0.5
+            });
+            const fullOverlay = new kakao.maps.CustomOverlay({
+                position: pos, content: fullHtml, zIndex: 4,
+                xAnchor: 0.5, yAnchor: 0.5
+            });
+            overlayMap[id] = { miniOverlay, fullOverlay };
+        }
+        overlayMap[id].status = status;
+    }
+
+    // ===== 카카오맵 초기화 (페이지 완전 로드 후 실행) =====
+    window.addEventListener('load', () => {
+        if (typeof kakao === 'undefined') {
+            console.error('카카오맵 SDK 로드 실패 - JavaScript 키와 도메인 등록 확인 필요');
+            document.getElementById('map').innerHTML =
+                '<div style="color:#da3633;padding:40px;text-align:center">카카오맵 로드 실패<br>JavaScript 키 확인 필요</div>';
+            return;
+        }
+        map = new kakao.maps.Map(document.getElementById('map'), {
+            center: new kakao.maps.LatLng(JAMSIL_LAT, JAMSIL_LON),
+            level: 4
+        });
+        document.getElementById('zoom-level').textContent = map.getLevel();
+        kakao.maps.event.addListener(map, 'zoom_changed', () => {
+            document.getElementById('zoom-level').textContent = map.getLevel();
+            refreshOverlays();
+        });
+    });
+
+    // ===== 카운트다운 타이머 =====
+    function parseTotDt(totDt) {
+        if (!totDt || totDt.length < 14) return null;
+        const y = totDt.slice(0,4), mo = totDt.slice(4,6), d = totDt.slice(6,8);
+        const h = totDt.slice(8,10), m = totDt.slice(10,12), s = totDt.slice(12,14);
+        return new Date(`${y}-${mo}-${d}T${h}:${m}:${s}+09:00`).getTime();
+    }
+
+    setInterval(() => {
+        const now = Date.now();
+        document.querySelectorAll('[data-rmnd]').forEach(el => {
+            const nameEl = el.closest('.signal-overlay')?.querySelector('.crossroad-name');
+            if (!nameEl) return;
+            const crsrdId = nameEl.textContent.match(/\((\d+)\)/)?.[1];
+            if (!crsrdId || !latestData[crsrdId]) return;
+
+            const status = latestData[crsrdId];
+            const receivedAt = status._receivedAt;
+            if (!receivedAt) return;
+
+            const elapsedSinceReceived = (now - receivedAt) / 1000;
+            const remaining = (parseFloat(el.dataset.rmnd) / 10) - elapsedSinceReceived;
+
+            const dot = el.parentElement?.querySelector('.signal-dot');
+            const origCls = el.dataset.cls || 'gray';
+            if (remaining <= 0) {
+                el.textContent = '';
+                if (dot) dot.className = 'signal-dot gray';
+            } else {
+                el.textContent = remaining.toFixed(1) + 's';
+                if (dot) dot.className = 'signal-dot ' + origCls;
+            }
+        });
+    }, 100);
+
+    // ===== WebSocket =====
+    const statusDot      = document.getElementById('status-dot');
+    const statusText     = document.getElementById('status-text');
+    const lastUpdate     = document.getElementById('last-update');
+    const crossroadCount = document.getElementById('crossroad-count');
+
+    function mapDirectionKeys(signals) {
+        if (!signals) return {};
+        const keyMap = { nt:'north', et:'east', st:'south', wt:'west',
+                         ne:'northeast', se:'southeast', sw:'southwest', nw:'northwest' };
+        const result = {};
+        Object.entries(signals).forEach(([k, v]) => { result[keyMap[k] || k] = v; });
+        return result;
+    }
+
+    function connectWs() {
+        const ws = new WebSocket(`ws://${location.host}/ws/traffic`);
+
+        ws.onopen = () => {
+            statusDot.className = '';
+            statusText.textContent = '연결됨';
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const dataList = JSON.parse(event.data);
+                const now = Date.now();
+                dataList.forEach(status => {
+                    const prev = latestData[status.crsrdId];
+                    const isNewData = !prev || prev.totDt !== status.totDt;
+                    const mapped = {
+                        ...status,
+                        signals: mapDirectionKeys(status.signals),
+                        _receivedAt: isNewData ? now : prev._receivedAt
+                    };
+                    latestData[status.crsrdId] = mapped;
+                    upsertOverlay(mapped);
+                });
+                refreshOverlays();
+                crossroadCount.textContent = dataList.length;
+                lastUpdate.textContent = new Date().toLocaleTimeString('ko-KR');
+            } catch (e) {
+                console.error('데이터 파싱 오류:', e);
+            }
+        };
+
+        ws.onclose = () => {
+            statusDot.className = 'disconnected';
+            statusText.textContent = '연결 끊김 - 재연결 중...';
+            setTimeout(connectWs, 3000);
+        };
+
+        ws.onerror = (err) => console.error('WebSocket 오류:', err);
+    }
+
+    connectWs();
+</script>
+</body>
+</html>
