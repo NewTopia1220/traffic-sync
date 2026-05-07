@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 // 교차로 정보 및 신호 데이터를 메모리에 캐싱 (PoC용, 추후 Redis로 교체)
@@ -25,6 +27,12 @@ public class TrafficCacheService {
 
     public List<CrossroadInfo> getCrossroads() {
         return crossroads;
+    }
+
+    public Optional<CrossroadInfo> getCrossroad(String crsrdId) {
+        return crossroads.stream()
+                .filter(crossroad -> Objects.equals(crossroad.getCrsrdId(), crsrdId))
+                .findFirst();
     }
 
     public void updateSignal(String crsrdId, TrafficStatus status) {
