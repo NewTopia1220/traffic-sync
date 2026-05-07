@@ -1,0 +1,9 @@
+target/
+*.class
+*.jar
+
+# 비밀번호 포함 설정파일
+src/main/resources/application.properties
+
+# Oracle Wallet (보안 파일 - 절대 커밋 금지)
+src/main/resources/wallet/
