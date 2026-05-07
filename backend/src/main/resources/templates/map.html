@@ -3,132 +3,451 @@
 <head>
     <meta charset="UTF-8">
     <title>Traffic-Sync 관제 시스템</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <script type="text/javascript"
             th:src="@{'//dapi.kakao.com/v2/maps/sdk.js?appkey=' + ${kakaoAppKey} + '&libraries=clusterer'}">
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-        body { font-family: 'Malgun Gothic', sans-serif; background: #0d1117; color: #e6edf3; }
-
-        #header {
-            position: fixed; top: 0; left: 0; right: 0; z-index: 999;
-            background: rgba(13,17,23,0.92); backdrop-filter: blur(8px);
-            padding: 10px 20px; display: flex; align-items: center; gap: 16px;
-            border-bottom: 1px solid #30363d;
+        :root {
+            --bg-base:    #070c17;
+            --bg-panel:   rgba(10,16,30,0.92);
+            --bg-card:    rgba(14,20,36,0.88);
+            --bg-hover:   rgba(255,255,255,0.03);
+            --border:     rgba(255,255,255,0.07);
+            --border-blue:rgba(59,130,246,0.25);
+            --text-pri:   #e2e8f0;
+            --text-sec:   #94a3b8;
+            --text-muted: #475569;
+            --blue:       #3b82f6;
+            --blue-dark:  #1d4ed8;
+            --green:      #22c55e;
+            --yellow:     #f59e0b;
+            --red:        #ef4444;
+            --header-h:   52px;
         }
-        #header h1 { font-size: 16px; color: #58a6ff; }
-        #status-bar { font-size: 12px; color: #8b949e; }
-        #status-dot { width: 8px; height: 8px; border-radius: 50%; background: #238636; display: inline-block; margin-right: 6px; }
-        #status-dot.disconnected { background: #da3633; }
 
-        #map { width: 100%; height: 100vh; }
+        html, body { height: 100%; overflow: hidden; }
+        body { font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; background: var(--bg-base); color: var(--text-pri); display: flex; flex-direction: column; }
 
-        /* ===== 신호 오버레이 (십자형 사거리 UI) ===== */
+        /* ===== HEADER ===== */
+        #header {
+            height: var(--header-h);
+            background: rgba(7,12,23,0.97);
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 16px;
+            padding: 0 20px;
+            flex-shrink: 0;
+            backdrop-filter: blur(10px);
+            z-index: 200;
+        }
+        .logo { display: flex; align-items: center; gap: 8px; }
+        .logo-icon { font-size: 18px; }
+        .logo-text { font-size: 14px; font-weight: 700; color: var(--blue); letter-spacing: 0.4px; }
+
+        .status-pill {
+            display: flex; align-items: center; gap: 5px;
+            padding: 3px 10px; border-radius: 20px;
+            border: 1px solid rgba(34,197,94,0.3);
+            background: rgba(34,197,94,0.08);
+            font-size: 11px; color: var(--green);
+        }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 5px var(--green); animation: blink 2s infinite; }
+        .status-dot.off { background: var(--red); box-shadow: 0 0 5px var(--red); animation: none; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        .city-tabs { display: flex; gap: 5px; margin-left: 12px; }
+        .city-tab {
+            padding: 3px 12px; border-radius: 4px; font-size: 11px; cursor: pointer;
+            border: 1px solid var(--border); color: var(--text-muted);
+            transition: all .15s;
+        }
+        .city-tab.active { background: var(--blue-dark); border-color: var(--blue-dark); color: #fff; }
+
+        .weather-widget {
+            display: flex; align-items: center; gap: 8px;
+            padding: 4px 14px; border-radius: 7px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            font-size: 12px;
+        }
+        .weather-icon { font-size: 15px; }
+        .weather-temp { font-weight: 600; }
+        .weather-sub { color: var(--text-muted); font-size: 11px; }
+
+        .time-display { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-sec); }
+        .header-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+
+        /* ===== MAIN LAYOUT ===== */
+        #main { flex: 1; display: grid; grid-template-columns: 1fr 348px; min-height: 0; }
+
+        /* ===== LEFT: MAP ===== */
+        #left { display: flex; flex-direction: column; gap: 0; padding: 10px 6px 10px 10px; min-height: 0; }
+
+        #map-wrap { flex: 1; position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); min-height: 0; }
+        #map { width: 100%; height: 100%; }
+
+        /* signal overlay */
         .signal-overlay {
             display: grid;
-            grid-template-areas:
-                ".    north  ."
-                "west center east"
-                ".    south  .";
-            grid-template-columns: 90px 110px 90px;
-            grid-template-rows: auto auto auto;
-            gap: 4px;
+            grid-template-areas: ". north ." "west center east" ". south .";
+            grid-template-columns: 90px 108px 90px;
+            gap: 5px;
             pointer-events: none;
         }
-
-        .signal-box {
-            background: rgba(13,17,23,0.88);
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            padding: 5px 7px;
-            text-align: center;
-            min-width: 80px;
-            backdrop-filter: blur(4px);
+        .sig-box {
+            background: rgba(8,13,26,0.93);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            padding: 7px 9px;
+            backdrop-filter: blur(6px);
         }
-
-        .signal-north { grid-area: north; }
-        .signal-west  { grid-area: west;  }
-        .signal-center{ grid-area: center; background: rgba(13,17,23,0.95); border-color: #58a6ff; }
-        .signal-east  { grid-area: east;  }
-        .signal-south { grid-area: south; }
-
-        .signal-center .crossroad-name {
-            font-size: 10px; color: #58a6ff; font-weight: bold; line-height: 1.3;
+        .sig-north { grid-area: north; }
+        .sig-west  { grid-area: west; }
+        .sig-center{
+            grid-area: center;
+            border-color: rgba(59,130,246,0.35);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
         }
+        .sig-east  { grid-area: east; }
+        .sig-south { grid-area: south; }
 
-        .dir-label {
-            font-size: 11px; font-weight: bold; color: #c9d1d9;
-            margin-bottom: 3px; letter-spacing: 1px;
-            border-bottom: 1px solid #30363d; padding-bottom: 2px;
+        .dir-label { font-size: 10px; font-weight: 700; color: var(--blue); margin-bottom: 5px; letter-spacing: .8px; }
+        .sig-row { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; }
+        .sig-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .sig-dot.green { background: var(--green); box-shadow: 0 0 5px var(--green); }
+        .sig-dot.red   { background: var(--red);   box-shadow: 0 0 5px var(--red); }
+        .sig-dot.gray  { background: #374151; }
+        .sig-type { font-size: 10px; color: var(--text-muted); width: 30px; }
+        .sig-time { font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace; min-width: 34px; text-align: right; }
+        .sig-time.green { color: var(--green); }
+        .sig-time.red   { color: var(--red); }
+
+        .crossroad-name { font-size: 10px; color: var(--blue); font-weight: 700; line-height: 1.4; }
+        .crossroad-id   { font-size: 9px; color: var(--text-muted); margin-top: 3px; }
+
+        /* risk ring */
+        .risk-ring { position: relative; width: 36px; height: 36px; margin-top: 6px; }
+        .risk-ring svg { transform: rotate(-90deg); }
+        .risk-val { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+
+        /* overlay absolute */
+        #signal-float {
+            position: absolute; bottom: 14px; left: 14px;
+            background: rgba(7,12,23,0.93);
+            border: 1px solid var(--border-blue);
+            border-radius: 12px;
+            padding: 12px;
+            backdrop-filter: blur(10px);
+            z-index: 100;
         }
+        .float-title { font-size: 11px; color: var(--blue); font-weight: 700; margin-bottom: 8px; }
 
-        .signal-row { display: flex; align-items: center; gap: 4px; justify-content: center; margin: 1px 0; }
-        .signal-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-        .signal-dot.green  { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
-        .signal-dot.red    { background: #da3633; box-shadow: 0 0 6px #da3633; }
-        .signal-dot.gray   { background: #484f58; }
-
-        .signal-type { font-size: 9px; color: #8b949e; width: 22px; }
-        .signal-time { font-size: 11px; font-weight: bold; min-width: 36px; text-align: right; }
-        .signal-time.green  { color: #3fb950; }
-        .signal-time.red    { color: #da3633; }
-
-        .signal-time.expired { font-size: 9px; opacity: 0.5; }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50%       { opacity: 0.3; }
-        }
-        .signal-time.loading {
-            font-size: 9px; color: #8b949e;
-            animation: pulse 1.4s ease-in-out infinite;
-        }
-
-        /* 줌 아웃 시 작은 마커 */
-        .mini-marker {
+        /* mini markers */
+        .mini-dot {
             width: 14px; height: 14px; border-radius: 50%;
-            border: 2px solid rgba(255,255,255,0.6);
+            border: 2px solid rgba(255,255,255,0.35);
             cursor: pointer;
+            transition: transform .15s;
         }
-        .mini-marker.green  { background: #3fb950; }
-        .mini-marker.red    { background: #da3633; }
-        .mini-marker.mixed  { background: #d29922; }
-        .mini-marker.no-data{ background: #484f58; }
+        .mini-dot:hover { transform: scale(1.4); }
+        .mini-dot.green  { background: var(--green); box-shadow: 0 0 8px var(--green); }
+        .mini-dot.red    { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+        .mini-dot.yellow { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+        .mini-dot.gray   { background: #374151; }
 
-        /* 정보 패널 */
-        #info-panel {
-            position: fixed; bottom: 20px; left: 20px; z-index: 999;
-            background: rgba(13,17,23,0.92); border: 1px solid #30363d;
-            border-radius: 8px; padding: 12px 16px; font-size: 12px;
-            min-width: 180px;
+        /* map legend */
+        #map-legend {
+            position: absolute; top: 12px; right: 12px;
+            background: rgba(7,12,23,0.85);
+            border: 1px solid var(--border);
+            border-radius: 8px; padding: 8px 12px;
+            z-index: 100; font-size: 10px;
         }
-        #info-panel .label { color: #8b949e; margin-bottom: 4px; }
-        #info-panel .value { color: #e6edf3; font-weight: bold; }
+        .legend-title { color: var(--text-sec); font-weight: 700; margin-bottom: 6px; letter-spacing: .5px; }
+        .legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--text-sec); }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        /* ===== CHART ===== */
+        #chart-panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-top: 8px;
+            flex-shrink: 0;
+        }
+        .chart-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .panel-title  { font-size: 12px; font-weight: 700; color: var(--text-pri); }
+        .chart-legend { display: flex; gap: 12px; }
+        .chart-leg-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-sec); }
+        .chart-leg-line { width: 14px; height: 3px; border-radius: 2px; }
+        .chart-canvas-wrap { position: relative; height: 140px; width: 100%; }
+
+        /* ===== RIGHT PANEL ===== */
+        #right { display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 10px 4px; overflow-y: auto; }
+
+        /* stat cards */
+        #stat-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 8px;
+            text-align: center;
+        }
+        .stat-val { font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .stat-unit { font-size: 11px; }
+        .stat-label { font-size: 9px; color: var(--text-muted); margin-top: 3px; line-height: 1.3; }
+
+        /* panels */
+        .r-panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+        .r-panel-title { font-size: 12px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+
+        /* bottleneck rows */
+        .bn-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 7px 9px; border-radius: 7px; margin-bottom: 5px;
+            border: 1px solid var(--border);
+            background: var(--bg-hover);
+            cursor: pointer; transition: all .15s;
+        }
+        .bn-row:hover { background: rgba(59,130,246,0.06); border-color: var(--border-blue); }
+        .bn-row.active { background: rgba(29,78,216,0.12); border-color: rgba(59,130,246,0.35); }
+        .bn-left { display: flex; align-items: center; gap: 8px; }
+        .bn-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .bn-name { font-size: 12px; }
+        .bn-sub  { font-size: 10px; color: var(--text-muted); }
+        .bn-right { text-align: right; }
+        .bn-speed { font-size: 12px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .bn-state { font-size: 10px; color: var(--text-muted); }
+
+        /* risk bar */
+        .risk-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 7px 9px; border-radius: 7px; margin-bottom: 5px;
+            background: var(--bg-hover); border: 1px solid var(--border);
+            cursor: pointer; transition: all .15s;
+        }
+        .risk-row:hover { background: rgba(239,68,68,0.04); border-color: rgba(239,68,68,0.2); }
+        .risk-badge {
+            font-size: 9px; font-weight: 700;
+            padding: 2px 7px; border-radius: 4px;
+            margin-right: 8px;
+        }
+        .risk-bar-wrap { width: 52px; height: 5px; border-radius: 3px; background: #1e293b; overflow: hidden; }
+        .risk-bar { height: 100%; border-radius: 3px; transition: width .4s; }
+
+        /* ===== CHATBOT ===== */
+        #chatbot {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-blue);
+            border-radius: 10px;
+            padding: 12px 14px;
+            flex: 1;
+            display: flex; flex-direction: column;
+            min-height: 220px;
+        }
+        .chat-header { font-size: 12px; font-weight: 700; color: var(--blue); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+        .chat-selected { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 4px; }
+        .chat-selected::before { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--blue); }
+
+        .quick-btns { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
+        .quick-btn {
+            padding: 3px 9px; font-size: 10px; border-radius: 5px;
+            border: 1px solid var(--border-blue);
+            background: rgba(29,78,216,0.1); color: #93c5fd;
+            cursor: pointer; font-family: inherit; transition: all .15s;
+        }
+        .quick-btn:hover { background: rgba(29,78,216,0.2); }
+
+        #chat-messages {
+            flex: 1; overflow-y: auto; display: flex; flex-direction: column;
+            gap: 6px; margin-bottom: 10px; min-height: 100px; max-height: 200px;
+        }
+        .chat-msg {
+            max-width: 88%; padding: 7px 10px; font-size: 11px;
+            line-height: 1.6; white-space: pre-line;
+        }
+        .chat-msg.ai {
+            align-self: flex-start;
+            background: rgba(30,38,55,0.9);
+            border: 1px solid var(--border);
+            border-radius: 10px 10px 10px 2px;
+        }
+        .chat-msg.user {
+            align-self: flex-end;
+            background: rgba(29,78,216,0.5);
+            border: 1px solid rgba(59,130,246,0.3);
+            border-radius: 10px 10px 2px 10px;
+        }
+        .chat-msg-tag { font-size: 9px; color: var(--blue); font-weight: 700; margin-bottom: 3px; }
+
+        .chat-input-row { display: flex; gap: 6px; }
+        #chat-input {
+            flex: 1; background: rgba(255,255,255,0.04);
+            border: 1px solid var(--border); border-radius: 7px;
+            padding: 7px 10px; color: var(--text-pri); font-size: 12px;
+            font-family: inherit; outline: none; transition: border-color .15s;
+        }
+        #chat-input:focus { border-color: var(--border-blue); }
+        #chat-input::placeholder { color: var(--text-muted); }
+        #chat-send {
+            padding: 7px 14px; border-radius: 7px;
+            background: var(--blue-dark); border: none;
+            color: #fff; font-size: 12px; font-weight: 600;
+            cursor: pointer; font-family: inherit; transition: background .15s;
+        }
+        #chat-send:hover { background: #2563eb; }
+
+        /* info panel bottom-left */
+        #info-panel {
+            position: absolute; bottom: 14px; right: 14px; z-index: 100;
+            background: rgba(7,12,23,0.85);
+            border: 1px solid var(--border);
+            border-radius: 8px; padding: 10px 14px; font-size: 11px;
+        }
+        .info-row { display: flex; justify-content: space-between; gap: 20px; color: var(--text-muted); margin-bottom: 4px; }
+        .info-val { color: var(--text-pri); font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+
+        /* scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
     </style>
 </head>
 <body>
 
+<!-- ===== HEADER ===== -->
 <div id="header">
-    <h1>🚦 Traffic-Sync 관제 시스템</h1>
-    <div id="status-bar">
-        <span id="status-dot"></span>
-        <span id="status-text">연결 중...</span>
+    <div class="logo">
+        <span class="logo-icon">🚦</span>
+        <span class="logo-text">Traffic-Sync 관제 시스템</span>
+        <div class="status-pill" id="status-pill">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">연결 중...</span>
+        </div>
     </div>
-    <div style="margin-left:auto; font-size:11px; color:#8b949e;">
-        마지막 갱신: <span id="last-update">-</span>
+
+    <div class="city-tabs">
+        <div class="city-tab active">잠실 (활성)</div>
+        <div class="city-tab">강남</div>
+        <div class="city-tab">여의도</div>
+    </div>
+
+    <div class="header-right">
+        <div class="weather-widget" id="weather-widget">
+            <span class="weather-icon" id="w-icon">🌧️</span>
+            <span id="w-desc" class="weather-sub">비</span>
+            <span class="weather-temp" id="w-temp">14°C</span>
+            <span class="weather-sub" id="w-hum">습도 78%</span>
+        </div>
+        <div style="font-size:11px; color: var(--text-muted)">마지막 갱신: <span id="last-update" style="color:var(--text-sec)">-</span></div>
+        <div class="time-display" id="clock">-</div>
     </div>
 </div>
 
-<div id="map"></div>
+<!-- ===== MAIN ===== -->
+<div id="main">
 
-<div id="info-panel">
-    <div class="label">교차로 수</div>
-    <div class="value" id="crossroad-count">0</div>
-    <div class="label" style="margin-top:8px;">줌 레벨</div>
-    <div class="value" id="zoom-level">-</div>
-    <div class="label" style="margin-top:8px;">PoC 영역</div>
-    <div class="value">잠실역 반경 1km</div>
+    <!-- LEFT -->
+    <div id="left">
+        <div id="map-wrap">
+            <div id="map"></div>
+
+            <!-- 범례 -->
+            <div id="map-legend">
+                <div class="legend-title">교통 상태</div>
+                <div class="legend-row"><div class="legend-dot" style="background:var(--green)"></div>원활 (40km/h+)</div>
+                <div class="legend-row"><div class="legend-dot" style="background:var(--yellow)"></div>서행 (20~40km/h)</div>
+                <div class="legend-row"><div class="legend-dot" style="background:var(--red)"></div>혼잡 (~20km/h)</div>
+            </div>
+
+            <!-- 신호 오버레이 -->
+            <div id="signal-float" style="display:none">
+                <div class="float-title" id="float-title">📍 교차로명</div>
+                <div class="signal-overlay" id="signal-overlay-grid"></div>
+            </div>
+
+            <!-- info panel -->
+            <div id="info-panel">
+                <div class="info-row"><span>교차로 수</span><span class="info-val" id="crossroad-count">0</span></div>
+                <div class="info-row"><span>줌 레벨</span><span class="info-val" id="zoom-level">-</span></div>
+                <div class="info-row"><span>PoC 영역</span><span class="info-val">잠실역 1km</span></div>
+            </div>
+        </div>
+
+        <!-- 차트 패널 -->
+        <div id="chart-panel">
+            <div class="chart-header">
+                <div class="panel-title">📈 시간대별 평균 속도 추이</div>
+                <div class="chart-legend">
+                    <div class="chart-leg-item"><div class="chart-leg-line" style="background:var(--red)"></div>잠실역</div>
+                    <div class="chart-leg-item"><div class="chart-leg-line" style="background:var(--yellow)"></div>석촌호수</div>
+                    <div class="chart-leg-item"><div class="chart-leg-line" style="background:var(--green)"></div>잠실나루</div>
+                </div>
+            </div>
+            <div class="chart-canvas-wrap">
+                <canvas id="speedChart" role="img" aria-label="시간대별 교차로별 평균 속도 추이"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div id="right">
+
+        <!-- 통계 카드 -->
+        <div id="stat-cards">
+            <div class="stat-card">
+                <div class="stat-val" style="color:var(--blue)" id="s-total">5</div>
+                <div class="stat-label">모니터링<br>교차로</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val" style="color:var(--red)" id="s-risk">2</div>
+                <div class="stat-label">위험<br>교차로</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val" style="color:var(--green)" id="s-avg">27<span class="stat-unit">km/h</span></div>
+                <div class="stat-label">평균<br>속도</div>
+            </div>
+        </div>
+
+        <!-- 병목 현황 -->
+        <div class="r-panel">
+            <div class="r-panel-title">🚗 실시간 병목 현황</div>
+            <div id="bottleneck-list"></div>
+        </div>
+
+        <!-- 사고 위험 도로 -->
+        <div class="r-panel">
+            <div class="r-panel-title" style="color:var(--yellow)">⚠️ 사고 위험 도로</div>
+            <div id="risk-list"></div>
+        </div>
+
+        <!-- AI 챗봇 -->
+        <div id="chatbot">
+            <div class="chat-header">🤖 AI 교통 분석 챗봇</div>
+            <div class="chat-selected" id="chat-selected">교차로를 클릭하면 활성화됩니다</div>
+            <div class="quick-btns">
+                <button class="quick-btn" onclick="sendQuick('신호 최적화')">신호 최적화</button>
+                <button class="quick-btn" onclick="sendQuick('위험도 분석')">위험도 분석</button>
+                <button class="quick-btn" onclick="sendQuick('우회로 제안')">우회로 제안</button>
+            </div>
+            <div id="chat-messages"></div>
+            <div class="chat-input-row">
+                <input type="text" id="chat-input" placeholder="추가 질문 입력..." />
+                <button id="chat-send" onclick="sendChat()">전송</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script th:inline="javascript">
@@ -136,130 +455,306 @@
     const JAMSIL_LON = /*[[${jamsilLon}]]*/ 127.1002;
     const ZOOM_THRESHOLD = 5;
 
-    // kakao 의존 코드와 WebSocket 코드가 공유하는 상태
+    /* ===== MOCK DATA ===== */
+    const MOCK_CROSSROADS = [
+        {
+            crsrdId:"1120061700", crsrdNm:"잠실역 사거리", lat:37.5133, lon:127.1002,
+            signals:{
+                nt:{stsg:{status:"protected-Movement-Allowed",rmndCs:182},ltsg:{status:"stop-And-Remain",rmndCs:320},pdsg:{status:"stop-And-Remain",rmndCs:310}},
+                st:{stsg:{status:"stop-And-Remain",rmndCs:280},ltsg:{status:"stop-And-Remain",rmndCs:280},pdsg:{status:"protected-Movement-Allowed",rmndCs:95}},
+                et:{stsg:{status:"stop-And-Remain",rmndCs:310},ltsg:{status:"protected-Movement-Allowed",rmndCs:82},pdsg:{status:"stop-And-Remain",rmndCs:300}},
+                wt:{stsg:{status:"protected-Movement-Allowed",rmndCs:175},ltsg:{status:"stop-And-Remain",rmndCs:340},pdsg:{status:"stop-And-Remain",rmndCs:330}},
+            },
+            totDt:"20260507162001", riskScore:85, speed:12, congestion:"혼잡",
+        },
+        {
+            crsrdId:"1120061800", crsrdNm:"석촌호수 교차로", lat:37.5085, lon:127.1007,
+            signals:{
+                nt:{stsg:{status:"stop-And-Remain",rmndCs:250},pdsg:{status:"protected-Movement-Allowed",rmndCs:130}},
+                st:{stsg:{status:"protected-Movement-Allowed",rmndCs:210},ltsg:{status:"protected-Movement-Allowed",rmndCs:210}},
+                et:{stsg:{status:"stop-And-Remain",rmndCs:200}},
+                wt:{stsg:{status:"protected-Movement-Allowed",rmndCs:145},pdsg:{status:"stop-And-Remain",rmndCs:190}},
+            },
+            totDt:"20260507162003", riskScore:42, speed:28, congestion:"서행",
+        },
+        {
+            crsrdId:"1120061900", crsrdNm:"잠실나루역 교차로", lat:37.5178, lon:127.0907,
+            signals:{
+                nt:{stsg:{status:"protected-Movement-Allowed",rmndCs:320},pdsg:{status:"protected-Movement-Allowed",rmndCs:310}},
+                st:{stsg:{status:"protected-Movement-Allowed",rmndCs:308}},
+                et:{stsg:{status:"stop-And-Remain",rmndCs:150},ltsg:{status:"stop-And-Remain",rmndCs:145}},
+                wt:{stsg:{status:"stop-And-Remain",rmndCs:160},pdsg:{status:"stop-And-Remain",rmndCs:155}},
+            },
+            totDt:"20260507162005", riskScore:23, speed:45, congestion:"원활",
+        },
+        {
+            crsrdId:"1120062000", crsrdNm:"올림픽대로 진입로", lat:37.5201, lon:127.1055,
+            signals:{
+                nt:{stsg:{status:"stop-And-Remain",rmndCs:420},ltsg:{status:"stop-And-Remain",rmndCs:415}},
+                st:{stsg:{status:"protected-Movement-Allowed",rmndCs:88},pdsg:{status:"protected-Movement-Allowed",rmndCs:75}},
+                et:{stsg:{status:"stop-And-Remain",rmndCs:380}},
+                wt:{stsg:{status:"protected-Movement-Allowed",rmndCs:112},ltsg:{status:"stop-And-Remain",rmndCs:400}},
+            },
+            totDt:"20260507162007", riskScore:65, speed:19, congestion:"혼잡",
+        },
+        {
+            crsrdId:"1120062100", crsrdNm:"잠실종합운동장 삼거리", lat:37.5159, lon:127.0723,
+            signals:{
+                nt:{stsg:{status:"protected-Movement-Allowed",rmndCs:260},pdsg:{status:"stop-And-Remain",rmndCs:250}},
+                st:{stsg:{status:"stop-And-Remain",rmndCs:190},ltsg:{status:"stop-And-Remain",rmndCs:185}},
+                et:{stsg:{status:"protected-Movement-Allowed",rmndCs:220},pdsg:{status:"protected-Movement-Allowed",rmndCs:215}},
+            },
+            totDt:"20260507162009", riskScore:38, speed:33, congestion:"서행",
+        },
+    ];
+
+    const SPEED_DATA = {
+        labels:["08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00"],
+        잠실역:[18,11,16,22,15,13,19,14,12],
+        석촌호수:[32,25,29,35,27,24,31,28,28],
+        잠실나루:[41,38,44,48,42,39,46,43,45],
+    };
+
+    const AI_RESPONSES = {
+        default: "현재 우천+퇴근시간 위험도 높음.\n북쪽 신호 15초 연장을 권고합니다.",
+        "신호 최적화": "분석 결과: 북향 직진 신호를 15초 연장하고 좌회전 페이즈를 2단계로 분리하면 평균 대기 시간이 22% 감소할 것으로 예측됩니다.",
+        "위험도 분석": "현재 위험 지수 85점. 주요 원인:\n①우천으로 노면 마찰계수 저하\n②퇴근 피크 시간대 중첩\n③북향 교통량 평소 대비 +34% 증가\n즉각 대응 권고.",
+        "우회로 제안": "추천 우회로: 잠실나루역→올림픽대로 동측→석촌호수 남로.\n예상 소요시간 추가 3분이나 현재 정체 대비 8분 절약 가능합니다.",
+    };
+
+    /* ===== SHARED STATE ===== */
     const overlayMap = {};
     let latestData = {};
+    let selectedCr = null;
     let map = null;
 
-    // ===== 신호 상태 → CSS 클래스 =====
-    function statusClass(sttsNm) {
-        if (!sttsNm) return 'gray';
-        const s = sttsNm.toLowerCase();
-        if (s.includes('movement-allowed')) return 'green';
-        if (s.includes('stop'))             return 'red';
+    /* ===== UTILS ===== */
+    const statusCls = s => {
+        if (!s) return 'gray';
+        const l = s.toLowerCase();
+        if (l.includes('movement-allowed')) return 'green';
+        if (l.includes('stop')) return 'red';
+        return 'gray';
+    };
+    const congColor = c => c==='혼잡'?'var(--red)':c==='서행'?'var(--yellow)':'var(--green)';
+    const riskColor = r => r>=70?'#ef4444':r>=50?'#f59e0b':'#22c55e';
+    const riskLabel = r => r>=70?'높음':r>=50?'보통':'낮음';
+
+    /* ===== CLOCK ===== */
+    const clockEl = document.getElementById('clock');
+    const updateClock = () => { clockEl.textContent = new Date().toLocaleTimeString('ko-KR'); };
+    setInterval(updateClock, 1000); updateClock();
+
+    /* ===== CHART ===== */
+    new Chart(document.getElementById('speedChart'), {
+        type: 'line',
+        data: {
+            labels: SPEED_DATA.labels,
+            datasets: [
+                { label:'잠실역',    data:SPEED_DATA.잠실역,    borderColor:'#ef4444', backgroundColor:'rgba(239,68,68,0.07)', tension:.4, pointRadius:3, pointBackgroundColor:'#ef4444', borderWidth:2 },
+                { label:'석촌호수',  data:SPEED_DATA.석촌호수,  borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,0.07)', tension:.4, pointRadius:3, pointBackgroundColor:'#f59e0b', borderWidth:2 },
+                { label:'잠실나루',  data:SPEED_DATA.잠실나루,  borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,0.07)', tension:.4, pointRadius:3, pointBackgroundColor:'#22c55e', borderWidth:2 },
+            ],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display:false },
+                tooltip: {
+                    backgroundColor:'rgba(7,12,23,0.95)',
+                    borderColor:'rgba(255,255,255,0.1)', borderWidth:1,
+                    titleColor:'#94a3b8', bodyColor:'#e2e8f0',
+                    callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}km/h` },
+                },
+            },
+            scales: {
+                x:{ ticks:{ color:'#475569', font:{size:10} }, grid:{ color:'rgba(255,255,255,0.04)' } },
+                y:{ ticks:{ color:'#475569', font:{size:10}, callback: v=>v+'km/h' }, grid:{ color:'rgba(255,255,255,0.04)' }, min:0 },
+            },
+        },
+    });
+
+    /* ===== SIDE PANELS ===== */
+    function renderBottlenecks(crossroads) {
+        const sorted = [...crossroads].filter(c=>c.congestion!=='원활').sort((a,b)=>a.speed-b.speed);
+        document.getElementById('bottleneck-list').innerHTML = sorted.map(cr=>`
+            <div class="bn-row${selectedCr?.crsrdId===cr.crsrdId?' active':''}" onclick="selectCrossroad('${cr.crsrdId}')">
+                <div class="bn-left">
+                    <div class="bn-dot" style="background:${congColor(cr.congestion)}"></div>
+                    <div>
+                        <div class="bn-name">${cr.crsrdNm}</div>
+                        <div class="bn-sub">위험도 ${cr.riskScore}점</div>
+                    </div>
+                </div>
+                <div class="bn-right">
+                    <div class="bn-speed" style="color:${congColor(cr.congestion)}">${cr.speed}km/h</div>
+                    <div class="bn-state">${cr.congestion}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderRisks(crossroads) {
+        const sorted = [...crossroads].filter(c=>c.riskScore>=40).sort((a,b)=>b.riskScore-a.riskScore);
+        document.getElementById('risk-list').innerHTML = sorted.map(cr=>`
+            <div class="risk-row" onclick="selectCrossroad('${cr.crsrdId}')">
+                <div>
+                    <span class="risk-badge" style="background:${riskColor(cr.riskScore)}22;color:${riskColor(cr.riskScore)}">${riskLabel(cr.riskScore)} ${cr.riskScore}점</span>
+                    <span style="font-size:12px">${cr.crsrdNm}</span>
+                </div>
+                <div class="risk-bar-wrap"><div class="risk-bar" style="width:${cr.riskScore}%;background:${riskColor(cr.riskScore)}"></div></div>
+            </div>
+        `).join('');
+    }
+
+    function renderStats(crossroads) {
+        const risk = crossroads.filter(c=>c.riskScore>=70).length;
+        const avg = Math.round(crossroads.reduce((a,c)=>a+c.speed,0)/crossroads.length);
+        document.getElementById('s-total').textContent = crossroads.length;
+        document.getElementById('s-risk').textContent = risk;
+        document.getElementById('s-avg').innerHTML = avg+'<span class="stat-unit">km/h</span>';
+    }
+
+    /* ===== SIGNAL OVERLAY HTML ===== */
+    const DIR_MAP = { nt:'north', et:'east', st:'south', wt:'west', ne:'northeast', se:'southeast', sw:'southwest', nw:'northwest' };
+    const DIR_LABEL = { north:'↑ 북', south:'↓ 남', east:'→ 동', west:'← 서', northeast:'↗NE', southeast:'↘SE', southwest:'↙SW', northwest:'↖NW' };
+    const GRID_AREA = { north:'sig-north', south:'sig-south', east:'sig-east', west:'sig-west' };
+
+    function buildSigRow(sig, label) {
+        if (!sig) return '';
+        if (sig.status?.toLowerCase().includes('clearance')) return '';
+        const cls = statusCls(sig.status);
+        const sec = (sig.rmndCs/10).toFixed(1);
+        return `<div class="sig-row">
+            <div class="sig-dot ${cls}"></div>
+            <span class="sig-type">${label}</span>
+            <span class="sig-time ${cls}" data-rmnd="${sig.rmndCs}" data-cls="${cls}">${sec}s</span>
+        </div>`;
+    }
+
+    function buildDirBox(dirKey, signals, areaClass) {
+        const label = DIR_LABEL[dirKey]||dirKey;
+        const dir = signals[dirKey];
+        if (!dir) return `<div class="sig-box ${areaClass}" style="opacity:.2"><div class="dir-label">${label}</div><div style="font-size:9px;color:#374151">-</div></div>`;
+        return `<div class="sig-box ${areaClass}">
+            <div class="dir-label">${label}</div>
+            ${buildSigRow(dir.stsg,'직진')}
+            ${buildSigRow(dir.ltsg,'좌회전')}
+            ${buildSigRow(dir.pdsg,'보행')}
+        </div>`;
+    }
+
+    function buildRiskRing(score) {
+        const color = riskColor(score);
+        const r = 16, cx = 18, cy = 18;
+        const circ = 2*Math.PI*r;
+        const dash = (score/100)*circ;
+        return `<div class="risk-ring">
+            <svg width="36" height="36" viewBox="0 0 36 36">
+                <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e293b" stroke-width="3"/>
+                <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="3"
+                    stroke-dasharray="${dash.toFixed(1)} ${(circ-dash).toFixed(1)}" stroke-linecap="round"/>
+            </svg>
+            <div class="risk-val" style="color:${color}">${score}</div>
+        </div>`;
+    }
+
+    function buildOverlayHtml(cr) {
+        const rawSigs = cr.signals||{};
+        // map short keys to direction names
+        const sigs = {};
+        Object.entries(rawSigs).forEach(([k,v])=>{ sigs[DIR_MAP[k]||k]=v; });
+        return `
+            ${buildDirBox('north',sigs,'sig-north')}
+            ${buildDirBox('west',sigs,'sig-west')}
+            <div class="sig-box sig-center">
+                <div class="crossroad-name">${cr.crsrdNm}</div>
+                <div class="crossroad-id">${cr.crsrdId}</div>
+                ${buildRiskRing(cr.riskScore)}
+            </div>
+            ${buildDirBox('east',sigs,'sig-east')}
+            ${buildDirBox('south',sigs,'sig-south')}
+        `;
+    }
+
+    function showSignalFloat(cr) {
+        const floatEl = document.getElementById('signal-float');
+        document.getElementById('float-title').textContent = `📍 ${cr.crsrdNm} — 실시간 신호 현황`;
+        document.getElementById('signal-overlay-grid').innerHTML = buildOverlayHtml(cr);
+        floatEl.style.display = 'block';
+    }
+
+    /* ===== CROSSROAD SELECTION ===== */
+    function selectCrossroad(id) {
+        const cr = (Object.values(latestData).find(c=>c.crsrdId===id)) || MOCK_CROSSROADS.find(c=>c.crsrdId===id);
+        if (!cr) return;
+        selectedCr = cr;
+        showSignalFloat(cr);
+        document.getElementById('chat-selected').textContent = cr.crsrdNm;
+        addChatMsg('ai', `[${cr.crsrdNm}] 선택됨. 위험도 ${cr.riskScore}점 / 평균속도 ${cr.speed}km/h\n${AI_RESPONSES.default}`);
+        renderBottlenecks(MOCK_CROSSROADS);
+    }
+    window.selectCrossroad = selectCrossroad;
+
+    /* ===== CHATBOT ===== */
+    function addChatMsg(role, text) {
+        const el = document.getElementById('chat-messages');
+        const div = document.createElement('div');
+        div.className = 'chat-msg ' + role;
+        if (role==='ai') div.innerHTML = `<div class="chat-msg-tag">AI 분석</div>${text.replace(/\n/g,'<br>')}`;
+        else div.textContent = text;
+        el.appendChild(div);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    function sendChat() {
+        const inp = document.getElementById('chat-input');
+        const val = inp.value.trim();
+        if (!val) return;
+        addChatMsg('user', val);
+        inp.value = '';
+        const key = Object.keys(AI_RESPONSES).find(k=>val.includes(k))||'default';
+        setTimeout(()=>addChatMsg('ai', AI_RESPONSES[key]), 400);
+    }
+    window.sendChat = sendChat;
+
+    function sendQuick(q) {
+        document.getElementById('chat-input').value = q;
+        sendChat();
+    }
+    window.sendQuick = sendQuick;
+
+    document.getElementById('chat-input').addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+
+    /* ===== KAKAO MAP ===== */
+    function dominantCls(signals) {
+        if (!signals) return 'gray';
+        const dirs = Object.values(signals);
+        let g=0,r=0;
+        dirs.forEach(d=>{ if(!d?.stsg) return; const c=statusCls(d.stsg.status); if(c==='green')g++; else if(c==='red')r++; });
+        if(g>0&&r>0) return 'yellow';
+        if(g>0) return 'green';
+        if(r>0) return 'red';
         return 'gray';
     }
 
-    // ===== 십자형 오버레이 HTML 생성 =====
-    function buildSignalRow(sig, typeLabel) {
-        if (!sig) return '';
-        if (sig.status && sig.status.toLowerCase().includes('clearance')) return '';
-        const cls = statusClass(sig.status);
-        const rmndSec = (sig.rmndCs / 10).toFixed(1);
-        return `
-            <div class="signal-row">
-                <div class="signal-dot ${cls}"></div>
-                <span class="signal-type">${typeLabel}</span>
-                <span class="signal-time ${cls}" data-rmnd="${sig.rmndCs}" data-cls="${cls}">${rmndSec}s</span>
-            </div>`;
-    }
-
-    const DIR_LABEL = {
-        north: '↑ 북(N)', south: '↓ 남(S)',
-        east:  '→ 동(E)', west:  '← 서(W)',
-        northeast: '↗ 북동', southeast: '↘ 남동',
-        southwest: '↙ 남서', northwest: '↖ 북서'
-    };
-
-    function buildDirectionBox(dirKey, signals) {
-        const label = DIR_LABEL[dirKey] || dirKey;
-        const dir = signals[dirKey];
-        if (!dir) return `<div class="signal-box signal-${dirKey}" style="opacity:0.15"><div class="dir-label">${label}</div><div style="font-size:9px;color:#484f58">-</div></div>`;
-        return `
-            <div class="signal-box signal-${dirKey}">
-                <div class="dir-label">${label}</div>
-                ${buildSignalRow(dir.stsg, '직진')}
-                ${buildSignalRow(dir.ltsg, '좌회전')}
-                ${buildSignalRow(dir.pdsg, '보행')}
-            </div>`;
-    }
-
-    function buildFullOverlayHtml(status) {
-        const s = status.signals || {};
-        return `
-            <div class="signal-overlay">
-                ${buildDirectionBox('north', s)}
-                ${buildDirectionBox('west',  s)}
-                <div class="signal-box signal-center">
-                    <div class="crossroad-name">${status.crsrdNm}<br/><span style="color:#8b949e;font-weight:normal">(${status.crsrdId})</span></div>
-                </div>
-                ${buildDirectionBox('east',  s)}
-                ${buildDirectionBox('south', s)}
-            </div>`;
-    }
-
-    function dominantColor(signals) {
-        if (!signals) return 'no-data';
-        const dirs = Object.values(signals);
-        if (dirs.length === 0) return 'no-data';
-        let green = 0, red = 0;
-        dirs.forEach(dir => {
-            if (!dir.stsg) return;
-            const cls = statusClass(dir.stsg.status);
-            if (cls === 'green') green++;
-            else if (cls === 'red') red++;
-        });
-        if (green > 0 && red > 0) return 'mixed';
-        if (green > 0) return 'green';
-        if (red > 0) return 'red';
-        return 'no-data';
-    }
-
-    function refreshOverlays() {
+    function upsertMarker(cr) {
         if (!map) return;
-        const isDetailed = map.getLevel() <= ZOOM_THRESHOLD;
-        Object.values(overlayMap).forEach(obj => {
-            if (obj.miniOverlay) obj.miniOverlay.setMap(isDetailed ? null : map);
-            if (obj.fullOverlay) obj.fullOverlay.setMap(isDetailed ? map : null);
-        });
-    }
-
-    function upsertOverlay(status) {
-        if (!map) return;
-        const pos = new kakao.maps.LatLng(status.lat, status.lon);
-        const id  = status.crsrdId;
-        const color   = dominantColor(status.signals);
-        const miniHtml = `<div class="mini-marker ${color}" title="${status.crsrdNm}"></div>`;
-        const fullHtml = buildFullOverlayHtml(status);
-
-        if (overlayMap[id]) {
-            const prev = overlayMap[id].status;
-            // totDt가 바뀐 경우(새 신호 데이터)에만 HTML 교체 → 깜빡임 방지
-            if (!prev || prev.totDt !== status.totDt) {
-                overlayMap[id].miniOverlay.setContent(miniHtml);
-                overlayMap[id].fullOverlay.setContent(fullHtml);
-            }
+        const pos = new kakao.maps.LatLng(cr.lat, cr.lon);
+        const cls = dominantCls(cr.signals);
+        const content = `<div class="mini-dot ${cls}" title="${cr.crsrdNm}" onclick="selectCrossroad('${cr.crsrdId}')"></div>`;
+        if (overlayMap[cr.crsrdId]) {
+            overlayMap[cr.crsrdId].setContent(content);
         } else {
-            // xAnchor/yAnchor 0.5 = 콘텐츠 중앙이 좌표에 정확히 위치
-            const miniOverlay = new kakao.maps.CustomOverlay({
-                position: pos, content: miniHtml, zIndex: 3,
-                xAnchor: 0.5, yAnchor: 0.5
-            });
-            const fullOverlay = new kakao.maps.CustomOverlay({
-                position: pos, content: fullHtml, zIndex: 4,
-                xAnchor: 0.5, yAnchor: 0.5
-            });
-            overlayMap[id] = { miniOverlay, fullOverlay };
+            overlayMap[cr.crsrdId] = new kakao.maps.CustomOverlay({ position:pos, content, zIndex:3, xAnchor:.5, yAnchor:.5 });
+            overlayMap[cr.crsrdId].setMap(map);
         }
-        overlayMap[id].status = status;
     }
 
-    // ===== 카카오맵 초기화 (페이지 완전 로드 후 실행) =====
+    /* ===== MAP INIT ===== */
     window.addEventListener('load', () => {
         if (typeof kakao === 'undefined') {
-            console.error('카카오맵 SDK 로드 실패 - JavaScript 키와 도메인 등록 확인 필요');
-            document.getElementById('map').innerHTML =
-                '<div style="color:#da3633;padding:40px;text-align:center">카카오맵 로드 실패<br>JavaScript 키 확인 필요</div>';
+            document.getElementById('map').innerHTML = '<div style="color:#ef4444;padding:40px;text-align:center;font-size:13px">카카오맵 SDK 로드 실패<br>JavaScript 앱 키를 확인하세요</div>';
             return;
         }
         map = new kakao.maps.Map(document.getElementById('map'), {
@@ -267,102 +762,67 @@
             level: 4
         });
         document.getElementById('zoom-level').textContent = map.getLevel();
-        kakao.maps.event.addListener(map, 'zoom_changed', () => {
+        kakao.maps.event.addListener(map, 'zoom_changed', ()=>{
             document.getElementById('zoom-level').textContent = map.getLevel();
-            refreshOverlays();
         });
+
+        // 초기 mock 데이터 렌더링
+        MOCK_CROSSROADS.forEach(cr=>{ latestData[cr.crsrdId]=cr; upsertMarker(cr); });
+        renderBottlenecks(MOCK_CROSSROADS);
+        renderRisks(MOCK_CROSSROADS);
+        renderStats(MOCK_CROSSROADS);
+        selectCrossroad('1120061700');
     });
 
-    // ===== 카운트다운 타이머 =====
-    function parseTotDt(totDt) {
-        if (!totDt || totDt.length < 14) return null;
-        const y = totDt.slice(0,4), mo = totDt.slice(4,6), d = totDt.slice(6,8);
-        const h = totDt.slice(8,10), m = totDt.slice(10,12), s = totDt.slice(12,14);
-        return new Date(`${y}-${mo}-${d}T${h}:${m}:${s}+09:00`).getTime();
-    }
-
-    setInterval(() => {
+    /* ===== COUNTDOWN ===== */
+    setInterval(()=>{
         const now = Date.now();
-        document.querySelectorAll('[data-rmnd]').forEach(el => {
+        document.querySelectorAll('[data-rmnd]').forEach(el=>{
             const nameEl = el.closest('.signal-overlay')?.querySelector('.crossroad-name');
             if (!nameEl) return;
-            const crsrdId = nameEl.textContent.match(/\((\d+)\)/)?.[1];
+            const crsrdId = nameEl.textContent.match(/\d{10}/)?.[0];
             if (!crsrdId || !latestData[crsrdId]) return;
-
-            const status = latestData[crsrdId];
-            const receivedAt = status._receivedAt;
-            if (!receivedAt) return;
-
-            const elapsedSinceReceived = (now - receivedAt) / 1000;
-            const remaining = (parseFloat(el.dataset.rmnd) / 10) - elapsedSinceReceived;
-
-            const dot = el.parentElement?.querySelector('.signal-dot');
-            const origCls = el.dataset.cls || 'gray';
-            if (remaining <= 0) {
+            const cr = latestData[crsrdId];
+            const elapsed = cr._receivedAt ? (now - cr._receivedAt)/1000 : 0;
+            const rem = parseFloat(el.dataset.rmnd)/10 - elapsed;
+            const dot = el.parentElement?.querySelector('.sig-dot');
+            if (rem <= 0) {
                 el.textContent = '';
-                if (dot) dot.className = 'signal-dot gray';
+                if (dot) dot.className='sig-dot gray';
             } else {
-                el.textContent = remaining.toFixed(1) + 's';
-                if (dot) dot.className = 'signal-dot ' + origCls;
+                el.textContent = rem.toFixed(1)+'s';
+                if (dot) dot.className='sig-dot '+el.dataset.cls;
             }
         });
     }, 100);
 
-    // ===== WebSocket =====
-    const statusDot      = document.getElementById('status-dot');
-    const statusText     = document.getElementById('status-text');
-    const lastUpdate     = document.getElementById('last-update');
-    const crossroadCount = document.getElementById('crossroad-count');
-
-    function mapDirectionKeys(signals) {
-        if (!signals) return {};
-        const keyMap = { nt:'north', et:'east', st:'south', wt:'west',
-                         ne:'northeast', se:'southeast', sw:'southwest', nw:'northwest' };
-        const result = {};
-        Object.entries(signals).forEach(([k, v]) => { result[keyMap[k] || k] = v; });
-        return result;
-    }
+    /* ===== WEBSOCKET ===== */
+    const statusDot  = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const lastUpdate = document.getElementById('last-update');
 
     function connectWs() {
         const ws = new WebSocket(`ws://${location.host}/ws/traffic`);
-
-        ws.onopen = () => {
-            statusDot.className = '';
-            statusText.textContent = '연결됨';
-        };
-
-        ws.onmessage = (event) => {
+        ws.onopen = ()=>{ statusDot.className='status-dot'; statusText.textContent='연결됨'; };
+        ws.onmessage = (e)=>{
             try {
-                const dataList = JSON.parse(event.data);
+                const list = JSON.parse(e.data);
                 const now = Date.now();
-                dataList.forEach(status => {
-                    const prev = latestData[status.crsrdId];
-                    const isNewData = !prev || prev.totDt !== status.totDt;
-                    const mapped = {
-                        ...status,
-                        signals: mapDirectionKeys(status.signals),
-                        _receivedAt: isNewData ? now : prev._receivedAt
-                    };
-                    latestData[status.crsrdId] = mapped;
-                    upsertOverlay(mapped);
+                list.forEach(cr=>{
+                    const prev = latestData[cr.crsrdId];
+                    latestData[cr.crsrdId] = { ...cr, _receivedAt: (!prev||prev.totDt!==cr.totDt) ? now : prev._receivedAt };
+                    upsertMarker(cr);
                 });
-                refreshOverlays();
-                crossroadCount.textContent = dataList.length;
+                renderBottlenecks(Object.values(latestData));
+                renderRisks(Object.values(latestData));
+                renderStats(Object.values(latestData));
+                if (selectedCr) showSignalFloat(latestData[selectedCr.crsrdId]||selectedCr);
                 lastUpdate.textContent = new Date().toLocaleTimeString('ko-KR');
-            } catch (e) {
-                console.error('데이터 파싱 오류:', e);
-            }
+            } catch(err){ console.error(err); }
         };
-
-        ws.onclose = () => {
-            statusDot.className = 'disconnected';
-            statusText.textContent = '연결 끊김 - 재연결 중...';
-            setTimeout(connectWs, 3000);
-        };
-
-        ws.onerror = (err) => console.error('WebSocket 오류:', err);
+        ws.onclose = ()=>{ statusDot.className='status-dot off'; statusText.textContent='재연결 중...'; setTimeout(connectWs,3000); };
+        ws.onerror = err=>console.error('WS 오류:',err);
     }
-
     connectWs();
 </script>
 </body>
