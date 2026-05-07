@@ -8,7 +8,7 @@ import AIChatBot from "../components/sidebar/AIChatBot";
 
 const WEATHER = { icon: "🌧️", temp: "14°C", desc: "비", humidity: "78%" };
 
-export default function MapDashboard({ onGoMain, wsData, setWsData }) {
+export default function MapDashboard({ onGoMain, wsData, setWsData, initialCenter }) {
   const [time, setTime] = useState(new Date());
   const [selected, setSelected] = useState(null);
 
@@ -65,17 +65,26 @@ export default function MapDashboard({ onGoMain, wsData, setWsData }) {
         {/* 지도 */}
         <div style={{ display: "flex", flexDirection: "column", padding: "10px 6px 10px 10px", minHeight: 0 }}>
           <div style={{ flex: 1, position: "relative", minHeight: 0, borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
-            <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} />
+            <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} />
             {wsData.length === 0 && (
               <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(7,12,23,0.75)", zIndex: 30, gap: 10 }}>
                 <div style={{ fontSize: 15, color: "#94a3b8" }}>V2X 데이터 수신 대기 중...</div>
                 <div style={{ fontSize: 13, color: "#475569" }}>스프링 부트 실행 확인 (port 8080)</div>
               </div>
             )}
+            {/* 좌측 하단 오버레이: AI 챗봇 + 신호 현황 (위→아래 순서, 8px 간격) */}
             {selected && (
-              <div style={{ position: "absolute", bottom: 14, left: 14, background: "rgba(8,13,26,0.96)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 12, padding: 14, backdropFilter: "blur(8px)", maxWidth: 430, zIndex: 20 }}>
-                <div style={{ fontSize: 13, color: "#60a5fa", marginBottom: 10, fontWeight: 700 }}>📍 {selected.crsrdNm} — 실시간 신호 현황</div>
-                <SignalPanel cr={selected} />
+              <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 310, pointerEvents: "auto" }}>
+
+                {/* AI 챗봇 */}
+                <AIChatBot selected={selected} />
+
+                {/* 신호 현황 */}
+                <div style={{ background: "rgba(8,13,26,0.96)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 12, padding: 14, backdropFilter: "blur(8px)" }}>
+                  <div style={{ fontSize: 13, color: "#60a5fa", marginBottom: 10, fontWeight: 700 }}>📍 {selected.crsrdNm} — 실시간 신호 현황</div>
+                  <SignalPanel cr={selected} />
+                </div>
+
               </div>
             )}
           </div>
@@ -100,7 +109,6 @@ export default function MapDashboard({ onGoMain, wsData, setWsData }) {
 
           <BottleneckList bottlenecks={bottlenecks} selected={selected} onSelect={selectCr} crossroadsCount={wsData.length} />
           <RiskList risks={risks} onSelect={selectCr} crossroadsCount={wsData.length} />
-          <AIChatBot selected={selected} />
         </div>
       </div>
     </div>

@@ -31,16 +31,19 @@ public class ChatService {
     private String model;
 
     public String ask(TrafficContext ctx, String question) {
-        String prompt = buildPrompt(ctx, question);
         try {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("model", model);
             body.put("max_tokens", 300);
 
             ArrayNode messages = body.putArray("messages");
-            ObjectNode msg = messages.addObject();
-            msg.put("role", "user");
-            msg.put("content", prompt);
+            ObjectNode sysMsg = messages.addObject();
+            sysMsg.put("role", "system");
+            sysMsg.put("content", buildSystemPrompt());
+
+            ObjectNode userMsg = messages.addObject();
+            userMsg.put("role", "user");
+            userMsg.put("content", buildUserPrompt(ctx, question));
 
             String response = webClient.post()
                     .uri(apiUrl)
@@ -63,7 +66,17 @@ public class ChatService {
         }
     }
 
-    private String buildPrompt(TrafficContext ctx, String question) {
+    private String buildSystemPrompt() {
+        return "당신은 서울 실시간 교통 관제 AI 어시스턴트입니다.\n"
+             + "규칙:\n"
+             + "1. 반드시 한국어로만 답하세요.\n"
+             + "2. 3문장 이내로 간결하게 답하세요.\n"
+             + "3. 선택된 교차로 데이터가 있으면 그것을 기반으로 답하고, 없으면 일반적인 교통 지식으로 답하세요.\n"
+             + "4. 교차로 ID 숫자는 절대 출력하지 마세요. 교차로 이름만 사용하세요.\n"
+             + "5. 교통과 무관한 질문(날씨, 요리 등)은 '교통 관련 질문을 해주세요'라고 답하세요.";
+    }
+
+    private String buildUserPrompt(TrafficContext ctx, String question) {
         StringBuilder signals = new StringBuilder();
         if (ctx.getSignals() != null) {
             ctx.getSignals().forEach((dir, sd) -> {
@@ -71,7 +84,7 @@ public class ChatService {
                     String status = sd.getStsg().getStatus();
                     int sec = sd.getStsg().getRmndCs() / 10;
                     String color = status != null && status.contains("Movement") ? "녹색" : "적색";
-                    signals.append(String.format("  - %s 직진: %s %d초%n", dirLabel(dir), color, sec));
+                    signals.append(String.format("  - %s 직진: %s %d초\n", dirLabel(dir), color, sec));
                 }
             });
         }
@@ -79,21 +92,21 @@ public class ChatService {
         String delayStr = ctx.getDelayMin() <= 0 ? "실시간" : ctx.getDelayMin() + "분 지연";
 
         return String.format(
-                "당신은 교통 관제 AI입니다. 3문장 이내로 한국어로 답하세요.\n"
-                + "교통 외 질문은 '교통 관련 질문만 답변 가능합니다' 라고 답하세요.\n\n"
-                + "[실시간 데이터]\n"
-                + "교차로: %s (%s)\n"
-                + "날씨: %s %d°C %d시\n"
-                + "구간속도: %dkm/h (평시 %dkm/h)\n"
-                + "도로위험등급: %d등급 / 위험지수: %d\n"
+                "[현재 선택된 교차로 데이터]\n"
+                + "교차로명: %s\n"
+                + "날씨: %s %d°C\n"
+                + "현재 구간속도: %dkm/h (평시 %dkm/h)\n"
+                + "위험도: %d등급 (위험지수 %d)\n"
                 + "데이터 상태: %s\n"
-                + "신호현황:\n%s\n"
-                + "[사용자 질문]\n%s",
-                ctx.getCrsrdNm(), ctx.getCrsrdId(),
-                ctx.getWeather().getCondition(), ctx.getWeather().getTemp(), ctx.getWeather().getHour(),
+                + "신호 현황:\n%s\n"
+                + "[질문]\n%s",
+                ctx.getCrsrdNm(),
+                ctx.getWeather().getCondition(), ctx.getWeather().getTemp(),
                 ctx.getSpeed().getCurrent(), ctx.getSpeed().getNormal(),
                 ctx.getRisk().getGrade(), ctx.getRisk().getValue(),
-                delayStr, signals, question
+                delayStr,
+                signals.length() > 0 ? signals : "  - 신호 데이터 없음\n",
+                question
         );
     }
 

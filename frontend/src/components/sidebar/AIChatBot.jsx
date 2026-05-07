@@ -19,9 +19,9 @@ export default function AIChatBot({ selected }) {
     ]);
   }, [selected?.crsrdId]);
 
-  const sendChat = useCallback(async () => {
-    const q = chatInput.trim();
-    if (!q) return;
+  const sendChat = useCallback(async (preset) => {
+    const q = (preset ?? chatInput).trim();
+    if (!q || loading) return;
 
     setChatMessages(prev => [...prev, { role: "user", text: q }]);
     setChatInput("");
@@ -42,7 +42,7 @@ export default function AIChatBot({ selected }) {
     } finally {
       setLoading(false);
     }
-  }, [chatInput, selected]);
+  }, [chatInput, loading, selected]);
 
   const panel = {
     background: "rgba(14,20,36,0.9)",
@@ -68,10 +68,23 @@ export default function AIChatBot({ selected }) {
 
       {/* 빠른 질문 버튼 */}
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
-        {["신호 최적화", "위험도 분석", "우회로 제안"].map(q => (
-          <button key={q} onClick={() => setChatInput(q)}
-            style={{ padding: "3px 10px", fontSize: 11, borderRadius: 5, border: "1px solid rgba(59,130,246,0.3)", background: "rgba(29,78,216,0.1)", color: "#93c5fd", cursor: "pointer", fontFamily: "inherit" }}>
-            {q}
+        {[
+          { label: "신호 최적화", q: "이 교차로의 신호를 최적화하는 방법을 분석해줘" },
+          { label: "위험도 분석", q: "이 교차로의 위험 요인과 사고 위험도를 분석해줘" },
+          { label: "우회로 제안", q: "이 교차로 혼잡 시 추천 우회로를 알려줘" },
+        ].map(({ label, q }) => (
+          <button key={label}
+            onClick={() => sendChat(q)}
+            disabled={loading || !selected}
+            style={{
+              padding: "4px 11px", fontSize: 11, borderRadius: 5,
+              border: `1px solid ${selected && !loading ? "rgba(59,130,246,0.5)" : "rgba(255,255,255,0.1)"}`,
+              background: selected && !loading ? "rgba(29,78,216,0.2)" : "rgba(255,255,255,0.04)",
+              color: selected && !loading ? "#93c5fd" : "#4b5563",
+              cursor: selected && !loading ? "pointer" : "default",
+              fontFamily: "inherit", transition: "all .15s",
+            }}>
+            {label}
           </button>
         ))}
       </div>

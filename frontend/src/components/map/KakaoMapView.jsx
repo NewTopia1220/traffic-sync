@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { domColor } from "../../utils/signalUtils";
 
-const JAMSIL_LAT = 37.5133;
-const JAMSIL_LON = 127.1002;
+const DEFAULT_LAT = 37.5133;
+const DEFAULT_LON = 127.1002;
 
-export default function KakaoMapView({ crossroads, selected, onSelect }) {
+export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter }) {
   const mapRef = useRef(null);
   const mapObj = useRef(null);
   const overlays = useRef({});
@@ -29,8 +29,10 @@ export default function KakaoMapView({ crossroads, selected, onSelect }) {
   useEffect(() => {
     if (!ready || !mapRef.current) return;
     const kakao = window.kakao;
+    const centerLat = initialCenter?.lat ?? DEFAULT_LAT;
+    const centerLon = initialCenter?.lon ?? DEFAULT_LON;
     const map = new kakao.maps.Map(mapRef.current, {
-      center: new kakao.maps.LatLng(JAMSIL_LAT, JAMSIL_LON), level: 4,
+      center: new kakao.maps.LatLng(centerLat, centerLon), level: 4,
     });
     mapObj.current = map;
     mapRef.current.style.filter = "invert(90%) hue-rotate(180deg) brightness(0.85) saturate(0.9)";
@@ -72,6 +74,12 @@ export default function KakaoMapView({ crossroads, selected, onSelect }) {
       }
     }
   }, [ready, crossroads, selected, zoom]);
+
+  useEffect(() => {
+    if (!ready || !mapObj.current || !selected?.lat || !selected?.lon) return;
+    const kakao = window.kakao;
+    mapObj.current.panTo(new kakao.maps.LatLng(selected.lat, selected.lon));
+  }, [ready, selected?.crsrdId]);
 
   useEffect(() => {
     if (!ready || !mapRef.current) return;

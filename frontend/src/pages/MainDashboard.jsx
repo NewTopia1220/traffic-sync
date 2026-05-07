@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ──────────────────────────────────────────
    데이터
@@ -41,71 +41,62 @@ const WAIT_MOCK = [
   { name:"롯데타워 앞",      wait:14 },
 ];
 
-/* ── 서울 25개 자치구 중심 좌표 (SVG 내부 상대좌표로 변환용) ── */
-// viewBox 0 0 400 400 기준, 위경도 → SVG 좌표 변환
-// 서울 위경도 범위: lat 37.42~37.70, lon 126.76~127.18
+/* ── 서울 25개 자치구 중심 좌표 ── */
 const LON_MIN=126.76, LON_MAX=127.18, LAT_MIN=37.42, LAT_MAX=37.70;
 const W=400, H=400;
 const toSvg=(lat,lon)=>[(lon-LON_MIN)/(LON_MAX-LON_MIN)*W, (1-(lat-LAT_MIN)/(LAT_MAX-LAT_MIN))*H];
 
-const GU_LIST = [
-  {name:"종로구",lat:37.5920,lon:126.9770},
-  {name:"중구",  lat:37.5641,lon:126.9979},
-  {name:"용산구",lat:37.5340,lon:126.9900},
-  {name:"성동구",lat:37.5636,lon:127.0369},
-  {name:"광진구",lat:37.5384,lon:127.0822},
-  {name:"동대문구",lat:37.5744,lon:127.0396},
-  {name:"중랑구",lat:37.6063,lon:127.0927},
-  {name:"성북구",lat:37.6066,lon:127.0176},
-  {name:"강북구",lat:37.6397,lon:127.0257},
-  {name:"도봉구",lat:37.6688,lon:127.0471},
-  {name:"노원구",lat:37.6542,lon:127.0568},
-  {name:"은평구",lat:37.6177,lon:126.9227},
-  {name:"서대문구",lat:37.5794,lon:126.9368},
-  {name:"마포구",lat:37.5663,lon:126.9014},
-  {name:"양천구",lat:37.5170,lon:126.8665},
-  {name:"강서구",lat:37.5509,lon:126.8497},
-  {name:"구로구",lat:37.4955,lon:126.8876},
-  {name:"금천구",lat:37.4600,lon:126.9001},
-  {name:"영등포구",lat:37.5263,lon:126.8963},
-  {name:"동작구",lat:37.5124,lon:126.9393},
-  {name:"관악구",lat:37.4784,lon:126.9516},
-  {name:"서초구",lat:37.4837,lon:127.0324},
-  {name:"강남구",lat:37.4979,lon:127.0577},
-  {name:"송파구",lat:37.5145,lon:127.1059},  // ← 잠실 포함
-  {name:"강동구",lat:37.5301,lon:127.1238},
+export const GU_LIST = [
+  {name:"종로구",  lat:37.5920, lon:126.9770},
+  {name:"중구",    lat:37.5641, lon:126.9979},
+  {name:"용산구",  lat:37.5340, lon:126.9900},
+  {name:"성동구",  lat:37.5636, lon:127.0369},
+  {name:"광진구",  lat:37.5384, lon:127.0822},
+  {name:"동대문구",lat:37.5744, lon:127.0396},
+  {name:"중랑구",  lat:37.6063, lon:127.0927},
+  {name:"성북구",  lat:37.6066, lon:127.0176},
+  {name:"강북구",  lat:37.6397, lon:127.0257},
+  {name:"도봉구",  lat:37.6688, lon:127.0471},
+  {name:"노원구",  lat:37.6542, lon:127.0568},
+  {name:"은평구",  lat:37.6177, lon:126.9227},
+  {name:"서대문구",lat:37.5794, lon:126.9368},
+  {name:"마포구",  lat:37.5663, lon:126.9014},
+  {name:"양천구",  lat:37.5170, lon:126.8665},
+  {name:"강서구",  lat:37.5509, lon:126.8497},
+  {name:"구로구",  lat:37.4955, lon:126.8876},
+  {name:"금천구",  lat:37.4600, lon:126.9001},
+  {name:"영등포구",lat:37.5263, lon:126.8963},
+  {name:"동작구",  lat:37.5124, lon:126.9393},
+  {name:"관악구",  lat:37.4784, lon:126.9516},
+  {name:"서초구",  lat:37.4837, lon:127.0324},
+  {name:"강남구",  lat:37.4979, lon:127.0577},
+  {name:"송파구",  lat:37.5145, lon:127.1059},
+  {name:"강동구",  lat:37.5301, lon:127.1238},
 ];
 
-// 서울 외곽선 SVG path (단순화된 실제 경계 근사값)
-const SEOUL_PATH = `
-M 185 18
-L 210 22 L 235 28 L 252 35 L 265 30 L 282 38 L 295 48 L 308 52
-L 322 55 L 335 65 L 342 80 L 348 95 L 355 108 L 360 125
-L 355 140 L 358 158 L 362 172 L 358 185 L 352 195
-L 342 205 L 338 218 L 330 228 L 320 238 L 308 248
-L 295 260 L 280 268 L 265 275 L 250 280 L 235 285
-L 218 288 L 200 290 L 182 288 L 165 283 L 148 275
-L 132 265 L 118 252 L 106 238 L 95 222 L 86 205
-L 80 188 L 76 172 L 72 155 L 70 138 L 68 120
-L 70 102 L 75 88 L 82 74 L 92 62 L 104 52
-L 118 44 L 132 36 L 148 28 L 165 22 Z
+// 한강: 좌표계 기준 y≈215~235 (마포구 y=191 아래, 용산구 y=237 위)
+const HANGANG_PATH = `
+M 68 228 Q 100 220 132 222 Q 162 224 186 219 Q 212 215 242 217 Q 270 219 296 213 Q 320 208 350 207
+L 352 217 Q 322 218 296 224 Q 270 230 242 228 Q 212 226 186 231 Q 162 236 132 233 Q 100 231 68 239 Z
 `;
 
-// 한강 path (서울 내부 가로로 흐르는 강)
-const HANGANG_PATH = `
-M 72 195 Q 100 188 130 190 Q 160 192 185 188 Q 210 184 240 186 Q 268 188 295 182 Q 320 176 348 175
-L 352 183 Q 322 186 295 192 Q 268 198 240 196 Q 210 194 185 198 Q 160 202 130 200 Q 100 198 72 205 Z
-`;
+/* ── Haversine 거리 (km) ── */
+function calcDistKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
 /* ──────────────────────────────────────────
-   서울 SVG 지도 (클릭 → 지도 페이지 이동)
+   서울 SVG 지도 (구 개별 클릭)
 ──────────────────────────────────────────── */
-function SeoulSvgMap({ onClick, wsData }) {
-  const [hovered, setHovered] = useState(null);
+function SeoulSvgMap({ onGoMap, selectedGu, onSelectGu, loading }) {
+  const [hoveredGu, setHoveredGu] = useState(null);
   const [pulse, setPulse] = useState(0);
-
-  // 잠실 위치
-  const [jx, jy] = toSvg(37.5133, 127.1002);
 
   useEffect(() => {
     const t = setInterval(() => setPulse(p => (p + 1) % 100), 60);
@@ -113,21 +104,36 @@ function SeoulSvgMap({ onClick, wsData }) {
   }, []);
 
   return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        position: "relative", width: "100%", height: "100%",
-        cursor: "pointer", userSelect: "none",
-        display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center",
-      }}
-    >
-      <svg
-        viewBox="50 10 320 295"
-        style={{ width: "100%", height: "90%", maxHeight: 340, filter: hovered ? "brightness(1.15)" : "brightness(1)", transition: "filter .2s" }}
+    <div style={{ position:"relative", width:"100%", height:"100%", userSelect:"none", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+
+      {/* 실시간 지도 버튼 — 우상단 */}
+      <button
+        onClick={() => onGoMap(selectedGu)}
+        style={{
+          position:"absolute", top:0, right:0, zIndex:5,
+          padding:"8px 16px", borderRadius:7,
+          background:"rgba(34,197,94,0.15)", border:"1px solid rgba(34,197,94,0.5)",
+          color:"#22c55e", fontSize:13, fontWeight:700, cursor:"pointer",
+          fontFamily:"inherit", display:"flex", alignItems:"center", gap:6,
+          transition:"all .15s",
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background="rgba(34,197,94,0.28)"; }}
+        onMouseLeave={e => { e.currentTarget.style.background="rgba(34,197,94,0.15)"; }}
       >
+        🗺️ 실시간 지도 →
+      </button>
+
+      {/* 로딩 오버레이 */}
+      {loading && (
+        <div style={{ position:"absolute", inset:0, background:"rgba(7,12,23,0.7)", zIndex:10, display:"flex", alignItems:"center", justifyContent:"center", borderRadius:8, gap:8 }}>
+          <div style={{ width:20, height:20, border:"2px solid rgba(59,130,246,0.3)", borderTop:"2px solid #3b82f6", borderRadius:"50%", animation:"spin 1s linear infinite" }}/>
+          <span style={{ fontSize:13, color:"#60a5fa" }}>데이터 수집 중...</span>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        </div>
+      )}
+
+      {/* SVG — 모든 구 포함되도록 viewBox 확장 */}
+      <svg viewBox="30 10 355 365" style={{ width:"100%", height:"100%" }}>
         <defs>
           <radialGradient id="seoulGrad" cx="50%" cy="50%" r="60%">
             <stop offset="0%" stopColor="#1e3a8a" stopOpacity="0.9"/>
@@ -137,74 +143,65 @@ function SeoulSvgMap({ onClick, wsData }) {
             <feGaussianBlur stdDeviation="2.5" result="blur"/>
             <feComposite in="SourceGraphic" in2="blur" operator="over"/>
           </filter>
-          <filter id="softglow">
-            <feGaussianBlur stdDeviation="4" result="blur"/>
+          <filter id="guGlow">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
             <feComposite in="SourceGraphic" in2="blur" operator="over"/>
           </filter>
         </defs>
 
-        {/* 배경 */}
-        <rect x="50" y="10" width="320" height="295" fill="#070c17" rx="8"/>
+        <rect x="30" y="10" width="355" height="365" fill="url(#seoulGrad)" rx="12"/>
+        <path d={HANGANG_PATH} fill="#0ea5e9" opacity="0.35"/>
+        <text x="210" y="228" fontSize="9" fill="#38bdf8" opacity="0.8" fontFamily="Malgun Gothic,sans-serif">한 강</text>
 
-        {/* 서울 외곽 (글로우 효과) */}
-        <path d={SEOUL_PATH} fill="rgba(30,58,138,0.15)" stroke="#1d4ed8" strokeWidth="3" filter="url(#glow)" opacity="0.6"/>
-        {/* 서울 외곽 메인 */}
-        <path d={SEOUL_PATH} fill="url(#seoulGrad)" stroke="#3b82f6" strokeWidth="1.5" opacity="0.9"/>
-
-        {/* 한강 */}
-        <path d={HANGANG_PATH} fill="#0ea5e9" opacity="0.25"/>
-        <text x="210" y="193" fontSize="9" fill="#38bdf8" opacity="0.7" fontFamily="Malgun Gothic,sans-serif">한 강</text>
-
-        {/* 자치구 이름 + 점 */}
+        {/* 자치구 점 + 이름 (개별 클릭) */}
         {GU_LIST.map(gu => {
           const [x, y] = toSvg(gu.lat, gu.lon);
-          if (x < 55 || x > 365 || y < 15 || y > 300) return null;
-          const isJamsil = gu.name === "송파구";
+          if (x < 55 || x > 380 || y < 15 || y > 375) return null;
+          const isSel = selectedGu?.name === gu.name;
+          const isHov = hoveredGu === gu.name;
+          const r = isSel ? 6 : isHov ? 5 : 2.5;
+          const dotColor = isSel ? "#f59e0b" : isHov ? "#60a5fa" : "#60a5fa";
+          const textColor = isSel ? "#fde68a" : isHov ? "#93c5fd" : "#93c5fd";
+          const textSize = isSel ? 9.5 : isHov ? 8.5 : 7.5;
+          const fontWeight = isSel ? "700" : "400";
+
           return (
-            <g key={gu.name}>
-              <circle cx={x} cy={y} r={isJamsil ? 4 : 2}
-                fill={isJamsil ? "#ef4444" : "#60a5fa"} opacity={isJamsil ? 1 : 0.6}/>
-              <text x={x} y={y - 5} fontSize={isJamsil ? 9 : 7.5}
-                fill={isJamsil ? "#fca5a5" : "#93c5fd"} opacity={isJamsil ? 1 : 0.75}
-                textAnchor="middle" fontFamily="Malgun Gothic,sans-serif" fontWeight={isJamsil?"700":"400"}>
+            <g key={gu.name}
+              style={{ cursor:"pointer" }}
+              onClick={e => { e.stopPropagation(); onSelectGu(gu); }}
+              onMouseEnter={() => setHoveredGu(gu.name)}
+              onMouseLeave={() => setHoveredGu(null)}
+            >
+              {/* 선택된 구 글로우 링 */}
+              {isSel && (
+                <circle cx={x} cy={y} r={12} fill="none" stroke="#f59e0b" strokeWidth="1" opacity="0.4" filter="url(#guGlow)"/>
+              )}
+              {/* hover 링 */}
+              {isHov && !isSel && (
+                <circle cx={x} cy={y} r={9} fill="rgba(96,165,250,0.15)" stroke="#60a5fa" strokeWidth="0.8" opacity="0.6"/>
+              )}
+              <circle cx={x} cy={y} r={r} fill={dotColor} opacity={isSel ? 1 : isHov ? 0.9 : 0.65}/>
+              <text x={x} y={y - (isSel ? 9 : 6)} fontSize={textSize}
+                fill={textColor} opacity={isSel ? 1 : isHov ? 1 : 0.75}
+                textAnchor="middle" fontFamily="Malgun Gothic,sans-serif" fontWeight={fontWeight}>
                 {gu.name}
               </text>
             </g>
           );
         })}
 
-        {/* 잠실역 펄스 마커 */}
-        <circle cx={jx} cy={jy} r={12 + (pulse % 20) * 0.5} fill="none" stroke="#ef4444" strokeWidth="1" opacity={0.4 - (pulse % 20) * 0.02}/>
-        <circle cx={jx} cy={jy} r={7} fill="#ef4444" opacity="0.9"/>
-        <circle cx={jx} cy={jy} r={3.5} fill="#fff"/>
-        <text x={jx + 10} y={jy - 8} fontSize="9" fill="#fca5a5" fontFamily="Malgun Gothic,sans-serif" fontWeight="700">잠실역</text>
-
-        {/* 호버시 클릭 유도 텍스트 */}
-        {hovered && (
-          <g>
-            <rect x="115" y="255" width="190" height="28" rx="6" fill="rgba(29,78,216,0.85)" stroke="rgba(96,165,250,0.6)" strokeWidth="1"/>
-            <text x="210" y="273" fontSize="12" fill="#fff" textAnchor="middle" fontFamily="Malgun Gothic,sans-serif" fontWeight="700">
-              🗺️ 실시간 교차로 지도 보기 →
-            </text>
-          </g>
-        )}
+        {/* 선택된 구 강조 마커 (잠실 스타일) */}
+        {selectedGu && (() => {
+          const [sx, sy] = toSvg(selectedGu.lat, selectedGu.lon);
+          return (
+            <>
+              <circle cx={sx} cy={sy} r={14 + (pulse % 20) * 0.4} fill="none" stroke="#f59e0b" strokeWidth="1" opacity={0.35 - (pulse % 20) * 0.015}/>
+              <text x={sx + 14} y={sy - 8} fontSize="9" fill="#fde68a" fontFamily="Malgun Gothic,sans-serif" fontWeight="700">▶ {selectedGu.name}</text>
+            </>
+          );
+        })()}
       </svg>
 
-      {/* 하단 상태 요약 */}
-      <div style={{display:"flex", gap:16, justifyContent:"center", marginTop:6}}>
-        <div style={{display:"flex",alignItems:"center",gap:5}}>
-          <div style={{width:8,height:8,borderRadius:"50%",background:"#22c55e"}}/>
-          <span style={{fontSize:12,color:"#94a3b8"}}>원활 {wsData.filter(c=>c.congestion==="원활").length||3}개</span>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:5}}>
-          <div style={{width:8,height:8,borderRadius:"50%",background:"#f59e0b"}}/>
-          <span style={{fontSize:12,color:"#94a3b8"}}>서행 {wsData.filter(c=>c.congestion==="서행").length||1}개</span>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:5}}>
-          <div style={{width:8,height:8,borderRadius:"50%",background:"#ef4444"}}/>
-          <span style={{fontSize:12,color:"#94a3b8"}}>혼잡 {wsData.filter(c=>c.congestion==="혼잡").length||2}개</span>
-        </div>
-      </div>
     </div>
   );
 }
@@ -319,7 +316,6 @@ function WaitChart({ data, height=180 }) {
   return <div style={{position:"relative",width:"100%",height}}><canvas ref={ref} role="img" aria-label="대기시간"/></div>;
 }
 
-/* ── 카드 래퍼 ── */
 function Card({ title, badge, badgeColor="#3b82f6", children, style={} }) {
   return (
     <div style={{background:"rgba(14,20,36,0.9)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"16px 18px",display:"flex",flexDirection:"column",gap:10,...style}}>
@@ -335,15 +331,47 @@ function Card({ title, badge, badgeColor="#3b82f6", children, style={} }) {
 /* ── 메인 대시보드 ── */
 export default function MainDashboard({ onGoMap, wsData }) {
   const [time, setTime] = useState(new Date());
+  const [selectedGu, setSelectedGu] = useState(GU_LIST.find(g => g.name === "송파구"));
+  const [loading, setLoading] = useState(false);
+  const [fetchMsg, setFetchMsg] = useState(null);
+
   useEffect(()=>{const t=setInterval(()=>setTime(new Date()),1000);return()=>clearInterval(t);},[]);
 
-  const riskData  = wsData.length>0 ? wsData.map(c=>({name:c.crsrdNm,score:c.riskScore??0})).sort((a,b)=>b.score-a.score).slice(0,6) : RISK_MOCK;
-  const waitData  = wsData.length>0 ? wsData.map(c=>({name:c.crsrdNm,wait:c.avgWait??0})).sort((a,b)=>b.wait-a.wait).slice(0,6) : WAIT_MOCK;
+  // 구 클릭 → /api/fetch-area 호출
+  const handleSelectGu = useCallback(async (gu) => {
+    setSelectedGu(gu);
+    setLoading(true);
+    setFetchMsg(null);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/fetch-area?lat=${gu.lat}&lon=${gu.lon}&radius=2.5`,
+        { method: "POST" }
+      );
+      const data = await res.json();
+      setFetchMsg(`${gu.name} · ${data.count ?? 0}개 교차로 수집됨`);
+    } catch {
+      setFetchMsg(`${gu.name} 데이터 수집 실패`);
+    } finally {
+      setLoading(false);
+      setTimeout(() => setFetchMsg(null), 3000);
+    }
+  }, []);
+
+  // 선택된 구 기준 2.5km 반경 필터
+  const guData = selectedGu
+    ? wsData.filter(c => c.lat && c.lon && calcDistKm(c.lat, c.lon, selectedGu.lat, selectedGu.lon) <= 2.5)
+    : wsData;
+
+  const activeData = guData.length > 0 ? guData : wsData;
+
+  const riskData  = activeData.length>0 ? activeData.map(c=>({name:c.crsrdNm,score:c.riskScore??0})).sort((a,b)=>b.score-a.score).slice(0,6) : RISK_MOCK;
+  const waitData  = activeData.length>0 ? activeData.map(c=>({name:c.crsrdNm,wait:c.avgWait??0})).sort((a,b)=>b.wait-a.wait).slice(0,6) : WAIT_MOCK;
   const isLive    = wsData.length>0;
-  const avgSpeed  = wsData.length ? Math.round(wsData.reduce((a,c)=>a+(c.speed??30),0)/wsData.length) : 24;
-  const highRisk  = wsData.length ? wsData.filter(c=>(c.riskScore??0)>=70).length : 1;
+  const avgSpeed  = activeData.length ? Math.round(activeData.reduce((a,c)=>a+(c.speed??30),0)/activeData.length) : 24;
+  const highRisk  = activeData.length ? activeData.filter(c=>(c.riskScore??0)>=70).length : 1;
   const avgWait   = waitData.length ? Math.round(waitData.reduce((a,c)=>a+c.wait,0)/waitData.length) : 42;
   const maxRisk   = riskData[0]?.score??85;
+  const guLabel   = selectedGu ? `${selectedGu.name} 반경 2.5km` : "잠실역 반경 1km";
 
   return (
     <div style={{fontFamily:"'Noto Sans KR','Malgun Gothic',sans-serif",background:"#070c17",color:"#e2e8f0",minHeight:"100vh",display:"flex",flexDirection:"column",overflowY:"auto"}}>
@@ -357,7 +385,7 @@ export default function MainDashboard({ onGoMap, wsData }) {
         </div>
         <div style={{marginLeft:20,display:"flex",gap:6}}>
           {[["📊 통합 대시보드",false],["🗺️ 실시간 지도",true],["📈 통계/이력",false]].map(([m,isMap])=>(
-            <div key={m} onClick={isMap?onGoMap:undefined}
+            <div key={m} onClick={isMap ? () => onGoMap(selectedGu) : undefined}
               style={{padding:"5px 14px",borderRadius:6,fontSize:13,fontWeight:600,cursor:isMap?"pointer":"default",
                 background:!isMap&&m.includes("통합")?"#1d4ed8":"transparent",
                 color:!isMap&&m.includes("통합")?"#fff":"#64748b",
@@ -368,6 +396,20 @@ export default function MainDashboard({ onGoMap, wsData }) {
             >{m}</div>
           ))}
         </div>
+
+        {/* 선택된 구 표시 + fetch 메시지 */}
+        {selectedGu && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 12px", borderRadius:20, background:"rgba(245,158,11,0.1)", border:"1px solid rgba(245,158,11,0.3)" }}>
+            <span style={{ width:7, height:7, borderRadius:"50%", background:"#f59e0b", display:"inline-block" }}/>
+            <span style={{ fontSize:12, color:"#fde68a", fontWeight:600 }}>{selectedGu.name} 선택됨</span>
+          </div>
+        )}
+        {fetchMsg && (
+          <div style={{ fontSize:12, color:"#22c55e", padding:"3px 10px", borderRadius:4, border:"1px solid rgba(34,197,94,0.3)", background:"rgba(34,197,94,0.07)" }}>
+            ✓ {fetchMsg}
+          </div>
+        )}
+
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:16}}>
           {isLive&&<div style={{fontSize:12,color:"#22c55e",border:"1px solid rgba(34,197,94,0.3)",padding:"2px 10px",borderRadius:4,fontWeight:600}}>● LIVE · V2X 연결됨</div>}
           <div style={{fontSize:13,color:"#64748b"}}>
@@ -377,13 +419,13 @@ export default function MainDashboard({ onGoMap, wsData }) {
         </div>
       </div>
 
-      {/* 상단 통계 카드 */}
+      {/* 상단 KPI 카드 */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,padding:"16px 24px 0"}}>
         {[
-          {label:"모니터링 교차로", value:wsData.length||5,  unit:"개",   color:"#60a5fa", sub:"잠실역 반경 1km"},
-          {label:"위험 교차로",     value:highRisk,           unit:"개",   color:"#ef4444", sub:"위험도 70점 이상"},
-          {label:"현재 평균 속도",  value:avgSpeed,           unit:"km/h", color:"#22c55e", sub:"전 교차로 추정"},
-          {label:"최고 위험도",     value:maxRisk,            unit:"점",   color:maxRisk>=70?"#ef4444":maxRisk>=50?"#f59e0b":"#22c55e", sub:riskData[0]?.name||"-"},
+          {label:"모니터링 교차로", value:activeData.length||wsData.length||5, unit:"개",   color:"#60a5fa", sub:guLabel},
+          {label:"위험 교차로",     value:highRisk,                             unit:"개",   color:"#ef4444", sub:"위험도 70점 이상"},
+          {label:"현재 평균 속도",  value:avgSpeed,                             unit:"km/h", color:"#22c55e", sub:"전 교차로 추정"},
+          {label:"최고 위험도",     value:maxRisk,                              unit:"점",   color:maxRisk>=70?"#ef4444":maxRisk>=50?"#f59e0b":"#22c55e", sub:riskData[0]?.name||"-"},
         ].map(s=>(
           <div key={s.label} style={{background:"rgba(14,20,36,0.9)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"16px 20px",textAlign:"center"}}>
             <div style={{fontSize:34,fontWeight:700,color:s.color,fontFamily:"monospace",lineHeight:1}}>{s.value}<span style={{fontSize:18,marginLeft:3}}>{s.unit}</span></div>
@@ -396,7 +438,7 @@ export default function MainDashboard({ onGoMap, wsData }) {
       {/* 메인 그리드 */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gridTemplateRows:"auto auto",gap:14,padding:"14px 24px"}}>
 
-        {/* 속도 추이 (2칸) */}
+        {/* 속도 추이 */}
         <Card title="📈 시간대별 구간 속도 추이" badge="참고용" style={{gridColumn:"1/3"}}>
           <div style={{display:"flex",gap:12}}>
             {[["#ef4444","잠실역"],["#f59e0b","석촌호수"],["#22c55e","잠실나루"]].map(([c,l])=>(
@@ -416,24 +458,15 @@ export default function MainDashboard({ onGoMap, wsData }) {
           <SpeedChart data={SPEED_TREND} height={170}/>
         </Card>
 
-        {/* 서울 SVG 지도 (2행) */}
-        <Card title="🗺️ 서울 교통 현황" badge="클릭 → 실시간 지도" badgeColor="#22c55e" style={{gridColumn:"3/4",gridRow:"1/3",cursor:"pointer"}} >
-          <div style={{flex:1,minHeight:0,height:380}}>
-            <SeoulSvgMap onClick={onGoMap} wsData={wsData}/>
-          </div>
-          {/* 잠실 집중 분석 */}
-          <div style={{background:"rgba(29,78,216,0.1)",border:"1px solid rgba(59,130,246,0.25)",borderRadius:9,padding:"12px 14px"}}>
-            <div style={{fontSize:12,color:"#94a3b8",marginBottom:6,fontWeight:600}}>📍 잠실역 권역 현황</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <div style={{textAlign:"center"}}>
-                <div style={{fontSize:22,fontWeight:700,color:"#22c55e"}}>{wsData.filter(c=>c.congestion==="원활").length||3}<span style={{fontSize:13}}> 개</span></div>
-                <div style={{fontSize:12,color:"#94a3b8"}}>원활</div>
-              </div>
-              <div style={{textAlign:"center"}}>
-                <div style={{fontSize:22,fontWeight:700,color:"#ef4444"}}>{wsData.filter(c=>c.congestion==="혼잡").length||2}<span style={{fontSize:13}}> 개</span></div>
-                <div style={{fontSize:12,color:"#94a3b8"}}>혼잡</div>
-              </div>
-            </div>
+        {/* 서울 SVG 지도 — 구 클릭 가능 */}
+        <Card title="🗺️ 서울 교통 현황" style={{gridColumn:"3/4",gridRow:"1/3"}}>
+          <div style={{flex:1,minHeight:0,height:480}}>
+            <SeoulSvgMap
+              onGoMap={onGoMap}
+              selectedGu={selectedGu}
+              onSelectGu={handleSelectGu}
+              loading={loading}
+            />
           </div>
         </Card>
 
@@ -465,7 +498,7 @@ export default function MainDashboard({ onGoMap, wsData }) {
 
       </div>
 
-      {/* 대기시간 (하단 전체) */}
+      {/* 대기시간 */}
       <div style={{padding:"0 24px 24px"}}>
         <Card title="⏱️ 교차로별 평균 신호 대기시간" badge={isLive?"실시간":"참고값"} badgeColor={isLive?"#22c55e":"#f59e0b"}>
           <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:20,alignItems:"center"}}>
