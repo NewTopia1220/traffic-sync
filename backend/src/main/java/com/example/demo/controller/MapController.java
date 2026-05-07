@@ -1,21 +1,30 @@
 package com.example.demo.controller;
 
+import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.TrafficStatus;
 import com.example.demo.service.TrafficCacheService;
+import com.example.demo.service.V2xApiService;
+import com.example.demo.websocket.TrafficWebSocketHandler;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 
+@Slf4j
 @Controller
 @RequiredArgsConstructor
 public class MapController {
 
     private final TrafficCacheService cacheService;
+    private final V2xApiService v2xApiService;
+    private final TrafficWebSocketHandler webSocketHandler;
 
     @Value("${kakao.map.app-key}")
     private String kakaoAppKey;
@@ -26,7 +35,6 @@ public class MapController {
     @Value("${jamsil.lon}")
     private double jamsilLon;
 
-    // 메인 지도 페이지
     @GetMapping("/")
     public String index(Model model) {
         model.addAttribute("kakaoAppKey", kakaoAppKey);
@@ -35,10 +43,32 @@ public class MapController {
         return "map";
     }
 
-    // 현재 캐시된 신호 데이터 REST로도 제공 (디버깅용)
     @GetMapping("/api/signals")
     @ResponseBody
     public Collection<TrafficStatus> getSignals() {
         return cacheService.getAllSignals().values();
+    }
+
+    // 구 클릭 시 해당 좌표 기준으로 즉시 수집 + 캐시 추가 + 브로드캐스트
+    @PostMapping("/api/fetch-area")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> fetchArea(
+            @RequestParam double lat,
+            @RequestParam double lon,
+            @RequestParam(defaultValue = "2.5") double radius) {
+        try {
+            List<CrossroadInfo> crossroads = v2xApiService.fetchCrossroads(lat, lon, radius);
+            if (crossroads.isEmpty()) {
+                return ResponseEntity.ok(Map.of("count", 0, "message", "해당 구역에 교차로 없음"));
+            }
+            Map<String, TrafficStatus> signals = v2xApiService.fetchSignalData(crossroads);
+            signals.forEach(cacheService::updateSignal);
+            webSocketHandler.broadcast(signals);
+            log.info("구역 수동 수집: ({},{}) 반경{}km → {}개", lat, lon, radius, signals.size());
+            return ResponseEntity.ok(Map.of("count", signals.size(), "message", "ok"));
+        } catch (Exception e) {
+            log.error("구역 수집 실패: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("message", e.getMessage()));
+        }
     }
 }
