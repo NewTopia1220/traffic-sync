@@ -25,7 +25,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class TrafficScheduler {
 
-    private static final int STALE_THRESHOLD_MIN = 180;
+    private static final int STALE_THRESHOLD_MIN = 99999;
     private static final DateTimeFormatter TOTDT_FMT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     private final V2xApiService v2xApiService;

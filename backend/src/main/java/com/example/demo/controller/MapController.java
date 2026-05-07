@@ -27,13 +27,13 @@ public class MapController {
     private double jamsilLon;
 
     // 메인 지도 페이지
-//    @GetMapping("/")
-//    public String index(Model model) {
-//        model.addAttribute("kakaoAppKey", kakaoAppKey);
-//        model.addAttribute("jamsilLat", jamsilLat);
-//        model.addAttribute("jamsilLon", jamsilLon);
-//        return "map";
-//    }
+    @GetMapping("/")
+    public String index(Model model) {
+        model.addAttribute("kakaoAppKey", kakaoAppKey);
+        model.addAttribute("jamsilLat", jamsilLat);
+        model.addAttribute("jamsilLon", jamsilLon);
+        return "map";
+    }
 
     // 현재 캐시된 신호 데이터 REST로도 제공 (디버깅용)
     @GetMapping("/api/signals")
