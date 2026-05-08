@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import KakaoMapView from "../components/map/KakaoMapView";
 import SignalPanel from "../components/map/SignalPanel";
 import RoadViewModal from "../components/map/RoadViewModal";
+import CctvModal from "../components/map/CctvModal";
 import BottleneckList from "../components/sidebar/BottleneckList";
 import RiskList from "../components/sidebar/RiskList";
 import AIChatBot from "../components/sidebar/AIChatBot";
@@ -12,6 +13,7 @@ export default function MapDashboard({ onGoMain, wsData, setWsData, initialCente
   const [time, setTime] = useState(new Date());
   const [selected, setSelected] = useState(null);
   const [showRoadView, setShowRoadView] = useState(false);
+  const [selectedCctv, setSelectedCctv] = useState(null);
 
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
 
@@ -64,7 +66,7 @@ export default function MapDashboard({ onGoMain, wsData, setWsData, initialCente
         {/* 지도 */}
         <div style={{ display: "flex", flexDirection: "column", padding: "10px 6px 10px 10px", minHeight: 0 }}>
           <div style={{ flex: 1, position: "relative", minHeight: 0, borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
-            <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} />
+            <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} onCctvClick={setSelectedCctv} />
             {wsData.length === 0 && (
               <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(7,12,23,0.75)", zIndex: 30, gap: 10 }}>
                 <div style={{ fontSize: 15, color: "#94a3b8" }}>V2X 데이터 수신 대기 중...</div>
@@ -90,17 +92,6 @@ export default function MapDashboard({ onGoMain, wsData, setWsData, initialCente
                   <SignalPanel cr={selected} />
                 </div>
 
-                {/* CCTV 테스트 */}
-                <div style={{ background: "rgba(8,13,26,0.96)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 12, overflow: "hidden" }}>
-                  <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, padding: "8px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>📹 CCTV 테스트</div>
-                  <iframe
-                    src="https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key=xqtChK445EhPPLe4NIO81jDNkaihavLeDjIXsROJAc&cctvid=L010135&cctvName=%25EC%2584%259C%25EB%258C%2580%25EB%25AC%25B8%25EC%2597%25AD&kind=Seoul&cctvip=undefined&cctvch=51&id=50&cctvpasswd=undefined&cctvport=undefined"
-                    width="100%"
-                    height="200"
-                    style={{ border: "none", display: "block" }}
-                    title="CCTV"
-                  />
-                </div>
 
               </div>
             )}
@@ -131,6 +122,9 @@ export default function MapDashboard({ onGoMain, wsData, setWsData, initialCente
 
       {showRoadView && selected && (
         <RoadViewModal cr={selected} onClose={() => setShowRoadView(false)} />
+      )}
+      {selectedCctv && (
+        <CctvModal cctv={selectedCctv} onClose={() => setSelectedCctv(null)} />
       )}
     </div>
   );
