@@ -1,7 +1,9 @@
 package com.example.demo.controller;
 
+import com.example.demo.entity.CrossroadEntity;
 import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.TrafficStatus;
+import com.example.demo.repository.CrossroadRepository;
 import com.example.demo.service.TrafficCacheService;
 import com.example.demo.service.V2xApiService;
 import com.example.demo.websocket.TrafficWebSocketHandler;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Controller
@@ -25,6 +28,7 @@ public class MapController {
     private final TrafficCacheService cacheService;
     private final V2xApiService v2xApiService;
     private final TrafficWebSocketHandler webSocketHandler;
+    private final CrossroadRepository crossroadRepository;
 
     @Value("${kakao.map.app-key}")
     private String kakaoAppKey;
@@ -49,22 +53,32 @@ public class MapController {
         return cacheService.getAllSignals().values();
     }
 
-    // 구 클릭 시 해당 좌표 기준으로 즉시 수집 + 캐시 추가 + 브로드캐스트
     @PostMapping("/api/fetch-area")
     @ResponseBody
     public ResponseEntity<Map<String, Object>> fetchArea(
             @RequestParam double lat,
             @RequestParam double lon,
-            @RequestParam(defaultValue = "2.5") double radius) {
+            @RequestParam(defaultValue = "1.0") double radius) {
         try {
-            List<CrossroadInfo> crossroads = v2xApiService.fetchCrossroads(lat, lon, radius);
-            if (crossroads.isEmpty()) {
+            // DB에서 해당 좌표 반경 교차로 조회
+            List<CrossroadEntity> entities = crossroadRepository.findWithinRadius(lat, lon, radius);
+            if (entities.isEmpty()) {
                 return ResponseEntity.ok(Map.of("count", 0, "message", "해당 구역에 교차로 없음"));
             }
+
+            List<CrossroadInfo> crossroads = entities.stream().map(e -> {
+                CrossroadInfo info = new CrossroadInfo();
+                info.setCrsrdId(e.getCrsrdId());
+                info.setCrsrdNm(e.getCrsrdNm());
+                info.setLat(e.getLat());
+                info.setLon(e.getLon());
+                return info;
+            }).collect(Collectors.toList());
+
             Map<String, TrafficStatus> signals = v2xApiService.fetchSignalData(crossroads);
             signals.forEach(cacheService::updateSignal);
             webSocketHandler.broadcast(signals);
-            log.info("구역 수동 수집: ({},{}) 반경{}km → {}개", lat, lon, radius, signals.size());
+            log.info("구역 수집: ({},{}) 반경{}km → {}개", lat, lon, radius, signals.size());
             return ResponseEntity.ok(Map.of("count", signals.size(), "message", "ok"));
         } catch (Exception e) {
             log.error("구역 수집 실패: {}", e.getMessage());

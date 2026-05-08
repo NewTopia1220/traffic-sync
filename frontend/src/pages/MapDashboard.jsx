@@ -1,18 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
-import { useWebSocket } from "../hooks/useWebSocket";
 import KakaoMapView from "../components/map/KakaoMapView";
 import SignalPanel from "../components/map/SignalPanel";
+import RoadViewModal from "../components/map/RoadViewModal";
 import BottleneckList from "../components/sidebar/BottleneckList";
 import RiskList from "../components/sidebar/RiskList";
 import AIChatBot from "../components/sidebar/AIChatBot";
 
 const WEATHER = { icon: "🌧️", temp: "14°C", desc: "비", humidity: "78%" };
 
-export default function MapDashboard({ onGoMain, wsData, setWsData, initialCenter }) {
+export default function MapDashboard({ onGoMain, wsData, setWsData, initialCenter, wsStatus, lastUpdate }) {
   const [time, setTime] = useState(new Date());
   const [selected, setSelected] = useState(null);
-
-  const { wsStatus, lastUpdate } = useWebSocket(setWsData);
+  const [showRoadView, setShowRoadView] = useState(false);
 
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
 
@@ -81,8 +80,26 @@ export default function MapDashboard({ onGoMain, wsData, setWsData, initialCente
 
                 {/* 신호 현황 */}
                 <div style={{ background: "rgba(8,13,26,0.96)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 12, padding: 14, backdropFilter: "blur(8px)" }}>
-                  <div style={{ fontSize: 13, color: "#60a5fa", marginBottom: 10, fontWeight: 700 }}>📍 {selected.crsrdNm} — 실시간 신호 현황</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, color: "#60a5fa", fontWeight: 700 }}>📍 {selected.crsrdNm} — 실시간 신호 현황</div>
+                    <button onClick={() => setShowRoadView(true)} style={{
+                      background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)",
+                      borderRadius: 6, color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "3px 9px", fontFamily: "inherit",
+                    }}>🛣️ 로드뷰</button>
+                  </div>
                   <SignalPanel cr={selected} />
+                </div>
+
+                {/* CCTV 테스트 */}
+                <div style={{ background: "rgba(8,13,26,0.96)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 12, overflow: "hidden" }}>
+                  <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, padding: "8px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>📹 CCTV 테스트</div>
+                  <iframe
+                    src="https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key=xqtChK445EhPPLe4NIO81jDNkaihavLeDjIXsROJAc&cctvid=L010135&cctvName=%25EC%2584%259C%25EB%258C%2580%25EB%25AC%25B8%25EC%2597%25AD&kind=Seoul&cctvip=undefined&cctvch=51&id=50&cctvpasswd=undefined&cctvport=undefined"
+                    width="100%"
+                    height="200"
+                    style={{ border: "none", display: "block" }}
+                    title="CCTV"
+                  />
                 </div>
 
               </div>
@@ -111,6 +128,10 @@ export default function MapDashboard({ onGoMain, wsData, setWsData, initialCente
           <RiskList risks={risks} onSelect={selectCr} crossroadsCount={wsData.length} />
         </div>
       </div>
+
+      {showRoadView && selected && (
+        <RoadViewModal cr={selected} onClose={() => setShowRoadView(false)} />
+      )}
     </div>
   );
 }

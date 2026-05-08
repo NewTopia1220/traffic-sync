@@ -20,7 +20,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       return;
     }
     const s = document.createElement("script");
-    s.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${KEY}&libraries=clusterer&autoload=false`;
+    s.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${KEY}&libraries=clusterer,services&autoload=false`;
     s.setAttribute("data-kakao", "1");
     s.onload = () => window.kakao.maps.load(() => setReady(true));
     document.head.appendChild(s);
