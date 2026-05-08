@@ -49,7 +49,6 @@ public class MapController {
         return cacheService.getAllSignals().values();
     }
 
-    // 구 클릭 시 해당 좌표 기준으로 즉시 수집 + 캐시 추가 + 브로드캐스트
     @PostMapping("/api/fetch-area")
     @ResponseBody
     public ResponseEntity<Map<String, Object>> fetchArea(
