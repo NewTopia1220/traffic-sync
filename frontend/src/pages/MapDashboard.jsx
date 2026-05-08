@@ -73,14 +73,9 @@ export default function MapDashboard({ onGoMain, wsData, setWsData, initialCente
                 <div style={{ fontSize: 13, color: "#475569" }}>스프링 부트 실행 확인 (port 8080)</div>
               </div>
             )}
-            {/* 좌측 하단 오버레이: AI 챗봇 + 신호 현황 (위→아래 순서, 8px 간격) */}
+            {/* 좌측 하단 오버레이: 신호 현황 */}
             {selected && (
-              <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 310, pointerEvents: "auto" }}>
-
-                {/* AI 챗봇 */}
-                <AIChatBot selected={selected} />
-
-                {/* 신호 현황 */}
+              <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 340, pointerEvents: "auto" }}>
                 <div style={{ background: "rgba(8,13,26,0.96)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 12, padding: 14, backdropFilter: "blur(8px)" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                     <div style={{ fontSize: 13, color: "#60a5fa", fontWeight: 700 }}>📍 {selected.crsrdNm} — 실시간 신호 현황</div>
@@ -91,8 +86,13 @@ export default function MapDashboard({ onGoMain, wsData, setWsData, initialCente
                   </div>
                   <SignalPanel cr={selected} />
                 </div>
+              </div>
+            )}
 
-
+            {/* 우측 하단 오버레이: AI 챗봇 */}
+            {selected && (
+              <div style={{ position: "absolute", bottom: 14, right: 14, zIndex: 20, width: 320, pointerEvents: "auto" }}>
+                <AIChatBot selected={selected} />
               </div>
             )}
           </div>
