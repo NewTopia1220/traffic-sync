@@ -31,15 +31,6 @@ public class V2xApiService {
     @Value("${v2x.api.num-of-rows}")
     private int numOfRows;
 
-    @Value("${jamsil.lat}")
-    private double jamsilLat;
-
-    @Value("${jamsil.lon}")
-    private double jamsilLon;
-
-    @Value("${jamsil.radius-km}")
-    private double radiusKm;
-
     private static final String[] DIRECTIONS = {"nt", "et", "st", "wt", "ne", "se", "sw", "nw"};
     private static final String[] SIGNAL_TYPES = {"Stsg", "Ltsg", "Pdsg", "Utsg", "Bssg", "Bcsg"};
 
@@ -47,107 +38,6 @@ public class V2xApiService {
         this.webClient = webClient;
     }
 
-    // 임의 좌표 + 반경으로 교차로 목록 가져오기 (구 클릭 시 사용)
-    public List<CrossroadInfo> fetchCrossroads(double centerLat, double centerLon, double radiusKm) {
-        List<CrossroadInfo> result = new ArrayList<>();
-        int pageNo = 1;
-        while (true) {
-            try {
-                URI uri = UriComponentsBuilder.fromHttpUrl(crossroadUrl)
-                        .queryParam("serviceKey", serviceKey)
-                        .queryParam("pageNo", pageNo)
-                        .queryParam("numOfRows", numOfRows)
-                        .queryParam("type", "JSON")
-                        .queryParam("stdgCd", "1100000000")
-                        .build(true).toUri();
-                String response = webClient.get().uri(uri).retrieve().bodyToMono(String.class).block();
-                JsonNode root = objectMapper.readTree(response);
-                JsonNode items = root.path("body").path("items").path("item");
-                int totalCount = root.path("body").path("totalCount").asInt();
-                if (!items.isArray() || items.size() == 0) break;
-                for (JsonNode item : items) {
-                    String latStr = item.path("mapCtptIntLat").asText("");
-                    String lonStr = item.path("mapCtptIntLot").asText("");
-                    if (latStr.isEmpty() || lonStr.isEmpty()) continue;
-                    double lat = Double.parseDouble(latStr);
-                    double lon = Double.parseDouble(lonStr);
-                    if (calcDistKmBetween(lat, lon, centerLat, centerLon) <= radiusKm) {
-                        CrossroadInfo info = new CrossroadInfo();
-                        info.setCrsrdId(item.path("crsrdId").asText());
-                        info.setCrsrdNm(item.path("crsrdNm").asText());
-                        info.setLat(lat);
-                        info.setLon(lon);
-                        result.add(info);
-                    }
-                }
-                if (pageNo * numOfRows >= totalCount) break;
-                pageNo++;
-            } catch (Exception e) {
-                log.error("교차로 API 호출 실패 (page {}): {}", pageNo, e.getMessage());
-                break;
-            }
-        }
-        log.info("좌표({},{}) 반경{}km 내 교차로 {}개 수집", centerLat, centerLon, radiusKm, result.size());
-        return result;
-    }
-
-    // 잠실역 반경 내 교차로 목록 가져오기
-    public List<CrossroadInfo> fetchJamsilCrossroads() {
-        List<CrossroadInfo> result = new ArrayList<>();
-        int pageNo = 1;
-
-        while (true) {
-            try {
-                URI uri = UriComponentsBuilder.fromHttpUrl(crossroadUrl)
-                        .queryParam("serviceKey", serviceKey)
-                        .queryParam("pageNo", pageNo)
-                        .queryParam("numOfRows", numOfRows)
-                        .queryParam("type", "JSON")
-                        .queryParam("stdgCd", "1100000000")
-                        .build(true).toUri();
-
-                String response = webClient.get()
-                        .uri(uri)
-                        .retrieve()
-                        .bodyToMono(String.class)
-                        .block();
-
-                JsonNode root = objectMapper.readTree(response);
-                JsonNode items = root.path("body").path("items").path("item");
-                int totalCount = root.path("body").path("totalCount").asInt();
-
-                if (!items.isArray() || items.size() == 0) break;
-
-                for (JsonNode item : items) {
-                    String latStr = item.path("mapCtptIntLat").asText("");
-                    String lonStr = item.path("mapCtptIntLot").asText("");
-                    if (latStr.isEmpty() || lonStr.isEmpty()) continue;
-
-                    double lat = Double.parseDouble(latStr);
-                    double lon = Double.parseDouble(lonStr);
-
-                    if (isWithinRadius(lat, lon)) {
-                        CrossroadInfo info = new CrossroadInfo();
-                        info.setCrsrdId(item.path("crsrdId").asText());
-                        info.setCrsrdNm(item.path("crsrdNm").asText());
-                        info.setLat(lat);
-                        info.setLon(lon);
-                        result.add(info);
-                    }
-                }
-
-                if (pageNo * numOfRows >= totalCount) break;
-                pageNo++;
-
-            } catch (Exception e) {
-                log.error("교차로 API 호출 실패 (page {}): {}", pageNo, e.getMessage());
-                break;
-            }
-        }
-
-        log.info("잠실역 반경 {}km 내 교차로 {}개 수집", radiusKm, result.size());
-        return result;
-    }
 
     // 신호등 데이터 가져오기 (교차로 ID 기준으로 필터)
     public Map<String, TrafficStatus> fetchSignalData(List<CrossroadInfo> crossroads) {
@@ -262,17 +152,4 @@ public class V2xApiService {
         return status;
     }
 
-    private boolean isWithinRadius(double lat, double lon) {
-        return calcDistKmBetween(lat, lon, jamsilLat, jamsilLon) <= radiusKm;
-    }
-
-    private double calcDistKmBetween(double lat1, double lon1, double lat2, double lon2) {
-        final int R = 6371;
-        double dLat = Math.toRadians(lat1 - lat2);
-        double dLon = Math.toRadians(lon1 - lon2);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(lat2)) * Math.cos(Math.toRadians(lat1))
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
 }

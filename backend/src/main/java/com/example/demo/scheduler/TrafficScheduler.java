@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,12 +39,19 @@ public class TrafficScheduler {
     @Value("${jamsil.radius-km}")
     private double radiusKm;
 
+    @PostConstruct
+    public void init() {
+        cacheService.setCenter(jamsilLat, jamsilLon, radiusKm);
+    }
+
     @Scheduled(initialDelay = 5000, fixedRateString = "${traffic.poll.interval-ms}")
     public void pollTrafficData() {
         log.info("===== 교통 데이터 폴링 시작 =====");
         try {
-            // DB에서 잠실 반경 교차로 조회
-            List<CrossroadEntity> entities = crossroadRepository.findWithinRadius(jamsilLat, jamsilLon, radiusKm);
+            // DB에서 현재 선택된 구 반경 교차로 조회 (기본: 잠실)
+            List<CrossroadEntity> entities = crossroadRepository.findWithinRadius(
+                cacheService.getCenterLat(), cacheService.getCenterLon(), cacheService.getCenterRadius()
+            );
             if (entities.isEmpty()) {
                 log.warn("DB에 반경 내 교차로 없음 - 초기 적재 대기 중");
                 return;

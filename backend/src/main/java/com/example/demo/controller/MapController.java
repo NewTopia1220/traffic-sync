@@ -39,13 +39,6 @@ public class MapController {
     @Value("${jamsil.lon}")
     private double jamsilLon;
 
-    @GetMapping("/")
-    public String index(Model model) {
-        model.addAttribute("kakaoAppKey", kakaoAppKey);
-        model.addAttribute("jamsilLat", jamsilLat);
-        model.addAttribute("jamsilLon", jamsilLon);
-        return "map";
-    }
 
     @GetMapping("/api/signals")
     @ResponseBody
@@ -60,6 +53,9 @@ public class MapController {
             @RequestParam double lon,
             @RequestParam(defaultValue = "1.0") double radius) {
         try {
+            // 선택된 구 좌표 캐시에 저장 → 스케줄러가 이 좌표로 폴링
+            cacheService.setCenter(lat, lon, radius);
+
             // DB에서 해당 좌표 반경 교차로 조회
             List<CrossroadEntity> entities = crossroadRepository.findWithinRadius(lat, lon, radius);
             if (entities.isEmpty()) {

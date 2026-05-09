@@ -110,9 +110,11 @@ export default function SignalPanel({ cr }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontSize: 11, color: "#475569" }}>API 수집: {ts}</div>
 
-      {/* 북 */}
-      {s.north && <div style={{ display: "flex", gap: 6 }}>
-        <DirCard dir="north" label="북" arrow="↑" signals={s} elapsed={elapsed} />
+      {/* 북 / 북동 / 북서 */}
+      {(s.north || s.northeast || s.northwest) && <div style={{ display: "flex", gap: 6 }}>
+        {s.northwest && <DirCard dir="northwest" label="북서" arrow="↖" signals={s} elapsed={elapsed} />}
+        {s.north && <DirCard dir="north" label="북" arrow="↑" signals={s} elapsed={elapsed} />}
+        {s.northeast && <DirCard dir="northeast" label="북동" arrow="↗" signals={s} elapsed={elapsed} />}
       </div>}
 
       {/* 서 + 교차로명 + 동 */}
@@ -142,9 +144,11 @@ export default function SignalPanel({ cr }) {
         <DirCard dir="east" label="동" arrow="→" signals={s} elapsed={elapsed} />
       </div>
 
-      {/* 남 */}
-      {s.south && <div style={{ display: "flex", gap: 6 }}>
-        <DirCard dir="south" label="남" arrow="↓" signals={s} elapsed={elapsed} />
+      {/* 남 / 남동 / 남서 */}
+      {(s.south || s.southeast || s.southwest) && <div style={{ display: "flex", gap: 6 }}>
+        {s.southwest && <DirCard dir="southwest" label="남서" arrow="↙" signals={s} elapsed={elapsed} />}
+        {s.south && <DirCard dir="south" label="남" arrow="↓" signals={s} elapsed={elapsed} />}
+        {s.southeast && <DirCard dir="southeast" label="남동" arrow="↘" signals={s} elapsed={elapsed} />}
       </div>}
     </div>
   );

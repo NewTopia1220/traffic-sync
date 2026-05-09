@@ -13,19 +13,25 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class TrafficCacheService {
 
-    // 잠실 반경 내 교차로 목록 (좌표 포함)
-    private volatile List<CrossroadInfo> crossroads = Collections.emptyList();
+    // 현재 모니터링 중심 좌표 (구 클릭 시 업데이트)
+    private volatile double centerLat;
+    private volatile double centerLon;
+    private volatile double centerRadius = 1.0;
+
+    public void setCenter(double lat, double lon, double radius) {
+        this.centerLat = lat;
+        this.centerLon = lon;
+        this.centerRadius = radius;
+    }
+
+    public double getCenterLat() { return centerLat; }
+    public double getCenterLon() { return centerLon; }
+    public double getCenterRadius() { return centerRadius; }
 
     // 교차로ID → 최신 신호 상태
     private final ConcurrentHashMap<String, TrafficStatus> signalCache = new ConcurrentHashMap<>();
 
-    public void updateCrossroads(List<CrossroadInfo> list) {
-        this.crossroads = list;
-    }
 
-    public List<CrossroadInfo> getCrossroads() {
-        return crossroads;
-    }
 
     public void updateSignal(String crsrdId, TrafficStatus status) {
         signalCache.put(crsrdId, status);
