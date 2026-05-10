@@ -3,14 +3,18 @@ import { domColor } from "../../utils/signalUtils";
 
 const DEFAULT_LAT = 37.5133;
 const DEFAULT_LON = 127.1002;
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
-export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter }) {
+export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter, onCctvClick }) {
   const mapRef = useRef(null);
   const mapObj = useRef(null);
   const overlays = useRef({});
+  const cctvOverlays = useRef([]);
   const clusterer = useRef(null);
   const [ready, setReady] = useState(false);
   const [zoom, setZoom] = useState(4);
+  const [cctvList, setCctvList] = useState([]);
+  const [showCctv, setShowCctv] = useState(false);
 
   useEffect(() => {
     const KEY = import.meta.env.VITE_KAKAO_APP_KEY;
@@ -20,7 +24,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       return;
     }
     const s = document.createElement("script");
-    s.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${KEY}&libraries=clusterer&autoload=false`;
+    s.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${KEY}&libraries=clusterer,services&autoload=false`;
     s.setAttribute("data-kakao", "1");
     s.onload = () => window.kakao.maps.load(() => setReady(true));
     document.head.appendChild(s);
@@ -81,6 +85,38 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     mapObj.current.panTo(new kakao.maps.LatLng(selected.lat, selected.lon));
   }, [ready, selected?.crsrdId]);
 
+  // CCTV 목록 로드
+  useEffect(() => {
+    fetch(`${API_BASE}/api/cctv`)
+      .then(r => r.json())
+      .then(data => setCctvList(data))
+      .catch(() => {});
+  }, []);
+
+  // CCTV 마커 표시/숨김
+  useEffect(() => {
+    if (!ready || !mapObj.current) return;
+    const kakao = window.kakao;
+    cctvOverlays.current.forEach(ov => ov.setMap(null));
+    cctvOverlays.current = [];
+    if (!showCctv) return;
+
+    cctvList.forEach(cctv => {
+      const pos = new kakao.maps.LatLng(cctv.lat, cctv.lon);
+      const hasStream = !!cctv.streamUrl;
+
+      const el = document.createElement("div");
+      el.style.cssText = `cursor:pointer;width:36px;height:36px;border-radius:8px;background:rgba(234,179,8,0.2);border:2px solid #fbbf24;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 0 8px #fbbf2488`;
+      el.title = cctv.cctvNm;
+      el.textContent = "📹";
+      el.addEventListener("click", e => { e.stopPropagation(); onCctvClick?.(cctv); });
+
+      const ov = new kakao.maps.CustomOverlay({ position: pos, content: el, zIndex: 5, xAnchor: 0.5, yAnchor: 0.5 });
+      ov.setMap(mapObj.current);
+      cctvOverlays.current.push(ov);
+    });
+  }, [ready, showCctv, cctvList, onCctvClick]);
+
   useEffect(() => {
     if (!ready || !mapRef.current) return;
     const el = mapRef.current;
@@ -93,7 +129,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     };
     el.addEventListener("click", h);
     return () => el.removeEventListener("click", h);
-  }, [ready, onSelect]);
+  }, [ready, onSelect, onCctvClick]);
 
   if (!ready) return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0a1020", gap: 10 }}>
@@ -114,8 +150,21 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
           </div>
         ))}
       </div>
-      <div style={{ position: "absolute", top: 14, left: 14, background: "rgba(8,13,26,0.85)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 7, padding: "4px 12px", fontSize: 12, color: "#94a3b8", zIndex: 10, pointerEvents: "none" }}>
-        🗺️ 잠실역 반경 1km · V2X 실시간 · {crossroads.length}개 교차로
+      <div style={{ position: "absolute", top: 14, left: 14, display: "flex", gap: 7, zIndex: 10 }}>
+        <div style={{ background: "rgba(8,13,26,0.85)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 7, padding: "4px 12px", fontSize: 12, color: "#94a3b8", pointerEvents: "none" }}>
+          🗺️ 잠실역 반경 1km · V2X 실시간 · {crossroads.length}개 교차로
+        </div>
+        <button
+          onClick={() => setShowCctv(v => !v)}
+          style={{
+            background: showCctv ? "rgba(234,179,8,0.2)" : "rgba(8,13,26,0.85)",
+            border: `1px solid ${showCctv ? "rgba(234,179,8,0.6)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: 7, padding: "4px 12px", fontSize: 12,
+            color: showCctv ? "#fbbf24" : "#94a3b8",
+            cursor: "pointer", fontFamily: "inherit",
+          }}>
+          📹 CCTV {cctvList.length > 0 ? `${cctvList.length}개` : ""}
+        </button>
       </div>
       {zoom < 5 && (
         <div style={{ position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "rgba(29,78,216,0.8)", border: "1px solid rgba(96,165,250,0.5)", borderRadius: 7, padding: "5px 14px", fontSize: 12, color: "#fff", zIndex: 10, pointerEvents: "none" }}>

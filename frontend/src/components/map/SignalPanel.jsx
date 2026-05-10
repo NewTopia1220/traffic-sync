@@ -1,87 +1,155 @@
+import { useState, useEffect } from "react";
 import { statusCls, riskColor } from "../../utils/signalUtils";
 
-const H   = 90;   // 방향 박스 높이
-const CW  = 108;  // 가운데 박스 너비
-const GAP = 5;
+const DIR_LABELS = [
+  { dir: "north", label: "북", arrow: "↑" },
+  { dir: "east",  label: "동", arrow: "→" },
+  { dir: "south", label: "남", arrow: "↓" },
+  { dir: "west",  label: "서", arrow: "←" },
+];
 
-function SignalBadge({ signal, label }) {
-  if (!signal) return null;
-  const cls = statusCls(signal.status);
-  const color = cls === "green" ? "#22c55e" : cls === "red" ? "#ef4444" : "#6b7280";
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
-      <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
-      <span style={{ fontSize: 11, color: "#94a3b8", width: 38, flexShrink: 0, whiteSpace: "nowrap" }}>{label}</span>
-      <span style={{ fontSize: 12, fontWeight: 600, color, fontFamily: "monospace", whiteSpace: "nowrap" }}>
-        {(signal.rmndCs / 10).toFixed(1)}s
-      </span>
-    </div>
-  );
-}
+const SIGNAL_TYPES = [
+  { key: "stsg", label: "직진" },
+  { key: "ltsg", label: "좌회전" },
+  { key: "pdsg", label: "보행" },
+];
 
-/* dir="ns" → 북/남 (가로 전체), dir="we" → 서/동 (flex:1) */
-function DirBox({ dir, label, signals, fullWidth }) {
-  const d = signals?.[dir];
+function TrafficLight({ status, rmndCs, elapsed }) {
+  const cls = statusCls(status);
+  const isGreen = cls === "green";
+  const isRed = cls === "red";
+  const remaining = rmndCs != null ? Math.max(0, rmndCs / 10 - elapsed) : null;
+
   return (
-    <div style={{
-      height: H,
-      ...(fullWidth ? { flex: 1 } : { flex: 1 }),
-      boxSizing: "border-box",
-      background: d ? "rgba(30,38,55,0.9)" : "rgba(20,26,40,0.3)",
-      border: "1px solid rgba(255,255,255,0.07)",
-      borderRadius: 8, padding: "8px 12px",
-      opacity: d ? 1 : 0.35,
-    }}>
-      <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 700, marginBottom: 5 }}>{label}</div>
-      {d ? (
-        <>
-          <SignalBadge signal={d.stsg} label="직진" />
-          <SignalBadge signal={d.ltsg} label="좌회전" />
-          <SignalBadge signal={d.pdsg} label="보행" />
-        </>
-      ) : (
-        <div style={{ fontSize: 11, color: "#374151" }}>-</div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+      {/* 신호등 하우징 */}
+      <div style={{
+        background: "#111", border: "2px solid #333", borderRadius: 8,
+        padding: "5px 4px", display: "flex", flexDirection: "column", gap: 3, width: 22,
+      }}>
+        {/* 빨간불 */}
+        <div style={{
+          width: 14, height: 14, borderRadius: "50%",
+          background: isRed ? "#ef4444" : "#3f1010",
+          boxShadow: isRed ? "0 0 8px #ef4444" : "none",
+          transition: "all 0.3s",
+        }} />
+        {/* 노란불 (대기 중간) */}
+        <div style={{
+          width: 14, height: 14, borderRadius: "50%",
+          background: (!isRed && !isGreen) ? "#f59e0b" : "#3f3010",
+          boxShadow: (!isRed && !isGreen) ? "0 0 8px #f59e0b" : "none",
+          transition: "all 0.3s",
+        }} />
+        {/* 초록불 */}
+        <div style={{
+          width: 14, height: 14, borderRadius: "50%",
+          background: isGreen ? "#22c55e" : "#0a2810",
+          boxShadow: isGreen ? "0 0 8px #22c55e" : "none",
+          transition: "all 0.3s",
+        }} />
+      </div>
+      {/* 남은 시간 */}
+      {remaining != null && (
+        <div style={{
+          fontSize: 11, fontWeight: 700, fontFamily: "monospace",
+          color: isGreen ? "#22c55e" : isRed ? "#ef4444" : "#6b7280",
+        }}>
+          {remaining.toFixed(1)}s
+        </div>
       )}
     </div>
   );
 }
 
+function DirCard({ dir, label, arrow, signals, elapsed }) {
+  const d = signals?.[dir];
+  if (!d) return null; // 데이터 없는 방향은 아예 렌더링 안 함
+
+  const activeSigs = SIGNAL_TYPES.filter(({ key }) => !!d[key]);
+
+  return (
+    <div style={{
+      background: "rgba(14,22,40,0.95)",
+      border: "1px solid rgba(96,165,250,0.25)",
+      borderRadius: 10, padding: "10px 8px",
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+      flex: 1,
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#60a5fa" }}>
+        {arrow} {label}
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+        {activeSigs.map(({ key, label: sLabel }) => {
+          const sig = d[key];
+          return (
+            <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+              <TrafficLight status={sig.status} rmndCs={sig.rmndCs} elapsed={elapsed} />
+              <div style={{ fontSize: 9, color: "#6b7280" }}>{sLabel}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function SignalPanel({ cr }) {
+  const [elapsed, setElapsed] = useState(0);
   const s = cr.mappedSignals || {};
   const t = cr.totDt;
   const ts = t ? `${t.slice(0,4)}-${t.slice(4,6)}-${t.slice(6,8)} ${t.slice(8,10)}:${t.slice(10,12)}` : "-";
 
+  useEffect(() => {
+    setElapsed(0);
+    const id = setInterval(() => setElapsed(e => e + 0.1), 100);
+    return () => clearInterval(id);
+  }, [cr.totDt]);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: GAP }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontSize: 11, color: "#475569" }}>API 수집: {ts}</div>
 
-      {/* 행 1: 북 (전체 폭) */}
-      <div style={{ display: "flex", height: H, gap: GAP }}>
-        <DirBox dir="north" label="↑ 북" signals={s} />
-      </div>
+      {/* 북 / 북동 / 북서 */}
+      {(s.north || s.northeast || s.northwest) && <div style={{ display: "flex", gap: 6 }}>
+        {s.northwest && <DirCard dir="northwest" label="북서" arrow="↖" signals={s} elapsed={elapsed} />}
+        {s.north && <DirCard dir="north" label="북" arrow="↑" signals={s} elapsed={elapsed} />}
+        {s.northeast && <DirCard dir="northeast" label="북동" arrow="↗" signals={s} elapsed={elapsed} />}
+      </div>}
 
-      {/* 행 2: 서 + 가운데 + 동 */}
-      <div style={{ display: "flex", height: H, gap: GAP }}>
-        <DirBox dir="west" label="← 서" signals={s} />
+      {/* 서 + 교차로명 + 동 */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <DirCard dir="west" label="서" arrow="←" signals={s} elapsed={elapsed} />
         <div style={{
-          width: CW, minWidth: CW, height: H, boxSizing: "border-box",
-          background: "rgba(15,22,36,0.95)", border: "1px solid #1d4ed8", borderRadius: 10,
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          padding: "6px", textAlign: "center", gap: 3, flexShrink: 0,
+          width: 70, minWidth: 70, height: 70, flexShrink: 0,
+          background: "rgba(15,22,36,0.95)", border: "1px solid #1d4ed8",
+          borderRadius: 10, display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", gap: 4, padding: 4,
         }}>
-          <div style={{ fontSize: 10, color: "#60a5fa", fontWeight: 700, lineHeight: 1.3, wordBreak: "keep-all" }}>{cr.crsrdNm}</div>
-          <div style={{ width: 34, height: 34, flexShrink: 0, borderRadius: "50%", background: `conic-gradient(${riskColor(cr.riskScore)} ${cr.riskScore}%,#1f2937 0)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#0f1624", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: riskColor(cr.riskScore) }}>{cr.riskScore}</div>
+          <div style={{ fontSize: 9, color: "#60a5fa", fontWeight: 700, textAlign: "center", wordBreak: "keep-all", lineHeight: 1.3 }}>
+            {cr.crsrdNm}
           </div>
-          <div style={{ fontSize: 9, color: "#6b7280" }}>위험도</div>
+          <div style={{
+            width: 30, height: 30, borderRadius: "50%",
+            background: `conic-gradient(${riskColor(cr.riskScore)} ${cr.riskScore}%, #1f2937 0)`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <div style={{
+              width: 22, height: 22, borderRadius: "50%", background: "#0f1624",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 10, fontWeight: 700, color: riskColor(cr.riskScore),
+            }}>{cr.riskScore}</div>
+          </div>
         </div>
-        <DirBox dir="east" label="→ 동" signals={s} />
+        <DirCard dir="east" label="동" arrow="→" signals={s} elapsed={elapsed} />
       </div>
 
-      {/* 행 3: 남 (전체 폭) */}
-      <div style={{ display: "flex", height: H, gap: GAP }}>
-        <DirBox dir="south" label="↓ 남" signals={s} />
-      </div>
+      {/* 남 / 남동 / 남서 */}
+      {(s.south || s.southeast || s.southwest) && <div style={{ display: "flex", gap: 6 }}>
+        {s.southwest && <DirCard dir="southwest" label="남서" arrow="↙" signals={s} elapsed={elapsed} />}
+        {s.south && <DirCard dir="south" label="남" arrow="↓" signals={s} elapsed={elapsed} />}
+        {s.southeast && <DirCard dir="southeast" label="남동" arrow="↘" signals={s} elapsed={elapsed} />}
+      </div>}
     </div>
   );
 }
