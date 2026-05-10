@@ -25,9 +25,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TrafficScheduler {
 
+    // V2X 공공API 호출 서비스
     private final V2xApiService v2xApiService;
+    // 교차로 신호 상태 캐시 서비스
     private final TrafficCacheService cacheService;
+    // WebSocket 핸들러 (실시간 데이터 브로드캐스트)
     private final TrafficWebSocketHandler webSocketHandler;
+    // 교차로 정보 DB 접근 레포지토리
     private final CrossroadRepository crossroadRepository;
 
     @Value("${jamsil.lat}")
@@ -40,10 +44,12 @@ public class TrafficScheduler {
     private double radiusKm;
 
     @PostConstruct
+    // 애플리케이션 시작 시 초기 중심 좌표 설정 (잠실)
     public void init() {
         cacheService.setCenter(jamsilLat, jamsilLon, radiusKm);
     }
 
+    // 5초 후 첫 실행, 이후 ${traffic.poll.interval-ms}마다 실행 (예: 10000ms = 10초)
     @Scheduled(initialDelay = 5000, fixedRateString = "${traffic.poll.interval-ms}")
     public void pollTrafficData() {
         log.info("===== 교통 데이터 폴링 시작 =====");
@@ -57,6 +63,8 @@ public class TrafficScheduler {
                 return;
             }
 
+
+            // DB에서 조회된 교차로 엔티티를 API 호출에 필요한 CrossroadInfo 모델로 변환
             List<CrossroadInfo> crossroads = entities.stream().map(e -> {
                 CrossroadInfo info = new CrossroadInfo();
                 info.setCrsrdId(e.getCrsrdId());
@@ -68,8 +76,11 @@ public class TrafficScheduler {
 
             log.info("DB 교차로 조회: {}개", crossroads.size());
 
+            // V2X API 호출하여 교차로별 최신 신호 상태 가져오기
             Map<String, TrafficStatus> freshData = v2xApiService.fetchSignalData(crossroads);
+            // API 호출 결과를 캐시에 업데이트 (교차로ID → 신호 상태 맵)
             cacheService.updateAllSignals(freshData);
+            // WebSocket 핸들러를 통해 프론트엔드에 실시간 데이터 브로드캐스트 (예: { "CRSRD001": { stsg: "녹색", rmndCs: 150 }, ... })
             webSocketHandler.broadcast(freshData);
 
             log.info("===== 폴링 완료: {}개 브로드캐스트 =====", freshData.size());
