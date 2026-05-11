@@ -500,23 +500,41 @@ export default function MainDashboard({ onGoMap, onGoCctv, wsData }) {
   };
 
   // 예측 fetch — 즉시 더미 표시 후 실제 API 결과로 교체
+  // ------------------------ 민경 추가----------------------------------
   useEffect(() => {
-    if (!selectedRisk) return;
-    // seed: crsrdId 숫자 부분 또는 인덱스
-    const seed = parseInt(selectedRisk.id ?? riskIdx, 10) || riskIdx;
-    const dummy = makeForecast(seed);
-    setForecast({ up: dummy.up, down: dummy.down, name: selectedRisk.name, isDummy: true });
+    if (!selectedRisk || !selectedRisk.id) return;
 
-    if (!selectedRisk.id) return;
+    // 1. 서버에서 데이터를 가져오기 전에는 로딩 느낌을 주거나 빈 값을 세팅
+    // (더미 데이터를 아예 안 보여주고 싶다면 아래 한 줄만 남기세요)
+    setForecast({ up: [], down: [], name: selectedRisk.name, isDummy: true });
+
+    // 2. 자바 서버 호출
     fetch(`${API_BASE}/api/forecast/${selectedRisk.id}`)
-      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-      .then(d => {
-        if (d.up?.length && d.down?.length) {
-          setForecast({ up: d.up, down: d.down, name: d.crsrdNm ?? selectedRisk.name, isDummy: false });
+      .then((r) => {
+        if (!r.ok) throw new Error("서버 응답 에러");
+        return r.json();
+      })
+      .then((d) => {
+        // d.up과 d.down이 민경님 모델이 뱉어준 24개 숫자 배열입니다.
+        if (d.up && d.down) {
+          setForecast({
+            up: d.up,
+            down: d.down,
+            name: d.crsrdNm || selectedRisk.name,
+            isDummy: false, // 이제 진짜 AI 데이터라고 표시!
+          });
         }
       })
-      .catch(() => {}); // 더미 그대로 유지
-  }, [riskIdx, riskData.length]);
+      .catch((err) => {
+        console.error("예측 데이터 로드 실패:", err);
+        // 실패했을 때만 예비용 더미 데이터를 생성해서 보여줍니다.
+        const seed = parseInt(selectedRisk.id, 10) || 0;
+        const dummy = makeForecast(seed);
+        setForecast({ up: dummy.up, down: dummy.down, name: selectedRisk.name, isDummy: true });
+      });
+  }, [selectedRisk?.id]); // 교차로 ID가 바뀔 때마다 실행
+// -----------------------민경 추가 -------------------------------------------------
+
 
   // breakdown 실데이터
   const bdItems = selectedRisk ? [
