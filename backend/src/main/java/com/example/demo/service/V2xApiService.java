@@ -1,6 +1,9 @@
 package com.example.demo.service;
 
-import com.example.demo.model.*;
+import com.example.demo.model.CrossroadInfo;
+import com.example.demo.model.DirectionSignal;
+import com.example.demo.model.SignalDirection;
+import com.example.demo.model.TrafficStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -10,11 +13,18 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
 public class V2xApiService {
+
+    private static final String SEOUL_STDG_CD = "1100000000";
+    private static final String[] DIRECTIONS = {"nt", "et", "st", "wt", "ne", "se", "sw", "nw"};
+    private static final String[] SIGNAL_TYPES = {"Stsg", "Ltsg", "Pdsg", "Utsg", "Bssg", "Bcsg"};
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -40,14 +50,10 @@ public class V2xApiService {
     @Value("${jamsil.radius-km}")
     private double radiusKm;
 
-    private static final String[] DIRECTIONS = {"nt", "et", "st", "wt", "ne", "se", "sw", "nw"};
-    private static final String[] SIGNAL_TYPES = {"Stsg", "Ltsg", "Pdsg", "Utsg", "Bssg", "Bcsg"};
-
     public V2xApiService(WebClient webClient) {
         this.webClient = webClient;
     }
 
-    // 잠실역 반경 내 교차로 목록 가져오기
     public List<CrossroadInfo> fetchJamsilCrossroads() {
         List<CrossroadInfo> result = new ArrayList<>();
         int pageNo = 1;
@@ -59,8 +65,9 @@ public class V2xApiService {
                         .queryParam("pageNo", pageNo)
                         .queryParam("numOfRows", numOfRows)
                         .queryParam("type", "JSON")
-                        .queryParam("stdgCd", "1100000000")
-                        .build(true).toUri();
+                        .queryParam("stdgCd", SEOUL_STDG_CD)
+                        .build(true)
+                        .toUri();
 
                 String response = webClient.get()
                         .uri(uri)
@@ -72,12 +79,16 @@ public class V2xApiService {
                 JsonNode items = root.path("body").path("items").path("item");
                 int totalCount = root.path("body").path("totalCount").asInt();
 
-                if (!items.isArray() || items.size() == 0) break;
+                if (!items.isArray() || items.isEmpty()) {
+                    break;
+                }
 
                 for (JsonNode item : items) {
                     String latStr = item.path("mapCtptIntLat").asText("");
                     String lonStr = item.path("mapCtptIntLot").asText("");
-                    if (latStr.isEmpty() || lonStr.isEmpty()) continue;
+                    if (latStr.isBlank() || lonStr.isBlank()) {
+                        continue;
+                    }
 
                     double lat = Double.parseDouble(latStr);
                     double lon = Double.parseDouble(lonStr);
@@ -92,24 +103,28 @@ public class V2xApiService {
                     }
                 }
 
-                if (pageNo * numOfRows >= totalCount) break;
+                if (pageNo * numOfRows >= totalCount) {
+                    break;
+                }
                 pageNo++;
-
             } catch (Exception e) {
-                log.error("교차로 API 호출 실패 (page {}): {}", pageNo, e.getMessage());
+                log.error("Crossroad API fetch failed (page={}): {}", pageNo, e.getMessage());
                 break;
             }
         }
 
-        log.info("잠실역 반경 {}km 내 교차로 {}개 수집", radiusKm, result.size());
+        log.info("Loaded {} crossroads within {}km of the Jamsil center", result.size(), radiusKm);
         return result;
     }
 
-    // 신호등 데이터 가져오기 (교차로 ID 기준으로 필터)
     public Map<String, TrafficStatus> fetchSignalData(List<CrossroadInfo> crossroads) {
+        if (crossroads == null || crossroads.isEmpty()) {
+            return Map.of();
+        }
+
         Map<String, CrossroadInfo> crossroadMap = new HashMap<>();
-        for (CrossroadInfo c : crossroads) {
-            crossroadMap.put(c.getCrsrdId(), c);
+        for (CrossroadInfo crossroad : crossroads) {
+            crossroadMap.put(crossroad.getCrsrdId(), crossroad);
         }
 
         Map<String, TrafficStatus> result = new HashMap<>();
@@ -122,8 +137,9 @@ public class V2xApiService {
                         .queryParam("pageNo", pageNo)
                         .queryParam("numOfRows", numOfRows)
                         .queryParam("type", "JSON")
-                        .queryParam("stdgCd", "1100000000")
-                        .build(true).toUri();
+                        .queryParam("stdgCd", SEOUL_STDG_CD)
+                        .build(true)
+                        .toUri();
 
                 String response = webClient.get()
                         .uri(signalUri)
@@ -135,33 +151,34 @@ public class V2xApiService {
                 JsonNode items = root.path("body").path("items").path("item");
                 int totalCount = root.path("body").path("totalCount").asInt();
 
-                if (!items.isArray() || items.size() == 0) break;
+                if (!items.isArray() || items.isEmpty()) {
+                    break;
+                }
 
                 for (JsonNode item : items) {
                     String crsrdId = item.path("crsrdId").asText();
-                    if (!crossroadMap.containsKey(crsrdId)) continue;
-
                     CrossroadInfo crossroad = crossroadMap.get(crsrdId);
-                    TrafficStatus status = parseSignalItem(item, crossroad);
-                    result.put(crsrdId, status);
+                    if (crossroad == null) {
+                        continue;
+                    }
+
+                    result.put(crsrdId, parseSignalItem(item, crossroad));
                 }
 
-                // 대상 교차로를 모두 찾았으면 조기 종료
-                if (result.size() == crossroads.size()) break;
-                if (pageNo * numOfRows >= totalCount) break;
+                if (result.size() == crossroads.size() || pageNo * numOfRows >= totalCount) {
+                    break;
+                }
                 pageNo++;
-
             } catch (Exception e) {
-                log.error("신호등 API 호출 실패 (page {}): {}", pageNo, e.getMessage());
+                log.error("Signal API fetch failed (page={}): {}", pageNo, e.getMessage());
                 break;
             }
         }
 
-        log.info("신호 데이터 수집 완료: {}개", result.size());
+        log.info("Loaded signal data for {} crossroads", result.size());
         return result;
     }
 
-    // API 응답 item 하나를 TrafficStatus로 파싱
     private TrafficStatus parseSignalItem(JsonNode item, CrossroadInfo crossroad) {
         TrafficStatus status = new TrafficStatus();
         status.setCrsrdId(crossroad.getCrsrdId());
@@ -171,62 +188,74 @@ public class V2xApiService {
         status.setTotDt(item.path("totDt").asText());
         status.setServerTimeMs(System.currentTimeMillis());
 
-        // 원본 API 데이터 디버그 로그
         log.debug("[RAW] crsrdId={} totDt={} raw={}",
                 crossroad.getCrsrdId(), item.path("totDt").asText(), item);
 
         Map<String, SignalDirection> signals = new HashMap<>();
-
-        for (String dir : DIRECTIONS) {
-            SignalDirection direction = new SignalDirection();
-            boolean hasData = false;
-
-            for (String sigType : SIGNAL_TYPES) {
-                // 필드명 조합: dir + sigType + "SttsNm" / "RmndCs"
-                // 예: ntStsgSttsNm, ntStsgRmndCs
-                String statusKey = dir + sigType + "SttsNm";
-                String rmndKey   = dir + sigType + "RmndCs";
-
-                String sttsNm = item.path(statusKey).asText("").trim();
-                String rmndCs = item.path(rmndKey).asText("").trim();
-
-                if (sttsNm.isEmpty()) continue;
-
-                int rmnd = 0;
-                try { rmnd = Integer.parseInt(rmndCs); } catch (NumberFormatException ignored) {}
-
-                // 36001 = V2X 센티넬 값 (잔여시간 불명), 해당 신호 무시
-                if (rmnd >= 36000) continue;
-
-                DirectionSignal ds = new DirectionSignal(sttsNm, rmnd);
-                hasData = true;
-
-                switch (sigType.toLowerCase()) {
-                    case "stsg" -> direction.setStsg(ds);
-                    case "ltsg" -> direction.setLtsg(ds);
-                    case "pdsg" -> direction.setPdsg(ds);
-                    case "utsg" -> direction.setUtsg(ds);
-                    case "bssg" -> direction.setBssg(ds);
-                    case "bcsg" -> direction.setBcsg(ds);
-                }
+        for (String directionCode : DIRECTIONS) {
+            SignalDirection direction = parseDirectionSignals(item, directionCode);
+            if (direction != null) {
+                signals.put(directionCode, direction);
             }
-
-            if (hasData) signals.put(dir, direction);
         }
 
         status.setSignals(signals);
         return status;
     }
 
-    // Haversine 거리 계산 (km)
+    private SignalDirection parseDirectionSignals(JsonNode item, String directionCode) {
+        SignalDirection direction = new SignalDirection();
+        boolean hasData = false;
+
+        for (String signalType : SIGNAL_TYPES) {
+            String statusKey = directionCode + signalType + "SttsNm";
+            String remainKey = directionCode + signalType + "RmndCs";
+
+            String statusName = item.path(statusKey).asText("").trim();
+            String remainingText = item.path(remainKey).asText("").trim();
+            if (statusName.isBlank()) {
+                continue;
+            }
+
+            int remaining = parseRemainingCount(remainingText);
+            if (remaining >= 36_000) {
+                continue;
+            }
+
+            DirectionSignal signal = new DirectionSignal(statusName, remaining);
+            hasData = true;
+
+            switch (signalType.toLowerCase()) {
+                case "stsg" -> direction.setStsg(signal);
+                case "ltsg" -> direction.setLtsg(signal);
+                case "pdsg" -> direction.setPdsg(signal);
+                case "utsg" -> direction.setUtsg(signal);
+                case "bssg" -> direction.setBssg(signal);
+                case "bcsg" -> direction.setBcsg(signal);
+                default -> {
+                }
+            }
+        }
+
+        return hasData ? direction : null;
+    }
+
+    private int parseRemainingCount(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
     private boolean isWithinRadius(double lat, double lon) {
-        final int R = 6371;
+        final int earthRadiusKm = 6371;
         double dLat = Math.toRadians(lat - jamsilLat);
         double dLon = Math.toRadians(lon - jamsilLon);
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
                 + Math.cos(Math.toRadians(jamsilLat)) * Math.cos(Math.toRadians(lat))
                 * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        double distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        double distance = earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return distance <= radiusKm;
     }
 }

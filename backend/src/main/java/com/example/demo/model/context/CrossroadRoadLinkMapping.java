@@ -13,8 +13,10 @@ import java.util.List;
 @AllArgsConstructor
 public class CrossroadRoadLinkMapping {
     private String crsrdId;
+    private String directionCode;
     private String linkId;
     private double distanceMeters;
+    private Double bearingDegrees;
     private List<GeoPoint> vertices;
     private String lineString;
 }

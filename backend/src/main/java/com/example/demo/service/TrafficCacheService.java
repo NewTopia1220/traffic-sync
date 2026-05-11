@@ -11,18 +11,18 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-// 교차로 정보 및 신호 데이터를 메모리에 캐싱 (PoC용, 추후 Redis로 교체)
+// 교차로 정보와 신호 데이터를 메모리에 보관한다. PoC 이후 Redis 등으로 교체할 수 있다.
 @Service
 public class TrafficCacheService {
 
-    // 잠실 반경 내 교차로 목록 (좌표 포함)
+    // 잠실 반경 내 교차로 목록. V2X API의 좌표를 포함한다.
     private volatile List<CrossroadInfo> crossroads = Collections.emptyList();
 
-    // 교차로ID → 최신 신호 상태
+    // 교차로 ID별 최신 신호 상태.
     private final ConcurrentHashMap<String, TrafficStatus> signalCache = new ConcurrentHashMap<>();
 
     public void updateCrossroads(List<CrossroadInfo> list) {
-        this.crossroads = list;
+        this.crossroads = list == null ? Collections.emptyList() : List.copyOf(list);
     }
 
     public List<CrossroadInfo> getCrossroads() {
@@ -41,7 +41,9 @@ public class TrafficCacheService {
 
     public void updateAllSignals(Map<String, TrafficStatus> statusMap) {
         signalCache.clear();
-        signalCache.putAll(statusMap);
+        if (statusMap != null) {
+            signalCache.putAll(statusMap);
+        }
     }
 
     public TrafficStatus getSignal(String crsrdId) {

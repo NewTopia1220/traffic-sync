@@ -45,10 +45,10 @@ public class SupplementalDataScheduler {
         try {
             WeatherSnapshot weather = weatherApiService.fetchJamsilWeather();
             supplementalDataCacheService.updateWeather(weather);
-            log.info("기상청 날씨 갱신 완료: baseDateTime={}", weather.getBaseDateTime());
+            log.info("Weather refreshed: baseDateTime={}", weather.getBaseDateTime());
         } catch (Exception e) {
             supplementalDataCacheService.markWeatherStale();
-            log.warn("기상청 날씨 갱신 실패: {}", e.getMessage());
+            log.warn("Weather refresh failed: {}", e.getMessage());
         }
     }
 
@@ -61,7 +61,7 @@ public class SupplementalDataScheduler {
 
         List<CrossroadInfo> crossroads = trafficCacheService.getCrossroads();
         if (crossroads.isEmpty()) {
-            log.debug("교차로 캐시가 비어 있어 TOPIS 링크 매핑을 건너뜀");
+            log.debug("Crossroad cache is empty; road link mapping skipped");
             return;
         }
 
@@ -69,9 +69,12 @@ public class SupplementalDataScheduler {
             Map<String, TopisLinkGeometry> geometries = topisApiService.fetchAllLinkGeometries();
             Map<String, CrossroadRoadLinkMapping> mappings =
                     roadLinkMappingService.mapCrossroadsToNearestLinks(crossroads, geometries.values());
+            Map<String, Map<String, CrossroadRoadLinkMapping>> directionalMappings =
+                    roadLinkMappingService.mapCrossroadsToDirectionalLinks(crossroads, geometries.values());
             supplementalDataCacheService.updateMappings(mappings);
+            supplementalDataCacheService.updateDirectionalMappings(directionalMappings);
         } catch (Exception e) {
-            log.warn("TOPIS 링크 매핑 갱신 실패: {}", e.getMessage());
+            log.warn("TOPIS road link mapping refresh failed: {}", e.getMessage());
         }
     }
 
@@ -88,7 +91,7 @@ public class SupplementalDataScheduler {
                 speed.ifPresent(supplementalDataCacheService::updateSpeed);
             } catch (Exception e) {
                 supplementalDataCacheService.markSpeedsStale();
-                log.warn("TOPIS 구간속도 갱신 실패 (linkId={}): {}", linkId, e.getMessage());
+                log.warn("TOPIS speed refresh failed (linkId={}): {}", linkId, e.getMessage());
             }
         }
     }
@@ -100,13 +103,13 @@ public class SupplementalDataScheduler {
             return;
         }
 
-        for (CrossroadRoadLinkMapping mapping : supplementalDataCacheService.getMappings()) {
+        for (CrossroadRoadLinkMapping mapping : supplementalDataCacheService.getAllMappedLinkMappings()) {
             try {
                 Optional<RoadRiskSnapshot> risk = roadRiskApiService.fetchRisk(mapping);
                 risk.ifPresent(snapshot -> supplementalDataCacheService.updateRisk(mapping.getLinkId(), snapshot));
             } catch (Exception e) {
                 supplementalDataCacheService.markRisksStale();
-                log.warn("도로위험지수 갱신 실패 (linkId={}): {}", mapping.getLinkId(), e.getMessage());
+                log.warn("Road risk refresh failed (linkId={}): {}", mapping.getLinkId(), e.getMessage());
             }
         }
     }

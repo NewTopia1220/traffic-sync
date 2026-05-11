@@ -25,17 +25,17 @@ class ChatbotContextControllerTest {
     void returnsContextForExistingCrossroadId() throws Exception {
         when(contextService.buildContext("C1")).thenReturn(IntersectionAiContext.builder()
                 .crsrdId("C1")
-                .crsrdNm("잠실역사거리")
+                .crsrdNm("잠실3사거리")
                 .lat(37.5133)
                 .lon(127.1002)
-                .summaryKo("챗봇용 요약")
+                .summaryKo("챗봇 요약")
                 .build());
 
         mockMvc.perform(get("/api/chatbot/context/C1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.crsrdId").value("C1"))
-                .andExpect(jsonPath("$.crsrdNm").value("잠실역사거리"))
-                .andExpect(jsonPath("$.summaryKo").value("챗봇용 요약"));
+                .andExpect(jsonPath("$.crsrdNm").value("잠실3사거리"))
+                .andExpect(jsonPath("$.summaryKo").value("챗봇 요약"));
     }
 
     @Test

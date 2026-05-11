@@ -5,6 +5,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -18,5 +21,7 @@ public class IntersectionAiContext {
     private WeatherSnapshot weather;
     private TrafficSpeedContext trafficSpeed;
     private RoadRiskSnapshot roadRisk;
+    @Builder.Default
+    private Map<String, DirectionRoadContext> directionRoads = new LinkedHashMap<>();
     private String summaryKo;
 }

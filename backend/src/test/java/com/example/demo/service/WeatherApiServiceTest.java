@@ -45,6 +45,27 @@ class WeatherApiServiceTest {
     }
 
     @Test
+    void treatsKmaNoneTextAsZeroPrecipitation() throws Exception {
+        String response = """
+                {
+                  "response": {
+                    "body": {
+                      "items": {
+                        "item": [
+                          {"baseDate":"20260507","baseTime":"1300","category":"RN1","obsrValue":"강수없음"}
+                        ]
+                      }
+                    }
+                  }
+                }
+                """;
+
+        WeatherSnapshot snapshot = service.parseWeatherResponse(response);
+
+        assertThat(snapshot.getPrecipitationMm()).isEqualTo(0.0);
+    }
+
+    @Test
     void usesPreviousHourBeforeUltraShortDataIsLikelyAvailable() {
         WeatherApiService.BaseDateTime base = service.latestUltraSrtBaseDateTime(
                 ZonedDateTime.of(2026, 5, 7, 14, 30, 0, 0, ZoneId.of("Asia/Seoul"))

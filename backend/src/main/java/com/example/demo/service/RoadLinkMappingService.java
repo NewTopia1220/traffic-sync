@@ -17,6 +17,8 @@ import java.util.Map;
 @Service
 public class RoadLinkMappingService {
 
+    private static final String[] DIRECTION_CODES = {"nt", "ne", "et", "se", "st", "sw", "wt", "nw"};
+
     @Value("${road-link.max-match-distance-meters:150}")
     private double maxMatchDistanceMeters;
 
@@ -43,7 +45,7 @@ public class RoadLinkMappingService {
             }
 
             if (bestGeometry == null || bestDistance > maxMatchDistanceMeters) {
-                log.debug("TOPIS 링크 매칭 실패: {} ({}) 최단거리 {}m",
+                log.debug("TOPIS link match failed: {} ({}) nearest={}m",
                         crossroad.getCrsrdNm(), crossroad.getCrsrdId(), Math.round(bestDistance));
                 continue;
             }
@@ -57,7 +59,65 @@ public class RoadLinkMappingService {
                     .build());
         }
 
-        log.info("교차로-TOPIS 링크 자동 매칭 완료: {}개 / 대상 {}개", result.size(), crossroads.size());
+        log.info("Crossroad-TOPIS nearest link mapping completed: {} / {}", result.size(), crossroads.size());
         return result;
+    }
+
+    public Map<String, Map<String, CrossroadRoadLinkMapping>> mapCrossroadsToDirectionalLinks(
+            List<CrossroadInfo> crossroads,
+            Collection<TopisLinkGeometry> geometries
+    ) {
+        Map<String, Map<String, CrossroadRoadLinkMapping>> result = new LinkedHashMap<>();
+        if (crossroads == null || crossroads.isEmpty() || geometries == null || geometries.isEmpty()) {
+            return result;
+        }
+
+        for (CrossroadInfo crossroad : crossroads) {
+            GeoPoint crossroadPoint = new GeoPoint(crossroad.getLat(), crossroad.getLon());
+            Map<String, CrossroadRoadLinkMapping> byDirection = new LinkedHashMap<>();
+
+            for (TopisLinkGeometry geometry : geometries) {
+                GeoDistanceUtils.ClosestPoint closest =
+                        GeoDistanceUtils.closestPointOnPolyline(crossroadPoint, geometry.getVertices());
+                if (closest.distanceMeters() > maxMatchDistanceMeters) {
+                    continue;
+                }
+
+                String directionCode = directionCodeForBearing(closest.bearingDegrees());
+                if (directionCode == null) {
+                    continue;
+                }
+
+                CrossroadRoadLinkMapping current = byDirection.get(directionCode);
+                if (current != null && current.getDistanceMeters() <= closest.distanceMeters()) {
+                    continue;
+                }
+
+                byDirection.put(directionCode, CrossroadRoadLinkMapping.builder()
+                        .crsrdId(crossroad.getCrsrdId())
+                        .directionCode(directionCode)
+                        .linkId(geometry.getLinkId())
+                        .distanceMeters(closest.distanceMeters())
+                        .bearingDegrees(closest.bearingDegrees())
+                        .vertices(geometry.getVertices())
+                        .lineString(RoadRiskApiService.buildLineString(geometry.getVertices()))
+                        .build());
+            }
+
+            if (!byDirection.isEmpty()) {
+                result.put(crossroad.getCrsrdId(), byDirection);
+            }
+        }
+
+        log.info("Crossroad-TOPIS directional link mapping completed: {} / {}", result.size(), crossroads.size());
+        return result;
+    }
+
+    private static String directionCodeForBearing(double bearingDegrees) {
+        if (Double.isNaN(bearingDegrees)) {
+            return null;
+        }
+        int sector = (int) Math.floor(((bearingDegrees + 22.5) % 360.0) / 45.0);
+        return DIRECTION_CODES[sector];
     }
 }

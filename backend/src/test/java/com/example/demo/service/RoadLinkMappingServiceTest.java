@@ -22,7 +22,7 @@ class RoadLinkMappingServiceTest {
 
         CrossroadInfo crossroad = new CrossroadInfo();
         crossroad.setCrsrdId("C1");
-        crossroad.setCrsrdNm("잠실역사거리");
+        crossroad.setCrsrdNm("잠실3사거리");
         crossroad.setLat(37.5133);
         crossroad.setLon(127.1002);
 
@@ -64,5 +64,54 @@ class RoadLinkMappingServiceTest {
                 service.mapCrossroadsToNearestLinks(List.of(crossroad), List.of(far));
 
         assertThat(mappings).isEmpty();
+    }
+
+    @Test
+    void mapsCrossroadToNearestLinksByDirection() {
+        ReflectionTestUtils.setField(service, "maxMatchDistanceMeters", 30.0);
+
+        CrossroadInfo crossroad = new CrossroadInfo();
+        crossroad.setCrsrdId("C1");
+        crossroad.setLat(37.0000);
+        crossroad.setLon(127.0000);
+
+        TopisLinkGeometry north = TopisLinkGeometry.builder()
+                .linkId("LN")
+                .vertices(List.of(
+                        new GeoPoint(37.0001, 126.9999),
+                        new GeoPoint(37.0001, 127.0001)
+                ))
+                .build();
+        TopisLinkGeometry east = TopisLinkGeometry.builder()
+                .linkId("LE")
+                .vertices(List.of(
+                        new GeoPoint(36.9999, 127.0001),
+                        new GeoPoint(37.0001, 127.0001)
+                ))
+                .build();
+        TopisLinkGeometry south = TopisLinkGeometry.builder()
+                .linkId("LS")
+                .vertices(List.of(
+                        new GeoPoint(36.9999, 126.9999),
+                        new GeoPoint(36.9999, 127.0001)
+                ))
+                .build();
+        TopisLinkGeometry west = TopisLinkGeometry.builder()
+                .linkId("LW")
+                .vertices(List.of(
+                        new GeoPoint(36.9999, 126.9999),
+                        new GeoPoint(37.0001, 126.9999)
+                ))
+                .build();
+
+        Map<String, Map<String, CrossroadRoadLinkMapping>> mappings =
+                service.mapCrossroadsToDirectionalLinks(List.of(crossroad), List.of(north, east, south, west));
+
+        assertThat(mappings).containsKey("C1");
+        assertThat(mappings.get("C1")).containsKeys("nt", "et", "st", "wt");
+        assertThat(mappings.get("C1").get("nt").getLinkId()).isEqualTo("LN");
+        assertThat(mappings.get("C1").get("et").getLinkId()).isEqualTo("LE");
+        assertThat(mappings.get("C1").get("st").getLinkId()).isEqualTo("LS");
+        assertThat(mappings.get("C1").get("wt").getLinkId()).isEqualTo("LW");
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -19,6 +20,8 @@ public class SupplementalDataCacheService {
 
     private volatile WeatherSnapshot weather;
     private final ConcurrentHashMap<String, CrossroadRoadLinkMapping> mappingsByCrossroadId = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Map<String, CrossroadRoadLinkMapping>> directionalMappingsByCrossroadId =
+            new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, RoadSpeedSnapshot> speedsByLinkId = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, RoadRiskSnapshot> risksByLinkId = new ConcurrentHashMap<>();
 
@@ -38,21 +41,58 @@ public class SupplementalDataCacheService {
 
     public void updateMappings(Map<String, CrossroadRoadLinkMapping> mappings) {
         mappingsByCrossroadId.clear();
-        mappingsByCrossroadId.putAll(mappings);
+        if (mappings != null) {
+            mappingsByCrossroadId.putAll(mappings);
+        }
     }
 
     public Optional<CrossroadRoadLinkMapping> getMapping(String crsrdId) {
         return Optional.ofNullable(mappingsByCrossroadId.get(crsrdId));
     }
 
+    public void updateDirectionalMappings(Map<String, Map<String, CrossroadRoadLinkMapping>> mappings) {
+        directionalMappingsByCrossroadId.clear();
+        if (mappings == null) {
+            return;
+        }
+        mappings.forEach((crsrdId, byDirection) -> {
+            if (byDirection != null) {
+                directionalMappingsByCrossroadId.put(
+                        crsrdId,
+                        Collections.unmodifiableMap(new LinkedHashMap<>(byDirection))
+                );
+            }
+        });
+    }
+
+    public Map<String, CrossroadRoadLinkMapping> getDirectionalMappings(String crsrdId) {
+        return directionalMappingsByCrossroadId.getOrDefault(crsrdId, Collections.emptyMap());
+    }
+
     public Collection<CrossroadRoadLinkMapping> getMappings() {
         return Collections.unmodifiableCollection(mappingsByCrossroadId.values());
     }
 
+    public Collection<CrossroadRoadLinkMapping> getAllMappedLinkMappings() {
+        Map<String, CrossroadRoadLinkMapping> uniqueByLinkId = new LinkedHashMap<>();
+        mappingsByCrossroadId.values().forEach(mapping -> putMappingByLinkId(uniqueByLinkId, mapping));
+        directionalMappingsByCrossroadId.values().forEach(byDirection ->
+                byDirection.values().forEach(mapping -> putMappingByLinkId(uniqueByLinkId, mapping)));
+        return Collections.unmodifiableCollection(uniqueByLinkId.values());
+    }
+
     public Set<String> getMappedLinkIds() {
-        return mappingsByCrossroadId.values().stream()
+        return getAllMappedLinkMappings().stream()
                 .map(CrossroadRoadLinkMapping::getLinkId)
+                .filter(linkId -> linkId != null && !linkId.isBlank())
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    private void putMappingByLinkId(Map<String, CrossroadRoadLinkMapping> mappings, CrossroadRoadLinkMapping mapping) {
+        if (mapping == null || mapping.getLinkId() == null || mapping.getLinkId().isBlank()) {
+            return;
+        }
+        mappings.putIfAbsent(mapping.getLinkId(), mapping);
     }
 
     public void updateSpeed(RoadSpeedSnapshot snapshot) {
