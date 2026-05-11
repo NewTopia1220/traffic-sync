@@ -1,105 +1,130 @@
 import { useState, useEffect } from "react";
-import { GU_LIST, HANGANG_PATH, toSvg } from "../../constants/seoulGeoData";
+import { GU_LIST } from "../../constants/seoulGeoData";
+
+// HTML 파일 기준 하드코딩 좌표 (viewBox="0 0 460 320")
+const GU_COORDS = {
+  "도봉구":   { cx:320, cy:40  },
+  "노원구":   { cx:290, cy:60  },
+  "강북구":   { cx:250, cy:80  },
+  "은평구":   { cx:100, cy:80  },
+  "성북구":   { cx:218, cy:106 },
+  "중랑구":   { cx:320, cy:100 },
+  "종로구":   { cx:170, cy:124 },
+  "서대문구": { cx:130, cy:140 },
+  "동대문구": { cx:282, cy:130 },
+  "마포구":   { cx:92,  cy:160 },
+  "중구":     { cx:220, cy:148 },
+  "성동구":   { cx:262, cy:158 },
+  "강서구":   { cx:56,  cy:220 },
+  "영등포구": { cx:140, cy:218 },
+  "광진구":   { cx:320, cy:148 },
+  "강동구":   { cx:412, cy:230 },
+  "양천구":   { cx:100, cy:226 },
+  "동작구":   { cx:190, cy:220 },
+  "강남구":   { cx:260, cy:234 },
+  "구로구":   { cx:64,  cy:252 },
+  "금천구":   { cx:80,  cy:290 },
+  "관악구":   { cx:180, cy:270 },
+  "서초구":   { cx:250, cy:282 },
+  "송파구":   { cx:370, cy:240 },
+  "용산구":   { cx:200, cy:150 },
+};
+
+// 한강 path (HTML 파일 그대로)
+const HANGANG = "M0,170 C80,158 150,200 220,180 C300,158 360,200 460,178 L460,200 C360,222 300,180 220,202 C150,222 80,180 0,192 Z";
 
 export default function SeoulSvgMap({ onGoMap, selectedGu, onSelectGu, loading }) {
   const [hoveredGu, setHoveredGu] = useState(null);
   const [pulse, setPulse] = useState(0);
 
   useEffect(() => {
-    const t = setInterval(() => setPulse(p => (p + 1) % 100), 60);
+    const t = setInterval(() => setPulse(p => (p + 1) % 60), 60);
     return () => clearInterval(t);
   }, []);
 
-  return (
-    <div style={{ position:"relative", width:"100%", height:"100%", userSelect:"none", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+  // GU_LIST 기준으로 렌더링, 좌표는 GU_COORDS에서 가져옴
+  const guEntries = GU_LIST.map(gu => ({
+    ...gu,
+    coord: GU_COORDS[gu.name],
+  })).filter(gu => gu.coord);
 
-      <button
-        onClick={() => onGoMap(selectedGu)}
-        style={{
-          position:"absolute", top:0, right:0, zIndex:5,
-          padding:"8px 16px", borderRadius:7,
-          background:"rgba(34,197,94,0.15)", border:"1px solid rgba(34,197,94,0.5)",
-          color:"#22c55e", fontSize:13, fontWeight:700, cursor:"pointer",
-          fontFamily:"inherit", display:"flex", alignItems:"center", gap:6,
-          transition:"all .15s",
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background="rgba(34,197,94,0.28)"; }}
-        onMouseLeave={e => { e.currentTarget.style.background="rgba(34,197,94,0.15)"; }}
-      >
-        🗺️ 실시간 지도 →
-      </button>
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", userSelect: "none" }}>
 
       {loading && (
-        <div style={{ position:"absolute", inset:0, background:"rgba(7,12,23,0.7)", zIndex:10, display:"flex", alignItems:"center", justifyContent:"center", borderRadius:8, gap:8 }}>
-          <div style={{ width:20, height:20, border:"2px solid rgba(59,130,246,0.3)", borderTop:"2px solid #3b82f6", borderRadius:"50%", animation:"spin 1s linear infinite" }}/>
-          <span style={{ fontSize:13, color:"#60a5fa" }}>데이터 수집 중...</span>
+        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <div style={{ width: 16, height: 16, border: "2px solid #333", borderTop: "2px solid #4ea6ff", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+          <span style={{ fontSize: 12, color: "#4ea6ff", fontFamily: "monospace" }}>수집 중...</span>
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         </div>
       )}
 
-      <svg viewBox="30 10 355 365" style={{ width:"100%", height:"100%" }}>
-        <defs>
-          <radialGradient id="seoulGrad" cx="50%" cy="50%" r="60%">
-            <stop offset="0%" stopColor="#1e3a8a" stopOpacity="0.9"/>
-            <stop offset="100%" stopColor="#0f172a" stopOpacity="0.95"/>
-          </radialGradient>
-          <filter id="glow">
-            <feGaussianBlur stdDeviation="2.5" result="blur"/>
-            <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-          </filter>
-          <filter id="guGlow">
-            <feGaussianBlur stdDeviation="3" result="blur"/>
-            <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-          </filter>
-        </defs>
+      <svg
+        viewBox="0 0 460 320"
+        preserveAspectRatio="xMidYMid meet"
+        style={{ width: "100%", height: "100%", display: "block" }}
+      >
+        {/* 배경 */}
+        <rect width="460" height="320" fill="#000" />
 
-        <rect x="30" y="10" width="355" height="365" fill="url(#seoulGrad)" rx="12"/>
-        <path d={HANGANG_PATH} fill="#0ea5e9" opacity="0.35"/>
-        <text x="210" y="228" fontSize="9" fill="#38bdf8" opacity="0.8" fontFamily="Malgun Gothic,sans-serif">한 강</text>
+        {/* 한강 */}
+        <path d={HANGANG} fill="#1f5c8a" opacity="0.55" />
+        <text x="232" y="195" textAnchor="middle"
+          fontFamily="Pretendard,'Malgun Gothic',sans-serif"
+          fontSize="9" fill="#9bd0ec">한강</text>
 
-        {GU_LIST.map(gu => {
-          const [x, y] = toSvg(gu.lat, gu.lon);
-          if (x < 55 || x > 380 || y < 15 || y > 375) return null;
-          const isSel = selectedGu?.name === gu.name;
-          const isHov = hoveredGu === gu.name;
-          const r = isSel ? 6 : isHov ? 5 : 2.5;
-          const dotColor = isSel ? "#f59e0b" : "#60a5fa";
-          const textColor = isSel ? "#fde68a" : isHov ? "#93c5fd" : "#93c5fd";
-          const textSize = isSel ? 9.5 : isHov ? 8.5 : 7.5;
-          const fontWeight = isSel ? "700" : "400";
+        {/* 자치구 */}
+        <g fontFamily="Pretendard,'Malgun Gothic',sans-serif" fontSize="9" fill="#aab4c8">
+          {guEntries.map(gu => {
+            const { cx, cy } = gu.coord;
+            const isSel = selectedGu?.name === gu.name;
+            const isHov = hoveredGu === gu.name;
 
-          return (
-            <g key={gu.name}
-              style={{ cursor:"pointer" }}
-              onClick={e => { e.stopPropagation(); onSelectGu(gu); }}
-              onMouseEnter={() => setHoveredGu(gu.name)}
-              onMouseLeave={() => setHoveredGu(null)}
-            >
-              {isSel && (
-                <circle cx={x} cy={y} r={12} fill="none" stroke="#f59e0b" strokeWidth="1" opacity="0.4" filter="url(#guGlow)"/>
-              )}
-              {isHov && !isSel && (
-                <circle cx={x} cy={y} r={9} fill="rgba(96,165,250,0.15)" stroke="#60a5fa" strokeWidth="0.8" opacity="0.6"/>
-              )}
-              <circle cx={x} cy={y} r={r} fill={dotColor} opacity={isSel ? 1 : isHov ? 0.9 : 0.65}/>
-              <text x={x} y={y - (isSel ? 9 : 6)} fontSize={textSize}
-                fill={textColor} opacity={isSel ? 1 : isHov ? 1 : 0.75}
-                textAnchor="middle" fontFamily="Malgun Gothic,sans-serif" fontWeight={fontWeight}>
-                {gu.name}
-              </text>
-            </g>
-          );
-        })}
+            // 한강(y 170~200)과 겹치면 라벨 아래로
+            const onRiver = cy >= 165 && cy <= 205;
+            const textY = onRiver ? cy + 13 : cy - 7;
 
-        {selectedGu && (() => {
-          const [sx, sy] = toSvg(selectedGu.lat, selectedGu.lon);
-          return (
-            <>
-              <circle cx={sx} cy={sy} r={14 + (pulse % 20) * 0.4} fill="none" stroke="#f59e0b" strokeWidth="1" opacity={0.35 - (pulse % 20) * 0.015}/>
-              <text x={sx + 14} y={sy - 8} fontSize="9" fill="#fde68a" fontFamily="Malgun Gothic,sans-serif" fontWeight="700">▶ {selectedGu.name}</text>
-            </>
-          );
-        })()}
+            return (
+              <g key={gu.name}
+                style={{ cursor: "pointer" }}
+                onClick={e => { e.stopPropagation(); onSelectGu(gu); }}
+                onMouseEnter={() => setHoveredGu(gu.name)}
+                onMouseLeave={() => setHoveredGu(null)}
+              >
+                {/* 선택 링 */}
+                {isSel && (
+                  <>
+                    <circle cx={cx} cy={cy} r={22} fill="rgba(255,170,51,.10)" stroke="rgba(255,170,51,.45)" strokeWidth="1" />
+                    <circle cx={cx} cy={cy} r={14} fill="rgba(255,170,51,.18)" stroke="rgba(255,170,51,.6)"  strokeWidth="1" />
+                    {/* 펄스 */}
+                    <circle cx={cx} cy={cy} r={26 + (pulse % 30) * 0.4} fill="none" stroke="rgba(255,170,51,.3)" strokeWidth="0.8"
+                      opacity={Math.max(0, 0.35 - (pulse % 30) * 0.012)} />
+                  </>
+                )}
+                {isHov && !isSel && (
+                  <circle cx={cx} cy={cy} r={9} fill="rgba(78,166,255,0.12)" stroke="#4ea6ff" strokeWidth="0.8" opacity="0.7" />
+                )}
+
+                {/* 점 */}
+                <circle cx={cx} cy={cy} r={isSel ? 6 : 3}
+                  fill={isSel ? "#ffaa33" : "#4ea6ff"}
+                  stroke={isSel ? "#fff" : "none"}
+                  strokeWidth={isSel ? "1" : "0"}
+                  opacity={isHov && !isSel ? 1 : 0.9} />
+
+                {/* 라벨 */}
+                <text x={cx} y={textY} textAnchor="middle"
+                  fill={isSel ? "#ffaa33" : isHov ? "#e2e8f0" : "#aab4c8"}
+                  fontSize={isSel ? "10" : "9"}
+                  fontWeight={isSel ? "700" : "400"}
+                  opacity={isSel ? 1 : isHov ? 1 : 0.9}>
+                  {gu.name}
+                </text>
+
+              </g>
+            );
+          })}
+        </g>
       </svg>
 
     </div>

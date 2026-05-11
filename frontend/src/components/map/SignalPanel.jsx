@@ -70,13 +70,13 @@ function DirCard({ dir, label, arrow, signals, elapsed }) {
 
   return (
     <div style={{
-      background: "rgba(14,22,40,0.95)",
-      border: "1px solid rgba(96,165,250,0.25)",
-      borderRadius: 10, padding: "10px 8px",
+      background: "rgba(18,16,10,0.75)",
+      border: "1px solid rgba(42,36,24,0.8)",
+      borderRadius: 4, padding: "10px 8px",
       display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
       flex: 1,
     }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#60a5fa" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#4ea6ff" }}>
         {arrow} {label}
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
@@ -122,8 +122,8 @@ export default function SignalPanel({ cr }) {
         <DirCard dir="west" label="서" arrow="←" signals={s} elapsed={elapsed} />
         <div style={{
           width: 70, minWidth: 70, height: 70, flexShrink: 0,
-          background: "rgba(15,22,36,0.95)", border: "1px solid #1d4ed8",
-          borderRadius: 10, display: "flex", flexDirection: "column",
+          background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)",
+          borderRadius: 4, display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "center", gap: 4, padding: 4,
         }}>
           <div style={{ fontSize: 9, color: "#60a5fa", fontWeight: 700, textAlign: "center", wordBreak: "keep-all", lineHeight: 1.3 }}>
@@ -135,7 +135,7 @@ export default function SignalPanel({ cr }) {
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             <div style={{
-              width: 22, height: 22, borderRadius: "50%", background: "#0f1624",
+              width: 22, height: 22, borderRadius: "50%", background: "rgba(0,0,0,0.82)",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: 10, fontWeight: 700, color: riskColor(cr.riskScore),
             }}>{cr.riskScore}</div>
