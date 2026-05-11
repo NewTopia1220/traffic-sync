@@ -43,7 +43,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     kakao.maps.event.addListener(map, "zoom_changed", () => setZoom(map.getLevel()));
     clusterer.current = new kakao.maps.MarkerClusterer({
       map, averageCenter: true, minLevel: 5,
-      styles: [{ width: "42px", height: "42px", background: "rgba(29,78,216,0.85)", borderRadius: "50%", border: "2px solid rgba(96,165,250,0.8)", color: "#fff", fontSize: "14px", fontWeight: "700", lineHeight: "42px", textAlign: "center" }],
+      styles: [{ width: "42px", height: "42px", background: "rgba(18,14,10,0.9)", borderRadius: "50%", border: "2px solid rgba(255,170,51,0.7)", color: "#ffaa33", fontSize: "14px", fontWeight: "700", lineHeight: "42px", textAlign: "center" }],
     });
   }, [ready]);
 
@@ -60,7 +60,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         const isSel = selected?.crsrdId === cr.crsrdId;
         const color = domColor(cr.mappedSignals);
         const content = isSel
-          ? `<div style="position:relative;cursor:pointer"><div style="width:36px;height:36px;border-radius:50%;border:2px solid ${color};background:${color}33;display:flex;align-items:center;justify-content:center"><div style="width:13px;height:13px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}"></div></div><div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:rgba(10,16,30,0.95);border:1px solid ${color}55;border-radius:4px;padding:2px 8px;font-size:11px;color:${color};white-space:nowrap;font-weight:700;font-family:Malgun Gothic,sans-serif">${cr.crsrdNm}</div></div>`
+          ? `<div style="position:relative;cursor:pointer"><div style="width:36px;height:36px;border-radius:50%;border:2px solid ${color};background:${color}33;display:flex;align-items:center;justify-content:center"><div style="width:13px;height:13px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}"></div></div><div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:rgba(18,14,10,0.92);border:1px solid ${color}66;border-radius:3px;padding:2px 8px;font-size:11px;color:${color};white-space:nowrap;font-weight:700;font-family:Malgun Gothic,sans-serif">${cr.crsrdNm}</div></div>`
           : `<div style="width:12px;height:12px;border-radius:50%;border:2px solid rgba(255,255,255,0.35);background:${color};box-shadow:0 0 5px ${color}88;cursor:pointer"></div>`;
         const ov = new kakao.maps.CustomOverlay({ position: pos, content, zIndex: isSel ? 10 : 3, xAnchor: 0.5, yAnchor: 0.5 });
         ov.setMap(mapObj.current);
@@ -142,32 +142,32 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
-      <div style={{ position: "absolute", top: 14, right: 14, background: "rgba(8,13,26,0.9)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 9, padding: "10px 14px", zIndex: 10, pointerEvents: "none" }}>
-        <div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700, marginBottom: 8 }}>교통 상태</div>
-        {[["#22c55e", "원활 (40km/h+)"], ["#f59e0b", "서행 (20~40km/h)"], ["#ef4444", "혼잡 (~20km/h)"]].map(([c, l]) => (
+      <div style={{ position: "absolute", top: 14, right: 14, background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "10px 14px", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
+        <div style={{ fontSize: 12, color: "#aab4c8", fontWeight: 700, marginBottom: 8 }}>교통 상태</div>
+        {[["#2ee07a", "원활 (40km/h+)"], ["#ffaa33", "서행 (20~40km/h)"], ["#ff5566", "혼잡 (~20km/h)"]].map(([c, l]) => (
           <div key={l} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
-            <div style={{ width: 9, height: 9, borderRadius: "50%", background: c }} /><span style={{ fontSize: 12, color: "#94a3b8" }}>{l}</span>
+            <div style={{ width: 9, height: 9, borderRadius: "50%", background: c }} /><span style={{ fontSize: 12, color: "#aab4c8" }}>{l}</span>
           </div>
         ))}
       </div>
       <div style={{ position: "absolute", top: 14, left: 14, display: "flex", gap: 7, zIndex: 10 }}>
-        <div style={{ background: "rgba(8,13,26,0.85)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 7, padding: "4px 12px", fontSize: 12, color: "#94a3b8", pointerEvents: "none" }}>
+        <div style={{ background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "4px 12px", fontSize: 12, color: "#aab4c8", pointerEvents: "none", backdropFilter: "blur(4px)" }}>
           🗺️ 잠실역 반경 1km · V2X 실시간 · {crossroads.length}개 교차로
         </div>
         <button
           onClick={() => setShowCctv(v => !v)}
           style={{
-            background: showCctv ? "rgba(234,179,8,0.2)" : "rgba(8,13,26,0.85)",
-            border: `1px solid ${showCctv ? "rgba(234,179,8,0.6)" : "rgba(255,255,255,0.08)"}`,
-            borderRadius: 7, padding: "4px 12px", fontSize: 12,
-            color: showCctv ? "#fbbf24" : "#94a3b8",
-            cursor: "pointer", fontFamily: "inherit",
+            background: showCctv ? "rgba(255,170,51,0.15)" : "rgba(18,14,10,0.88)",
+            border: `1px solid ${showCctv ? "rgba(255,170,51,0.5)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: 4, padding: "4px 12px", fontSize: 12,
+            color: showCctv ? "#ffaa33" : "#aab4c8",
+            cursor: "pointer", fontFamily: "inherit", backdropFilter: "blur(4px)",
           }}>
           📹 CCTV {cctvList.length > 0 ? `${cctvList.length}개` : ""}
         </button>
       </div>
       {zoom < 5 && (
-        <div style={{ position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "rgba(29,78,216,0.8)", border: "1px solid rgba(96,165,250,0.5)", borderRadius: 7, padding: "5px 14px", fontSize: 12, color: "#fff", zIndex: 10, pointerEvents: "none" }}>
+        <div style={{ position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, padding: "5px 14px", fontSize: 12, color: "#aab4c8", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
           클러스터 모드 · 확대하면 교차로별 신호 표시
         </div>
       )}

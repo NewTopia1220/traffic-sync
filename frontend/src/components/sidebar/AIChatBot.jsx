@@ -8,7 +8,6 @@ export default function AIChatBot({ selected }) {
   const [chatInput, setChatInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 교차로 바뀔 때 챗 초기화
   useEffect(() => {
     if (!selected) return;
     setChatMessages([
@@ -33,7 +32,6 @@ export default function AIChatBot({ selected }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ crsrdId: selected?.crsrdId ?? null, question: q }),
       });
-
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setChatMessages(prev => [...prev, { role: "ai", text: data.answer }]);
@@ -44,26 +42,20 @@ export default function AIChatBot({ selected }) {
     }
   }, [chatInput, loading, selected]);
 
-  const panel = {
-    background: "rgba(14,20,36,0.9)",
-    border: "1px solid rgba(59,130,246,0.2)",
-    borderRadius: 10,
-    padding: "14px 16px",
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-  };
-
   return (
-    <div style={panel}>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>
-        🤖 <span style={{ color: "#60a5fa" }}>AI 교통 분석 챗봇</span>
+    <div style={{
+      background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)",
+      borderRadius: 4, padding: "14px 16px", backdropFilter: "blur(6px)",
+      display: "flex", flexDirection: "column",
+    }}>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, color: "#e7ecf5" }}>
+        🤖 <span style={{ color: "#4ea6ff" }}>AI 교통 분석 챗봇</span>
       </div>
       {selected
-        ? <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
+        ? <div style={{ fontSize: 12, color: "#7a7a7a", marginBottom: 8 }}>
             ● {selected.crsrdNm} · 위험도 {selected.riskScore}점 · 대기 {selected.avgWait}초
           </div>
-        : <div style={{ fontSize: 12, color: "#374151", marginBottom: 8 }}>교차로를 클릭하면 분석 시작</div>
+        : <div style={{ fontSize: 12, color: "#3a3a3a", marginBottom: 8 }}>교차로를 클릭하면 분석 시작</div>
       }
 
       {/* 빠른 질문 버튼 */}
@@ -77,12 +69,12 @@ export default function AIChatBot({ selected }) {
             onClick={() => sendChat(q)}
             disabled={loading || !selected}
             style={{
-              padding: "4px 11px", fontSize: 11, borderRadius: 5,
-              border: `1px solid ${selected && !loading ? "rgba(59,130,246,0.5)" : "rgba(255,255,255,0.1)"}`,
-              background: selected && !loading ? "rgba(29,78,216,0.2)" : "rgba(255,255,255,0.04)",
-              color: selected && !loading ? "#93c5fd" : "#4b5563",
+              padding: "4px 11px", fontSize: 11, borderRadius: 2,
+              border: `1px solid ${selected && !loading ? "#2a3a5a" : "#1a1a1a"}`,
+              background: selected && !loading ? "rgba(78,166,255,0.1)" : "transparent",
+              color: selected && !loading ? "#4ea6ff" : "#3a3a3a",
               cursor: selected && !loading ? "pointer" : "default",
-              fontFamily: "inherit", transition: "all .15s",
+              fontFamily: "inherit",
             }}>
             {label}
           </button>
@@ -95,19 +87,19 @@ export default function AIChatBot({ selected }) {
           <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
             <div style={{
               maxWidth: "88%", padding: "8px 11px",
-              borderRadius: m.role === "user" ? "10px 10px 2px 10px" : "10px 10px 10px 2px",
-              background: m.role === "user" ? "rgba(29,78,216,0.5)" : "rgba(30,38,55,0.9)",
-              border: `1px solid ${m.role === "user" ? "rgba(59,130,246,0.3)" : "rgba(255,255,255,0.07)"}`,
-              fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-line",
+              borderRadius: 2,
+              background: m.role === "user" ? "rgba(78,166,255,0.15)" : "rgba(255,255,255,0.04)",
+              border: `1px solid ${m.role === "user" ? "#2a3a5a" : "#1a1a1a"}`,
+              fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-line", color: "#e7ecf5",
             }}>
-              {m.role === "ai" && <div style={{ fontSize: 10, color: "#60a5fa", marginBottom: 3, fontWeight: 600 }}>AI 분석</div>}
+              {m.role === "ai" && <div style={{ fontSize: 10, color: "#4ea6ff", marginBottom: 3, fontWeight: 600 }}>AI 분석</div>}
               {m.text}
             </div>
           </div>
         ))}
         {loading && (
           <div style={{ display: "flex", justifyContent: "flex-start" }}>
-            <div style={{ padding: "8px 14px", borderRadius: "10px 10px 10px 2px", background: "rgba(30,38,55,0.9)", border: "1px solid rgba(255,255,255,0.07)", fontSize: 12, color: "#60a5fa" }}>
+            <div style={{ padding: "8px 14px", borderRadius: 2, background: "rgba(255,255,255,0.04)", border: "1px solid #1a1a1a", fontSize: 12, color: "#4ea6ff" }}>
               분석 중...
             </div>
           </div>
@@ -122,10 +114,10 @@ export default function AIChatBot({ selected }) {
           onKeyDown={e => e.key === "Enter" && !loading && sendChat()}
           placeholder="추가 질문 입력..."
           disabled={loading}
-          style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 7, padding: "8px 11px", color: "#e2e8f0", fontSize: 13, outline: "none", fontFamily: "inherit", opacity: loading ? 0.6 : 1 }}
+          style={{ flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid #1a1a1a", borderRadius: 2, padding: "8px 11px", color: "#e7ecf5", fontSize: 13, outline: "none", fontFamily: "inherit", opacity: loading ? 0.6 : 1 }}
         />
         <button onClick={sendChat} disabled={loading}
-          style={{ padding: "8px 14px", borderRadius: 7, background: loading ? "#374151" : "#1d4ed8", border: "none", color: "#fff", fontSize: 13, fontWeight: 600, cursor: loading ? "default" : "pointer", fontFamily: "inherit" }}>
+          style={{ padding: "8px 14px", borderRadius: 2, background: loading ? "#1a1a1a" : "#4ea6ff", border: "none", color: loading ? "#3a3a3a" : "#000", fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", fontFamily: "inherit" }}>
           전송
         </button>
       </div>
