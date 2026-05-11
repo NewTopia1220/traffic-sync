@@ -59,24 +59,9 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         const pos = new kakao.maps.LatLng(cr.lat, cr.lon);
         const isSel = selected?.crsrdId === cr.crsrdId;
         const color = domColor(cr.mappedSignals);
-        // 신호등 마커: 빨/노/초 3구 신호등 모양
-        const isRed = color === "#ef4444" || color === "#ff5566";
-        const isGrn = color === "#22c55e" || color === "#2ee07a";
-        const redBg  = isRed ? "#ef4444" : "#2a0a0a";
-        const yelBg  = (!isRed && !isGrn) ? "#f59e0b" : "#2a2000";
-        const grnBg  = isGrn ? "#22c55e" : "#002a10";
-        const redGlow = isRed ? `0 0 6px #ef4444` : "none";
-        const grnGlow = isGrn ? `0 0 6px #22c55e` : "none";
-        const housing = `background:#111;border:2px solid #333;border-radius:6px;padding:4px 3px;display:flex;flex-direction:column;gap:3px;width:18px;align-items:center`;
-        const dot = (bg, glow) => `<div style="width:10px;height:10px;border-radius:50%;background:${bg};box-shadow:${glow}"></div>`;
         const content = isSel
-          ? `<div style="position:relative;cursor:pointer;display:flex;flex-direction:column;align-items:center">
-               <div style="${housing}">${dot(redBg,redGlow)}${dot(yelBg,"none")}${dot(grnBg,grnGlow)}</div>
-               <div style="margin-top:2px;background:rgba(18,14,10,0.95);border:1px solid ${color}66;border-radius:3px;padding:2px 7px;font-size:11px;color:${color};white-space:nowrap;font-weight:700;font-family:Malgun Gothic,sans-serif">${cr.crsrdNm}</div>
-             </div>`
-          : `<div style="cursor:pointer;display:flex;flex-direction:column;align-items:center">
-               <div style="${housing}">${dot(redBg,redGlow)}${dot(yelBg,"none")}${dot(grnBg,grnGlow)}</div>
-             </div>`;
+          ? `<div style="position:relative;cursor:pointer"><div style="width:36px;height:36px;border-radius:50%;border:2px solid ${color};background:${color}33;display:flex;align-items:center;justify-content:center"><div style="width:13px;height:13px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}"></div></div><div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:rgba(18,14,10,0.92);border:1px solid ${color}66;border-radius:3px;padding:2px 8px;font-size:11px;color:${color};white-space:nowrap;font-weight:700;font-family:Malgun Gothic,sans-serif">${cr.crsrdNm}</div></div>`
+          : `<div style="width:12px;height:12px;border-radius:50%;border:2px solid rgba(255,255,255,0.35);background:${color};box-shadow:0 0 5px ${color}88;cursor:pointer"></div>`;
         const ov = new kakao.maps.CustomOverlay({ position: pos, content, zIndex: isSel ? 10 : 3, xAnchor: 0.5, yAnchor: 0.5 });
         ov.setMap(mapObj.current);
         ov.__cr = cr;
@@ -120,10 +105,27 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       const pos = new kakao.maps.LatLng(cctv.lat, cctv.lon);
       const hasStream = !!cctv.streamUrl;
 
+      // ── CCTV 마커: 흰 배경 + 카메라 SVG (잘 보이게) ──
       const el = document.createElement("div");
-      el.style.cssText = `cursor:pointer;width:36px;height:36px;border-radius:8px;background:rgba(234,179,8,0.2);border:2px solid #fbbf24;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 0 8px #fbbf2488`;
+      el.style.cssText = "cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.8))";
       el.title = cctv.cctvNm;
-      el.textContent = "📹";
+      el.innerHTML = `
+        <div style="background:#fff;border-radius:8px;padding:5px 6px;display:flex;flex-direction:column;align-items:center;gap:2px;border:2px solid ${cctv.streamId ? '#22c55e' : '#9ca3af'}">
+          <svg width="28" height="22" viewBox="0 0 38 30" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="6" width="24" height="18" rx="3" fill="#1e293b"/>
+            <polygon points="26,11 34,8 34,22 26,19" fill="#1e293b"/>
+            <circle cx="14" cy="15" r="5.5" fill="#334155"/>
+            <circle cx="14" cy="15" r="3" fill="#0f172a"/>
+            <circle cx="12.5" cy="13.5" r="1.2" fill="#fff" opacity="0.7"/>
+            <rect x="8" y="3" width="7" height="3" rx="1" fill="#1e293b"/>
+            <rect x="20" y="9" width="3" height="3" rx="0.5" fill="#94a3b8"/>
+          </svg>
+          <div style="font-size:9px;color:#1e293b;font-weight:700;font-family:Malgun Gothic,sans-serif;max-width:52px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2">
+            ${cctv.cctvNm.length > 6 ? cctv.cctvNm.slice(0,6)+'…' : cctv.cctvNm}
+          </div>
+        </div>
+        <div style="width:2px;height:6px;background:#fff;opacity:0.9"></div>
+        <div style="width:6px;height:6px;border-radius:50%;background:#fff;opacity:0.9"></div>`;
       el.addEventListener("click", e => { e.stopPropagation(); onCctvClick?.(cctv); });
 
       const ov = new kakao.maps.CustomOverlay({ position: pos, content: el, zIndex: 5, xAnchor: 0.5, yAnchor: 0.5 });

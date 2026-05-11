@@ -14,56 +14,45 @@ const SIGNAL_TYPES = [
   { key: "pdsg", label: "보행" },
 ];
 
-// isLeft: 좌회전 신호등 여부 (화살표 표시)
-function TrafficLight({ status, rmndCs, elapsed, isLeft = false }) {
+function TrafficLight({ status, rmndCs, elapsed }) {
   const cls = statusCls(status);
   const isGreen = cls === "green";
-  const isRed   = cls === "red";
+  const isRed = cls === "red";
   const remaining = rmndCs != null ? Math.max(0, rmndCs / 10 - elapsed) : null;
-
-  // 하우징 너비: 좌회전은 화살표 때문에 살짝 넓게
-  const W = isLeft ? 24 : 20;
-  const D = isLeft ? 16 : 14;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
       {/* 신호등 하우징 */}
       <div style={{
         background: "#111", border: "2px solid #333", borderRadius: 8,
-        padding: "5px 0", display: "flex", flexDirection: "column",
-        alignItems: "center", gap: 3, width: W,
+        padding: "6px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 28,
       }}>
         {/* 빨간불 */}
         <div style={{
-          width: D, height: D, borderRadius: "50%",
+          width: 18, height: 18, borderRadius: "50%",
           background: isRed ? "#ef4444" : "#3f1010",
           boxShadow: isRed ? "0 0 8px #ef4444" : "none",
           transition: "all 0.3s",
-          display: "flex", alignItems: "center", justifyContent: "center",
         }} />
-        {/* 노란불 */}
+        {/* 노란불 (대기 중간) */}
         <div style={{
-          width: D, height: D, borderRadius: "50%",
+          width: 18, height: 18, borderRadius: "50%",
           background: (!isRed && !isGreen) ? "#f59e0b" : "#3f3010",
           boxShadow: (!isRed && !isGreen) ? "0 0 8px #f59e0b" : "none",
           transition: "all 0.3s",
         }} />
-        {/* 초록불 — 좌회전이면 화살표 아이콘 표시 */}
+        {/* 초록불 */}
         <div style={{
-          width: D, height: D, borderRadius: "50%",
+          width: 18, height: 18, borderRadius: "50%",
           background: isGreen ? "#22c55e" : "#0a2810",
           boxShadow: isGreen ? "0 0 8px #22c55e" : "none",
           transition: "all 0.3s",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: isLeft ? 9 : 0, color: "#000", fontWeight: 900, lineHeight: 1,
-        }}>
-          {isLeft && "↰"}
-        </div>
+        }} />
       </div>
       {/* 남은 시간 */}
       {remaining != null && (
         <div style={{
-          fontSize: 11, fontWeight: 700, fontFamily: "monospace",
+          fontSize: 14, fontWeight: 700, fontFamily: "monospace",
           color: isGreen ? "#22c55e" : isRed ? "#ef4444" : "#6b7280",
         }}>
           {remaining.toFixed(1)}s
@@ -83,11 +72,11 @@ function DirCard({ dir, label, arrow, signals, elapsed }) {
     <div style={{
       background: "rgba(18,16,10,0.75)",
       border: "1px solid rgba(42,36,24,0.8)",
-      borderRadius: 4, padding: "10px 8px",
+      borderRadius: 4, padding: "12px 10px",
       display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
       flex: 1,
     }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#4ea6ff" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#4ea6ff" }}>
         {arrow} {label}
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
@@ -95,8 +84,8 @@ function DirCard({ dir, label, arrow, signals, elapsed }) {
           const sig = d[key];
           return (
             <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-              <TrafficLight status={sig.status} rmndCs={sig.rmndCs} elapsed={elapsed} isLeft={key === "ltsg"} />
-              <div style={{ fontSize: 9, color: "#6b7280" }}>{sLabel}</div>
+              <TrafficLight status={sig.status} rmndCs={sig.rmndCs} elapsed={elapsed} />
+              <div style={{ fontSize: 12, color: "#6b7280" }}>{sLabel}</div>
             </div>
           );
         })}
@@ -119,7 +108,7 @@ export default function SignalPanel({ cr }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ fontSize: 11, color: "#475569" }}>API 수집: {ts}</div>
+      <div style={{ fontSize: 13, color: "#475569" }}>API 수집: {ts}</div>
 
       {/* 북 / 북동 / 북서 */}
       {(s.north || s.northeast || s.northwest) && <div style={{ display: "flex", gap: 6 }}>
@@ -132,23 +121,23 @@ export default function SignalPanel({ cr }) {
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <DirCard dir="west" label="서" arrow="←" signals={s} elapsed={elapsed} />
         <div style={{
-          width: 70, minWidth: 70, height: 70, flexShrink: 0,
+          width: 90, minWidth: 90, height: 90, flexShrink: 0,
           background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)",
           borderRadius: 4, display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "center", gap: 4, padding: 4,
         }}>
-          <div style={{ fontSize: 9, color: "#60a5fa", fontWeight: 700, textAlign: "center", wordBreak: "keep-all", lineHeight: 1.3 }}>
+          <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, textAlign: "center", wordBreak: "keep-all", lineHeight: 1.3 }}>
             {cr.crsrdNm}
           </div>
           <div style={{
-            width: 30, height: 30, borderRadius: "50%",
+            width: 38, height: 38, borderRadius: "50%",
             background: `conic-gradient(${riskColor(cr.riskScore)} ${cr.riskScore}%, #1f2937 0)`,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             <div style={{
-              width: 22, height: 22, borderRadius: "50%", background: "rgba(0,0,0,0.82)",
+              width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.82)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 10, fontWeight: 700, color: riskColor(cr.riskScore),
+              fontSize: 13, fontWeight: 700, color: riskColor(cr.riskScore),
             }}>{cr.riskScore}</div>
           </div>
         </div>

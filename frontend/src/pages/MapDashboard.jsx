@@ -51,30 +51,31 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
 
       {/* 헤더 */}
       <div style={{ background: "#12100a", borderBottom: "1px solid #2a2418", padding: "0 22px", height: 56, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-        <button onClick={onGoMain} style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "5px 13px", color: "#aab4c8", fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>← 대시보드</button>
+        <button onClick={onGoMain} style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "5px 13px", color: "#aab4c8", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>← 대시보드</button>
         <span style={{ fontSize: 20 }}>🚦</span>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 19, color: "#60a5fa" }}>실시간 교차로 지도</div>
-          <div style={{ fontSize: 13, color: "#475569" }}>V2X 신호 · 위험도 · 혼잡 현황</div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: "#60a5fa" }}>실시간 교차로 지도</div>
+          <div style={{ fontSize: 11, color: "#475569" }}>V2X 신호 · 위험도 · 혼잡 현황</div>
         </div>
 
-        {/* 탭 + CCTV 관제 버튼 */}
+        {/* 탭 + CCTV 관제 버튼 — 탭 옆 고정 */}
         <div style={{ marginLeft: 16, display: "flex", gap: 6, alignItems: "center" }}>
           <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 3 }}>
             {TABS.map(({ key, label }) => (
               <button key={key} onClick={() => setActiveTab(key)}
-                style={{ padding: "4px 14px", borderRadius: 6, fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", transition: "all .15s", background: activeTab === key ? "#1d4ed8" : "transparent", color: activeTab === key ? "#fff" : "#64748b" }}>
+                style={{ padding: "4px 16px", borderRadius: 6, fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", transition: "all .15s", background: activeTab === key ? "#1d4ed8" : "transparent", color: activeTab === key ? "#fff" : "#64748b" }}>
                 {label}
               </button>
             ))}
           </div>
-          <button onClick={onGoCctv} style={{ background: "#1a1710", border: "1px solid #3a3020", borderRadius: 6, padding: "5px 14px", color: "#ffaa33", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={onGoCctv}
+            style={{ padding: "5px 14px", borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: "rgba(255,170,51,0.12)", border: "1px solid rgba(255,170,51,0.4)", color: "#ffaa33", display: "flex", alignItems: "center", gap: 6 }}>
             📷 CCTV 관제
           </button>
         </div>
 
         {/* 연결 상태 */}
-        <div style={{ marginLeft: activeTab === "cctv" && selected ? 0 : 8, display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 20, border: `1px solid ${isConn ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`, background: isConn ? "rgba(34,197,94,0.07)" : "rgba(239,68,68,0.07)" }}>
+        <div style={{ marginLeft: 8, display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 20, border: `1px solid ${isConn ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`, background: isConn ? "rgba(34,197,94,0.07)" : "rgba(239,68,68,0.07)" }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: isConn ? "#22c55e" : "#ef4444", display: "inline-block" }} />
           <span style={{ fontSize: 12, color: isConn ? "#22c55e" : "#ef4444" }}>{wsStatus}</span>
         </div>
@@ -123,7 +124,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
               )}
               {/* 우측 하단: AI 챗봇 오버레이 */}
               {selected && (
-                <div style={{ position: "absolute", bottom: 14, right: 14, zIndex: 20, width: 420, pointerEvents: "auto" }}>
+                <div style={{ position: "absolute", bottom: 14, right: 14, zIndex: 20, width: 320, pointerEvents: "auto" }}>
                   <AIChatBot selected={selected} />
                 </div>
               )}
@@ -141,8 +142,8 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
               { label: "평균 속도",   value: avgSpeed,                                   suffix: "km/h", color: "#2ee07a" },
             ].map(s => (
               <div key={s.label} style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "12px 10px", textAlign: "center" }}>
-                <div style={{ fontSize: 26, fontWeight: 700, color: s.color, fontFamily: "monospace" }}>{s.value}<span style={{ fontSize: 13 }}>{s.suffix}</span></div>
-                <div style={{ fontSize: 14, color: "#7a7a7a", marginTop: 3 }}>{s.label}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "monospace" }}>{s.value}<span style={{ fontSize: 13 }}>{s.suffix}</span></div>
+                <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 3 }}>{s.label}</div>
               </div>
             ))}
           </div>
