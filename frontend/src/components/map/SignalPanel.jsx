@@ -14,40 +14,51 @@ const SIGNAL_TYPES = [
   { key: "pdsg", label: "보행" },
 ];
 
-function TrafficLight({ status, rmndCs, elapsed }) {
+// isLeft: 좌회전 신호등 여부 (화살표 표시)
+function TrafficLight({ status, rmndCs, elapsed, isLeft = false }) {
   const cls = statusCls(status);
   const isGreen = cls === "green";
-  const isRed = cls === "red";
+  const isRed   = cls === "red";
   const remaining = rmndCs != null ? Math.max(0, rmndCs / 10 - elapsed) : null;
+
+  // 하우징 너비: 좌회전은 화살표 때문에 살짝 넓게
+  const W = isLeft ? 24 : 20;
+  const D = isLeft ? 16 : 14;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
       {/* 신호등 하우징 */}
       <div style={{
         background: "#111", border: "2px solid #333", borderRadius: 8,
-        padding: "5px 4px", display: "flex", flexDirection: "column", gap: 3, width: 22,
+        padding: "5px 0", display: "flex", flexDirection: "column",
+        alignItems: "center", gap: 3, width: W,
       }}>
         {/* 빨간불 */}
         <div style={{
-          width: 14, height: 14, borderRadius: "50%",
+          width: D, height: D, borderRadius: "50%",
           background: isRed ? "#ef4444" : "#3f1010",
           boxShadow: isRed ? "0 0 8px #ef4444" : "none",
           transition: "all 0.3s",
+          display: "flex", alignItems: "center", justifyContent: "center",
         }} />
-        {/* 노란불 (대기 중간) */}
+        {/* 노란불 */}
         <div style={{
-          width: 14, height: 14, borderRadius: "50%",
+          width: D, height: D, borderRadius: "50%",
           background: (!isRed && !isGreen) ? "#f59e0b" : "#3f3010",
           boxShadow: (!isRed && !isGreen) ? "0 0 8px #f59e0b" : "none",
           transition: "all 0.3s",
         }} />
-        {/* 초록불 */}
+        {/* 초록불 — 좌회전이면 화살표 아이콘 표시 */}
         <div style={{
-          width: 14, height: 14, borderRadius: "50%",
+          width: D, height: D, borderRadius: "50%",
           background: isGreen ? "#22c55e" : "#0a2810",
           boxShadow: isGreen ? "0 0 8px #22c55e" : "none",
           transition: "all 0.3s",
-        }} />
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: isLeft ? 9 : 0, color: "#000", fontWeight: 900, lineHeight: 1,
+        }}>
+          {isLeft && "↰"}
+        </div>
       </div>
       {/* 남은 시간 */}
       {remaining != null && (
@@ -84,7 +95,7 @@ function DirCard({ dir, label, arrow, signals, elapsed }) {
           const sig = d[key];
           return (
             <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-              <TrafficLight status={sig.status} rmndCs={sig.rmndCs} elapsed={elapsed} />
+              <TrafficLight status={sig.status} rmndCs={sig.rmndCs} elapsed={elapsed} isLeft={key === "ltsg"} />
               <div style={{ fontSize: 9, color: "#6b7280" }}>{sLabel}</div>
             </div>
           );

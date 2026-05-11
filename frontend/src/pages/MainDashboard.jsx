@@ -77,8 +77,8 @@ function KpiCard({ value, unit, label, sub, status }) {
       <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 52, color: "#fff", letterSpacing: "-1.8px", lineHeight: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
         {value}<span style={{ fontSize: 16, color: V.ink2, fontWeight: 500 }}>{unit}</span>
       </div>
-      <div style={{ fontSize: 15, color: V.ink0, fontWeight: 600, marginTop: 8 }}>{label}</div>
-      <div style={{ fontSize: 12, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>{sub}</div>
+      <div style={{ fontSize: 17, color: V.ink0, fontWeight: 600, marginTop: 8 }}>{label}</div>
+      <div style={{ fontSize: 14, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>{sub}</div>
     </div>
   );
 }
@@ -529,14 +529,14 @@ export default function MainDashboard({ onGoMap, onGoCctv, wsData }) {
     <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, minHeight: "100vh", display: "flex", flexDirection: "column", overflowY: "auto" }}>
 
       {/* ── 헤더 ── */}
-      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 18px", height: 60, display: "flex", alignItems: "center", gap: 18, flexShrink: 0, position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 18px", height: 72, display: "flex", alignItems: "center", gap: 18, flexShrink: 0, position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 260 }}>
           <div style={{ width: 28, height: 28, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}` }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: V.grn, display: "block" }} />
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>Traffic-Sync 관제 시스템</div>
-            <div style={{ fontSize: 11, color: V.ink2 }}>V2X 공공 API 기반 실시간 교통 관제 플랫폼</div>
+            <div style={{ fontWeight: 700, fontSize: 19 }}>Traffic-Sync 관제 시스템</div>
+            <div style={{ fontSize: 13, color: V.ink2 }}>V2X 공공 API 기반 실시간 교통 관제 플랫폼</div>
           </div>
         </div>
 
@@ -547,7 +547,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, wsData }) {
             return (
               <button key={tab}
                 onClick={tab === "map" ? () => onGoMap(selectedGu) : tab === "cctv" ? onGoCctv : undefined}
-                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 13, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
+                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink3, display: "inline-block" }} />
                 {label}
               </button>

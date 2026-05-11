@@ -59,9 +59,24 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         const pos = new kakao.maps.LatLng(cr.lat, cr.lon);
         const isSel = selected?.crsrdId === cr.crsrdId;
         const color = domColor(cr.mappedSignals);
+        // 신호등 마커: 빨/노/초 3구 신호등 모양
+        const isRed = color === "#ef4444" || color === "#ff5566";
+        const isGrn = color === "#22c55e" || color === "#2ee07a";
+        const redBg  = isRed ? "#ef4444" : "#2a0a0a";
+        const yelBg  = (!isRed && !isGrn) ? "#f59e0b" : "#2a2000";
+        const grnBg  = isGrn ? "#22c55e" : "#002a10";
+        const redGlow = isRed ? `0 0 6px #ef4444` : "none";
+        const grnGlow = isGrn ? `0 0 6px #22c55e` : "none";
+        const housing = `background:#111;border:2px solid #333;border-radius:6px;padding:4px 3px;display:flex;flex-direction:column;gap:3px;width:18px;align-items:center`;
+        const dot = (bg, glow) => `<div style="width:10px;height:10px;border-radius:50%;background:${bg};box-shadow:${glow}"></div>`;
         const content = isSel
-          ? `<div style="position:relative;cursor:pointer"><div style="width:36px;height:36px;border-radius:50%;border:2px solid ${color};background:${color}33;display:flex;align-items:center;justify-content:center"><div style="width:13px;height:13px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}"></div></div><div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:rgba(18,14,10,0.92);border:1px solid ${color}66;border-radius:3px;padding:2px 8px;font-size:11px;color:${color};white-space:nowrap;font-weight:700;font-family:Malgun Gothic,sans-serif">${cr.crsrdNm}</div></div>`
-          : `<div style="width:12px;height:12px;border-radius:50%;border:2px solid rgba(255,255,255,0.35);background:${color};box-shadow:0 0 5px ${color}88;cursor:pointer"></div>`;
+          ? `<div style="position:relative;cursor:pointer;display:flex;flex-direction:column;align-items:center">
+               <div style="${housing}">${dot(redBg,redGlow)}${dot(yelBg,"none")}${dot(grnBg,grnGlow)}</div>
+               <div style="margin-top:2px;background:rgba(18,14,10,0.95);border:1px solid ${color}66;border-radius:3px;padding:2px 7px;font-size:11px;color:${color};white-space:nowrap;font-weight:700;font-family:Malgun Gothic,sans-serif">${cr.crsrdNm}</div>
+             </div>`
+          : `<div style="cursor:pointer;display:flex;flex-direction:column;align-items:center">
+               <div style="${housing}">${dot(redBg,redGlow)}${dot(yelBg,"none")}${dot(grnBg,grnGlow)}</div>
+             </div>`;
         const ov = new kakao.maps.CustomOverlay({ position: pos, content, zIndex: isSel ? 10 : 3, xAnchor: 0.5, yAnchor: 0.5 });
         ov.setMap(mapObj.current);
         ov.__cr = cr;
