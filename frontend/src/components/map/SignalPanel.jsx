@@ -25,7 +25,7 @@ function TrafficLight({ status, rmndCs, elapsed }) {
       {/* 신호등 하우징 */}
       <div style={{
         background: "#111", border: "2px solid #333", borderRadius: 8,
-        padding: "6px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 28,
+        padding: "6px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 30,
       }}>
         {/* 빨간불 */}
         <div style={{
@@ -52,7 +52,7 @@ function TrafficLight({ status, rmndCs, elapsed }) {
       {/* 남은 시간 */}
       {remaining != null && (
         <div style={{
-          fontSize: 14, fontWeight: 700, fontFamily: "monospace",
+          fontSize: 15, fontWeight: 700, fontFamily: "monospace",
           color: isGreen ? "#22c55e" : isRed ? "#ef4444" : "#6b7280",
         }}>
           {remaining.toFixed(1)}s
@@ -76,7 +76,7 @@ function DirCard({ dir, label, arrow, signals, elapsed }) {
       display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
       flex: 1,
     }}>
-      <div style={{ fontSize: 15, fontWeight: 700, color: "#4ea6ff" }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#4ea6ff" }}>
         {arrow} {label}
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
@@ -85,7 +85,7 @@ function DirCard({ dir, label, arrow, signals, elapsed }) {
           return (
             <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
               <TrafficLight status={sig.status} rmndCs={sig.rmndCs} elapsed={elapsed} />
-              <div style={{ fontSize: 12, color: "#6b7280" }}>{sLabel}</div>
+              <div style={{ fontSize: 13, color: "#6b7280" }}>{sLabel}</div>
             </div>
           );
         })}
@@ -121,23 +121,23 @@ export default function SignalPanel({ cr }) {
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <DirCard dir="west" label="서" arrow="←" signals={s} elapsed={elapsed} />
         <div style={{
-          width: 90, minWidth: 90, height: 90, flexShrink: 0,
+          width: 88, minWidth: 88, height: 88, flexShrink: 0,
           background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)",
           borderRadius: 4, display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "center", gap: 4, padding: 4,
         }}>
-          <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, textAlign: "center", wordBreak: "keep-all", lineHeight: 1.3 }}>
+          <div style={{ fontSize: 13, color: "#60a5fa", fontWeight: 700, textAlign: "center", wordBreak: "keep-all", lineHeight: 1.3 }}>
             {cr.crsrdNm}
           </div>
           <div style={{
-            width: 38, height: 38, borderRadius: "50%",
+            width: 36, height: 36, borderRadius: "50%",
             background: `conic-gradient(${riskColor(cr.riskScore)} ${cr.riskScore}%, #1f2937 0)`,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             <div style={{
-              width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.82)",
+              width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.82)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 13, fontWeight: 700, color: riskColor(cr.riskScore),
+              fontSize: 14, fontWeight: 700, color: riskColor(cr.riskScore),
             }}>{cr.riskScore}</div>
           </div>
         </div>

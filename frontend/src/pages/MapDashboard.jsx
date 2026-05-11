@@ -112,11 +112,11 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
               )}
               {/* 좌측 하단: 신호 현황 오버레이 */}
               {selected && (
-                <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 340, pointerEvents: "auto" }}>
-                  <div style={{ background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)", borderRadius: 4, padding: 14, backdropFilter: "blur(8px)" }}>
+                <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 460, maxHeight: "calc(100vh - 100px)", pointerEvents: "auto" }}>
+                  <div style={{ background: "rgba(18,16,10,0.92)", border: "1px solid rgba(42,36,24,0.8)", borderRadius: 4, padding: 14, backdropFilter: "blur(8px)", overflowY: "auto", maxHeight: "calc(100vh - 130px)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                      <div style={{ fontSize: 13, color: "#4ea6ff", fontWeight: 700 }}>📍 {selected.crsrdNm} — 실시간 신호 현황</div>
-                      <button onClick={() => setShowRoadView(true)} style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 6, color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "3px 9px", fontFamily: "inherit" }}>🛣️ 로드뷰</button>
+                      <div style={{ fontSize: 17, color: "#4ea6ff", fontWeight: 700 }}>📍 {selected.crsrdNm} — 실시간 신호 현황</div>
+                      <button onClick={() => setShowRoadView(true)} style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 6, color: "#60a5fa", fontSize: 15, cursor: "pointer", padding: "7px 16px", fontFamily: "inherit", fontWeight: 600 }}>🛣️ 로드뷰</button>
                     </div>
                     <SignalPanel cr={selected} />
                   </div>
@@ -124,7 +124,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
               )}
               {/* 우측 하단: AI 챗봇 오버레이 */}
               {selected && (
-                <div style={{ position: "absolute", bottom: 14, right: 14, zIndex: 20, width: 320, pointerEvents: "auto" }}>
+                <div style={{ position: "absolute", bottom: 14, right: 14, zIndex: 20, width: 560, pointerEvents: "auto" }}>
                   <AIChatBot selected={selected} />
                 </div>
               )}
