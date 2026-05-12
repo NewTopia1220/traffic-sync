@@ -9,14 +9,22 @@ export function useWebSocket(setWsData) {
 
   useEffect(() => {
     const WS = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8080/ws/traffic`;
+    let reconnectTimer = null;
+    let destroyed = false;
 
     function connect() {
+      if (destroyed) return;
+      if (wsRef.current && wsRef.current.readyState < 2) {
+        wsRef.current.close();
+      }
+
       const ws = new WebSocket(WS);
       wsRef.current = ws;
 
-      ws.onopen = () => setWsStatus("연결됨");
+      ws.onopen = () => { if (!destroyed) setWsStatus("연결됨"); };
 
       ws.onmessage = e => {
+        if (destroyed) return;
         try {
           const list = JSON.parse(e.data);
           const proc = list.map(s => {
@@ -39,12 +47,20 @@ export function useWebSocket(setWsData) {
         }
       };
 
-      ws.onclose = () => { setWsStatus("재연결 중..."); setTimeout(connect, 3000); };
-      ws.onerror = () => setWsStatus("연결 오류");
+      ws.onclose = () => {
+        if (destroyed) return;
+        setWsStatus("재연결 중...");
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+      ws.onerror = () => { if (!destroyed) setWsStatus("연결 오류"); };
     }
 
     connect();
-    return () => wsRef.current?.close();
+    return () => {
+      destroyed = true;
+      clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+    };
   }, []);
 
   return { wsStatus, lastUpdate };

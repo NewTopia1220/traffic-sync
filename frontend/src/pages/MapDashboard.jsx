@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { useWebSocket } from "../hooks/useWebSocket";
 import KakaoMapView from "../components/map/KakaoMapView";
 import SignalPanel from "../components/map/SignalPanel";
 import RoadViewModal from "../components/map/RoadViewModal";
@@ -13,15 +12,12 @@ const TABS = [
   { key: "map", label: "🗺️ 실시간 지도" },
 ];
 
-export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, initialCenter }) {
+export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, initialCenter, wsStatus, lastUpdate }) {
   const [time,         setTime]         = useState(new Date());
   const [selected,     setSelected]     = useState(null);
-  const [activeTab,    setActiveTab]    = useState("map");   // ← 누락된 state
+  const [activeTab,    setActiveTab]    = useState("map");
   const [showRoadView, setShowRoadView] = useState(false);
   const [selectedCctv, setSelectedCctv] = useState(null);
-
-  // WebSocket 연결 관리 (wsStatus, lastUpdate는 여기서만 선언)
-  const { wsStatus, lastUpdate } = useWebSocket(setWsData);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
