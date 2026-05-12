@@ -47,7 +47,6 @@ function assignGu(cctv) {
  *   streamId 있음 → UTIC iframe (기관 계약 시 영상 활성화)
  *   streamId 없음 → "스트림 정보 없음" 안내
  *
- * iframe scale(4.0): UTIC 페이지 전체가 로드되므로
  * 불필요한 UI를 숨기고 영상 부분만 확대해서 보이도록 CSS transform 적용
  *
  * @param {Object}   cctv    - 선택된 CCTV 객체 (cctvId, cctvNm, cctvCh, streamId, lat, lon)
@@ -78,10 +77,10 @@ function CctvModal({ cctv, onClose }) {
         </div>
 
         {/* 영상 영역 (65vh 고정 높이) */}
-        <div style={{ height: "65vh", background: "#000", position: "relative", overflow: "hidden" }}>
+        <div style={{ height: "72vh", background: "#000", position: "relative", overflow: "hidden" }}>
           {cctv.streamId ? (
             // UTIC iframe: key={cctv.cctvId}로 CCTV 바뀔 때마다 iframe 완전 재마운트
-            // scale(4.0) + translate로 UTIC 페이지의 영상 영역만 확대 표시
+            // transform 없이 원본 크기 그대로 표시
             <iframe
               key={cctv.cctvId}
               src={
@@ -95,10 +94,12 @@ function CctvModal({ cctv, onClose }) {
                 + `&cctvpasswd=undefined&cctvport=undefined`
               }
               style={{
-                border: "none", display: "block", width: "100%", height: "100%",
-                position: "absolute", top: "50%", left: "50%",
-                transformOrigin: "center center",
-                transform: "translate(-50%, 59%) scale(4.0)",
+                border: "none", display: "block",
+                width: "100%", height: "100%",
+                position: "absolute",
+                top: 0, left: 0,
+                transformOrigin: "top center",
+                transform: "scale(3.8) translateY(-10%)",
               }}
               title={cctv.cctvNm}
               allow="autoplay"
