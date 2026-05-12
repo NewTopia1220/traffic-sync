@@ -43,6 +43,7 @@ public class ContextService {
             return null;
         }
         // 캐시에서 가져온 신호 데이터와 contextProvider에서 가져온 날씨/속도/위험도 정보를 조합하여 트래픽 컨텍스트 생성
+        System.out.println("캐시에서 가져온 신호 데이터: " + signal);
         TrafficContext ctx = new TrafficContext();
         // 캐시에서 가져온 신호 데이터로 교차로 ID, 이름, 신호 상태 설정
         ctx.setCrsrdId(signal.getCrsrdId());
