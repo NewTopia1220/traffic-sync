@@ -41,7 +41,7 @@ public class ChatController {
     //}
     @GetMapping("/context/{crsrdId}")
     public ResponseEntity<TrafficContext> getContext(@PathVariable String crsrdId) {
-        //ContextService를 사용하여 주어진 교차로 ID에 대한 트래픽 컨텍스트를 빌드
+        //ContextService를 사용하여 o어진 교차로 ID에 대한 트래픽 컨텍스트를 빌드
         //빌드된 트래픽 컨텍스트가 null이면 404 Not Found 응답을 반환
         //빌드된 트래픽 컨텍스트가 null이 아니면 200 OK 응답과 함께 트래픽 컨텍스트를 반환
         //이 엔드포인트는 프론트에서 직접 호출하지 않을 예정이지만, 트래픽 컨텍스트가 제대로 빌드되는지 확인하기 위해 디버깅용으로 만들었다요
