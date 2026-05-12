@@ -61,6 +61,7 @@ public class ChatService {
             //  "messages": []   ← 여기
             //}
             ArrayNode messages = body.putArray("messages");
+
             //배열 안에 빈 객체 하나 추가:
             //
             //
