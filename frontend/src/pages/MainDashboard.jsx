@@ -645,58 +645,43 @@ export default function MainDashboard({ onGoMap, onGoCctv, wsData }) {
     });
   };
 
-  // ── 예측 데이터 로드 ────────────────────────────────────────────────────────
-  // 선택 교차로 변경 시: 더미 즉시 표시 → /api/forecast 호출 → 실데이터로 교체
+  // ── 교통량 예측 데이터 로드 ────────────────────────────────────────────────────────
+  
+  // 선택 교차로 변경 시: 더미 즉시 표시 → API 호출 → 실데이터로 교체
   useEffect(() => {
-    if (!selectedRisk) return;
-    const seed = parseInt(selectedRisk.id ?? riskIdx, 10) || riskIdx;
-    const dummy = makeForecast(seed);
-    // 더미 먼저 표시 (API 응답 대기 중 빈 차트 방지)
-    setForecast({ up: dummy.up, down: dummy.down, name: selectedRisk.name, isDummy: true });
+    // 1. 선택된 리스크나 ID가 없으면 아무것도 안 함
     if (!selectedRisk || !selectedRisk.id) return;
 
-    // 1. 서버에서 데이터를 가져오기 전에는 로딩 느낌을 주거나 빈 값을 세팅
-    // (더미 데이터를 아예 안 보여주고 싶다면 아래 한 줄만 남기세요)
-    setForecast({ up: [], down: [], name: selectedRisk.name, isDummy: true });
+    // 2. 일단 차트가 비어보이지 않게 더미 데이터를 먼저 깔아줍니다.
+    const seed = parseInt(selectedRisk.id, 10) || 0;
+    const dummy = makeForecast(seed);
+    setForecast({ ...dummy, name: selectedRisk.name, isDummy: true });
 
-    // 2. 자바 서버 호출
+    // 3. 자바 서버에 진짜 AI 데이터를 요청합니다.
     fetch(`${API_BASE}/api/forecast/${selectedRisk.id}`)
       .then((r) => {
         if (!r.ok) throw new Error("서버 응답 에러");
         return r.json();
       })
       .then((d) => {
-        // d.up과 d.down이 민경님 모델이 뱉어준 24개 숫자 배열입니다.
         if (d.up && d.down) {
+          // ★ 성공 시: 초록불(isDummy: false)과 함께 내 모델 데이터 표시!
           setForecast({
             up: d.up,
             down: d.down,
             name: d.crsrdNm || selectedRisk.name,
-            isDummy: false, // 이제 진짜 AI 데이터라고 표시!
+            isDummy: false,
           });
         }
       })
       .catch((err) => {
         console.error("예측 데이터 로드 실패:", err);
-        // 실패했을 때만 예비용 더미 데이터를 생성해서 보여줍니다.
-        const seed = parseInt(selectedRisk.id, 10) || 0;
-        const dummy = makeForecast(seed);
-        setForecast({ up: dummy.up, down: dummy.down, name: selectedRisk.name, isDummy: true });
+        // 실패하면 아까 깔아둔 더미를 그대로 유지합니다.
       });
-  }, [selectedRisk?.id]); // 교차로 ID가 바뀔 때마다 실행
-// -----------------------민경 추가 -------------------------------------------------
+  }, [selectedRisk?.id]); // 이것만 있으면 클릭할 때마다 아주 잘 돌아갑니다!
+  
 
-    if (!selectedRisk.id) return;
-    fetch(`${API_BASE}/api/forecast/${selectedRisk.id}`)
-      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-      .then(d => {
-        if (d.up?.length && d.down?.length) {
-          // 실데이터로 교체
-          setForecast({ up: d.up, down: d.down, name: d.crsrdNm ?? selectedRisk.name, isDummy: false });
-        }
-      })
-      .catch(() => {}); // 실패 시 더미 그대로 유지
-  }, [riskIdx, riskData.length]);
+
 
   // ── 위험도 breakdown 아이템 ──────────────────────────────────────────────────
   // 선택된 교차로의 위험도·속도·혼잡도를 수평 프로그레스 바로 표시
