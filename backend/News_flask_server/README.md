@@ -82,9 +82,29 @@ venv/Scripts/pip install flask flask-cors python-dotenv aiohttp beautifulsoup4 `
 
 ## 서버 실행
 
+### 1. 가상환경 활성화
+
+**cmd:**
+```cmd
+cd backend\News_flask_server
+venv\Scripts\activate
+```
+
+**PowerShell:**
 ```powershell
 cd backend/News_flask_server
-venv/Scripts/python app.py
+venv/Scripts/Activate.ps1
+```
+
+활성화되면 프롬프트 앞에 `(venv)` 가 붙습니다:
+```
+(venv) C:\gitFinal\traffic-sync\backend\News_flask_server>
+```
+
+### 2. 서버 시작
+
+```cmd
+python app.py
 ```
 
 정상 실행 시 아래와 같이 출력됩니다:
@@ -94,11 +114,40 @@ venv/Scripts/python app.py
 로지스틱 회귀 모델 로딩 중...
 ✅ 로지스틱 회귀 로딩 완료!
 ✅ BERT 로딩 완료!
-✅ DB 연결 성공!
  * Running on http://0.0.0.0:5001
 ```
 
 > BERT 모델 로딩에 30초~1분 정도 소요될 수 있습니다.
+
+### 3. 뉴스 수집 요청
+
+서버가 실행 중인 상태에서 **새 터미널**을 열고 실행합니다.
+
+**cmd:**
+```cmd
+curl -X POST http://127.0.0.1:5001/news/fetch
+```
+
+**PowerShell:**
+```powershell
+Invoke-WebRequest -Method POST -Uri http://127.0.0.1:5001/news/fetch -UseBasicParsing
+```
+
+정상 응답:
+```json
+{"status": "started"}
+```
+
+수집이 시작되면 서버 터미널에 아래와 같이 출력됩니다:
+```
+✅ DB 연결 성공! (테이블: traffic_news)
+📡 교통사고 (100개 후보)
+📡 도로혼잡 (100개 후보)
+...
+✅ [2026-05-13 14:00] 서울 강남구 교통사고...
+   감성: 혼잡악화 | 유형: 사실형(87.3%) | 과장성: 12.1%
+   요약: 강남구 교차로에서 차량 충돌 사고로 도로가 통제되고 있다.
+```
 
 ---
 
