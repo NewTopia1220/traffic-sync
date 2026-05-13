@@ -51,9 +51,25 @@ public class TrafficCacheService {
         return signalCache.get(crsrdId);
     }
 
+    // 보조 데이터 매핑에서 현재 신호 캐시에 들어온 교차로 목록이 필요할 때 사용한다.
+    public List<CrossroadInfo> getCrossroads() {
+        return signalCache.values().stream()
+                .map(this::toCrossroadInfo)
+                .toList();
+    }
+
     // 전체 조회 메서드 (전체 교차로ID → 신호 상태 맵 반환, 수정 불가능한 형태로 반환)
     //dead Code - 현재는 사용되지 않지만, 추후 전체 신호 상태를 한 번에 조회할 필요가 있을 때 활용 가능
     public Map<String, TrafficStatus> getAllSignals() {
         return Collections.unmodifiableMap(signalCache);
+    }
+
+    private CrossroadInfo toCrossroadInfo(TrafficStatus status) {
+        CrossroadInfo crossroad = new CrossroadInfo();
+        crossroad.setCrsrdId(status.getCrsrdId());
+        crossroad.setCrsrdNm(status.getCrsrdNm());
+        crossroad.setLat(status.getLat());
+        crossroad.setLon(status.getLon());
+        return crossroad;
     }
 }

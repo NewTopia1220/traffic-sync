@@ -28,14 +28,12 @@ class ChatbotContextControllerTest {
                 .crsrdNm("잠실3사거리")
                 .lat(37.5133)
                 .lon(127.1002)
-                .summaryKo("챗봇 요약")
                 .build());
 
         mockMvc.perform(get("/api/chatbot/context/C1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.crsrdId").value("C1"))
-                .andExpect(jsonPath("$.crsrdNm").value("잠실3사거리"))
-                .andExpect(jsonPath("$.summaryKo").value("챗봇 요약"));
+                .andExpect(jsonPath("$.crsrdNm").value("잠실3사거리"));
     }
 
     @Test

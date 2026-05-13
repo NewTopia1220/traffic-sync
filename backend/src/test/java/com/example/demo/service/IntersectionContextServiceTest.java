@@ -1,6 +1,5 @@
 package com.example.demo.service;
 
-import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.TrafficStatus;
 import com.example.demo.model.context.CrossroadRoadLinkMapping;
 import com.example.demo.model.context.GeoPoint;
@@ -27,13 +26,6 @@ class IntersectionContextServiceTest {
         SupplementalDataCacheService supplementalCache = new SupplementalDataCacheService();
         RoadRiskApiService riskApiService = new RoadRiskApiService(WebClient.builder().build());
         ReflectionTestUtils.setField(riskApiService, "vehicleTypeCode", "01");
-
-        CrossroadInfo crossroad = new CrossroadInfo();
-        crossroad.setCrsrdId("C1");
-        crossroad.setCrsrdNm("잠실3사거리");
-        crossroad.setLat(37.5133);
-        crossroad.setLon(127.1002);
-        trafficCache.updateCrossroads(List.of(crossroad));
 
         TrafficStatus signal = new TrafficStatus();
         signal.setCrsrdId("C1");
@@ -102,7 +94,6 @@ class IntersectionContextServiceTest {
         assertThat(context.getDirectionRoads().get("nt").getLinkId()).isEqualTo("L2");
         assertThat(context.getDirectionRoads().get("nt").getSpeedKph()).isEqualTo(21.0);
         assertThat(context.getDirectionRoads().get("nt").getRoadRisk().getRiskGrade()).isEqualTo("4");
-        assertThat(context.getSummaryKo()).contains("잠실3사거리", "구간속도", "도로위험 등급");
     }
 
     @Test

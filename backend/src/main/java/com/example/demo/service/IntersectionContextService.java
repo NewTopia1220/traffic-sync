@@ -1,6 +1,5 @@
 package com.example.demo.service;
 
-import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.TrafficStatus;
 import com.example.demo.model.context.CrossroadRoadLinkMapping;
 import com.example.demo.model.context.DirectionRoadContext;
@@ -11,14 +10,13 @@ import com.example.demo.model.context.SignalContext;
 import com.example.demo.model.context.TrafficSpeedContext;
 import com.example.demo.model.context.WeatherSnapshot;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -28,36 +26,61 @@ public class IntersectionContextService {
     private final SupplementalDataCacheService supplementalDataCacheService;
     private final RoadRiskApiService roadRiskApiService;
 
-    public IntersectionAiContext buildContext(String crsrdId) {
-        TrafficStatus signal = trafficCacheService.getSignal(crsrdId);
-        Optional<CrossroadInfo> crossroad = trafficCacheService.getCrossroad(crsrdId);
+    @Value("${jamsil.lat:37.5133}")
+    private double defaultLat;
 
-        if (signal == null && crossroad.isEmpty()) {
+    @Value("${jamsil.lon:127.1002}")
+    private double defaultLon;
+
+    public IntersectionAiContext buildContext(String crsrdId) {
+        // 프론트가 교차로를 아직 선택하지 않은 경우에는 잠실 기본 컨텍스트를 내려준다.
+        if (crsrdId == null || crsrdId.isBlank()) {
+            return buildDefaultContext();
+        }
+
+        // 선택된 교차로 1건의 최신 V2X 신호 데이터를 가져온다.
+        TrafficStatus signal = trafficCacheService.getSignal(crsrdId);
+
+        if (signal == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown crsrdId: " + crsrdId);
         }
 
-        String name = signal != null ? signal.getCrsrdNm() : crossroad.get().getCrsrdNm();
-        double lat = signal != null ? signal.getLat() : crossroad.get().getLat();
-        double lon = signal != null ? signal.getLon() : crossroad.get().getLon();
-
+        // 보조 데이터는 선택 교차로와 매핑된 도로 링크 기준으로 붙인다.
         WeatherSnapshot weather = supplementalDataCacheService.getWeather().orElse(null);
         CrossroadRoadLinkMapping mapping = supplementalDataCacheService.getMapping(crsrdId).orElse(null);
         TrafficSpeedContext speedContext = buildSpeedContext(mapping);
         RoadRiskSnapshot roadRisk = buildRoadRiskContext(mapping);
         Map<String, DirectionRoadContext> directionRoads = buildDirectionRoadContexts(crsrdId);
 
-        IntersectionAiContext context = IntersectionAiContext.builder()
+        // 문자열 분석 결과를 만들지 않고, 프론트가 그대로 사용할 수 있는 JSON 객체만 구성한다.
+        return IntersectionAiContext.builder()
                 .crsrdId(crsrdId)
-                .crsrdNm(name)
-                .lat(lat)
-                .lon(lon)
+                .crsrdNm(signal.getCrsrdNm())
+                .lat(signal.getLat())
+                .lon(signal.getLon())
                 .signal(buildSignalContext(signal))
                 .weather(weather)
                 .trafficSpeed(speedContext)
                 .roadRisk(roadRisk)
                 .directionRoads(directionRoads)
                 .build();
-        context.setSummaryKo(buildSummary(context));
+    }
+
+    public IntersectionAiContext buildDefaultContext() {
+        // 아직 사용자가 교차로를 클릭하지 않은 경우에는 잠실 기본 범위의 첫 교차로를 우선 사용한다.
+        TrafficStatus firstSignal = trafficCacheService.getAllSignals().values().stream().findFirst().orElse(null);
+        if (firstSignal != null) {
+            return buildContext(firstSignal.getCrsrdId());
+        }
+
+        // 서버 시작 직후처럼 교차로 캐시가 비어 있으면 잠실역 일대 기본 컨텍스트만 제공한다.
+        IntersectionAiContext context = IntersectionAiContext.builder()
+                .crsrdId("DEFAULT_JAMSIL")
+                .crsrdNm("잠실역 일대")
+                .lat(defaultLat)
+                .lon(defaultLon)
+                .weather(supplementalDataCacheService.getWeather().orElse(null))
+                .build();
         return context;
     }
 
@@ -73,6 +96,7 @@ public class IntersectionContextService {
     }
 
     private TrafficSpeedContext buildSpeedContext(CrossroadRoadLinkMapping mapping) {
+        // TOPIS 링크 매핑이 없으면 속도 정보도 내려주지 않는다.
         if (!hasLinkId(mapping)) {
             return null;
         }
@@ -88,6 +112,7 @@ public class IntersectionContextService {
     }
 
     private RoadRiskSnapshot buildRoadRiskContext(CrossroadRoadLinkMapping mapping) {
+        // 도로위험도 API는 도로 링크의 LineString이 있어야 조회할 수 있다.
         if (!hasLinkId(mapping)) {
             return null;
         }
@@ -101,6 +126,7 @@ public class IntersectionContextService {
     }
 
     private Map<String, DirectionRoadContext> buildDirectionRoadContexts(String crsrdId) {
+        // 방향별 접근도로를 nt/et/st/wt 같은 방향 코드로 묶어 JSON map 형태로 만든다.
         Map<String, CrossroadRoadLinkMapping> mappings = supplementalDataCacheService.getDirectionalMappings(crsrdId);
         Map<String, DirectionRoadContext> result = new LinkedHashMap<>();
 
@@ -135,6 +161,7 @@ public class IntersectionContextService {
     }
 
     private String directionNameKo(String directionCode) {
+        // V2X 방향 코드를 프론트/챗봇에서 읽기 쉬운 한글 방향명으로 함께 내려준다.
         return switch (directionCode) {
             case "nt" -> "북쪽";
             case "ne" -> "북동쪽";
@@ -146,53 +173,5 @@ public class IntersectionContextService {
             case "nw" -> "북서쪽";
             default -> directionCode;
         };
-    }
-
-    private String buildSummary(IntersectionAiContext context) {
-        StringBuilder summary = new StringBuilder();
-        summary.append(context.getCrsrdNm()).append(" 교차로입니다.");
-
-        if (context.getSignal() != null && context.getSignal().getTotDt() != null) {
-            summary.append(" 신호 수집시각은 ").append(context.getSignal().getTotDt()).append("입니다.");
-        } else {
-            summary.append(" 신호 정보는 아직 없습니다.");
-        }
-
-        if (context.getWeather() != null) {
-            summary.append(" 날씨는 기온 ").append(format(context.getWeather().getTemperatureC())).append("도");
-            summary.append(", 강수 ").append(format(context.getWeather().getPrecipitationMm())).append("mm");
-            summary.append(", 습도 ").append(context.getWeather().getHumidityPercent() == null
-                    ? "정보없음"
-                    : context.getWeather().getHumidityPercent() + "%");
-            summary.append(", 풍속 ").append(format(context.getWeather().getWindSpeedMs())).append("m/s입니다.");
-        } else {
-            summary.append(" 날씨 정보는 아직 없습니다.");
-        }
-
-        if (context.getTrafficSpeed() != null && context.getTrafficSpeed().getSpeedKph() != null) {
-            summary.append(" 인접 TOPIS 링크 ").append(context.getTrafficSpeed().getLinkId());
-            summary.append("의 구간속도는 ").append(format(context.getTrafficSpeed().getSpeedKph())).append("km/h입니다.");
-        } else {
-            summary.append(" 구간속도 정보는 아직 없습니다.");
-        }
-
-        if (context.getRoadRisk() != null && context.getRoadRisk().getRiskGrade() != null) {
-            summary.append(" 도로위험 등급은 ").append(context.getRoadRisk().getRiskGrade());
-            if (context.getRoadRisk().getRiskIndex() != null) {
-                summary.append(", 위험지수는 ").append(format(context.getRoadRisk().getRiskIndex()));
-            }
-            summary.append("입니다.");
-        } else {
-            summary.append(" 도로위험 정보는 아직 없습니다.");
-        }
-
-        return summary.toString();
-    }
-
-    private String format(Double value) {
-        if (value == null) {
-            return "정보없음";
-        }
-        return String.format(Locale.KOREA, "%.1f", value);
     }
 }
