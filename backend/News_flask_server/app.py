@@ -47,7 +47,7 @@ def _run_pipeline(table: str, config: dict, verify_fn, groq_keys: list):
 TRAFFIC_CONFIG = {
     "서울교통": {
         "search_query": "서울 교통 혼잡",
-        "keywords": ["교통", "혼잡", "신호", "교차로", "잠실", "강남", "도로", "정체"]
+        "keywords": ["교통", "혼잡", "신호", "교차로", "잠실", "강남", "도로", "정체","집회"]
     },
     "교통사고": {
         "search_query": "서울 교통사고 도로",
