@@ -28,7 +28,7 @@ public class ForecastService {
             Map<String, Object> request = new HashMap<>();
             request.put("Station_Number", crsrdId);
 
-            String flaskUrl = "http://localhost:5000/predict_traffic";
+            String flaskUrl = "http://127.0.0.1:5000/predict_traffic";
 
             // Flask 호출
             Map<String, Object> response = restTemplate.postForObject(flaskUrl, request, Map.class);
