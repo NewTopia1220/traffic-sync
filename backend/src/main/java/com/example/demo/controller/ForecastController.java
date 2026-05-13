@@ -2,26 +2,35 @@ package com.example.demo.controller;
 
 import com.example.demo.model.ForecastResult;
 import com.example.demo.service.ForecastService;
+
+import com.example.demo.entity.TrafficStationEntity; // 지점 엔티티 경로 확인 필요!
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List; // List를 쓰기 위해 필요
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api") // 중복되는 경로를 묶어주면 관리하기 편해요
+@RequestMapping("/api") // 1. 공통 경로 확인
 public class ForecastController {
 
     private final ForecastService forecastService;
 
-    @GetMapping("/forecast/{crsrdId}")
-    public ResponseEntity<ForecastResult> getForecast(@PathVariable String crsrdId) {
-        ForecastResult result = forecastService.getForecast(crsrdId);
+    // 2. 이 부분의 경로를 리액트 fetch 주소와 정확히 맞춰야 합니다!
+    // 리액트가 /api/forecast/station/10 으로 보내고 있으니 아래와 같아야 함
+    @GetMapping("/forecast/station/{stationId}")
+    public ResponseEntity<ForecastResult> getForecast(@PathVariable String stationId) {
+        ForecastResult result = forecastService.getForecast(stationId);
         if (result == null) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(result);
+    }
+
+    // 3. 지점 목록 가져오는 API 주소도 확인 (/api/stations)
+    @GetMapping("/stations")
+    public ResponseEntity<List<TrafficStationEntity>> getStations() {
+        return ResponseEntity.ok(forecastService.findAllStations());
     }
 }

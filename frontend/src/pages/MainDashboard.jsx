@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { GU_LIST, calcDistKm } from "../constants/seoulGeoData";
 import SeoulSvgMap from "../components/map/SeoulSvgMap";
 
@@ -317,6 +317,33 @@ function ForecastChart({ up = [], down = [], name }) {
   );
 }
 
+function StationPredictDropdown({ stations, selectedId, onSelect }) {
+  return (
+    <select 
+      value={selectedId} 
+      onChange={(e) => onSelect(e.target.value)}
+      style={{ 
+        background: "#0a1020", 
+        border: `1px solid ${V.line}`, 
+        borderRadius: 4, 
+        color: "#fff",
+        fontSize: 13, 
+        padding: "6px 12px", 
+        fontFamily: V.sans,
+        outline: "none",
+        cursor: "pointer",
+        minWidth: "220px"
+      }}
+    >
+      {stations.map((st) => (
+        <option key={st.stationId} value={st.stationId}>
+          {st.stationName}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 // ── SpeedDropdown ─────────────────────────────────────────────────────────────
 /**
  * 속도 모니터링 교차로 선택 드롭다운
@@ -478,7 +505,7 @@ const CARD_COLORS = [V.red, V.org, V.grn];
  *   onGoCctv  - CCTV 관제 페이지 이동 콜백
  *   wsData    - App에서 관리하는 WebSocket 교차로 신호 데이터 배열
  */
-export default function MainDashboard({ onGoMap, onGoCctv, wsData }) {
+export default function MainDashboard({ onGoMap, onGoCctv, wsData, stations=[], setStations }) {
   const [time, setTime] = useState(new Date());
   // 기본 선택 구: 송파구 (잠실 V2X 데이터가 있는 지역)
   const [selectedGu, setSelectedGu] = useState(GU_LIST.find(g => g.name === "송파구"));
@@ -496,6 +523,10 @@ export default function MainDashboard({ onGoMap, onGoCctv, wsData }) {
   // 위험도 패널에서 현재 선택된 슬롯 인덱스
   const [riskIdx, setRiskIdx] = useState(0);
 
+  
+  // 1. 지점 목록과 선택된 ID 관리
+  // const [stations, setStations] = useState([]); 
+  const [predictStationId, setPredictStationId] = useState(""); 
   // 예측 차트 데이터 { up, down, name, isDummy }
   const [forecast, setForecast] = useState({ up: [], down: [], name: "—" });
 
@@ -567,6 +598,33 @@ export default function MainDashboard({ onGoMap, onGoCctv, wsData }) {
     : wsData;
   const activeData = guData.length > 0 ? guData : wsData;
   const isLive = wsData.length > 0; // WebSocket 연결 여부
+
+
+  // ── 교통량 지점 구별 필터링 ────────────────────────────────────────────────
+  const filteredStations = useMemo(() => {
+    // stations가 없을 경우(undefined)를 대비해 stations?.length 로 체크하거나
+    // stations || [] 처럼 기본값을 줍니다.
+    if (!selectedGu || !stations || stations.length === 0) {
+      return stations || []; 
+    }
+
+    return stations.filter(st => {
+      const lat = st.latitude || st.lat;
+      const lng = st.longitude || st.lng;
+      if (!lat || !lng) return false;
+
+      const dist = calcDistKm(lat, lng, selectedGu.lat, selectedGu.lon);
+      return dist <= 2.5;
+    });
+  }, [stations, selectedGu]); // stations가 바뀌면 다시 계산
+
+  // 구가 바뀌면 해당 구의 첫 번째 지점을 자동으로 선택해주기
+  useEffect(() => {
+    if (filteredStations.length > 0) {
+      setPredictStationId(filteredStations[0].stationId);
+    }
+  }, [filteredStations]);
+
 
   // ── KPI 계산 ────────────────────────────────────────────────────────────────
   const avgSpeed  = activeData.length ? Math.round(activeData.reduce((a, c) => a + (c.speed ?? 30), 0) / activeData.length) : 40;
@@ -647,39 +705,52 @@ export default function MainDashboard({ onGoMap, onGoCctv, wsData }) {
 
   // ── 교통량 예측 데이터 로드 ────────────────────────────────────────────────────────
   
-  // 선택 교차로 변경 시: 더미 즉시 표시 → API 호출 → 실데이터로 교체
+
+  // 2. 페이지 시작 시 DB에서 목록 가져오기
   useEffect(() => {
-    // 1. 선택된 리스크나 ID가 없으면 아무것도 안 함
-    if (!selectedRisk || !selectedRisk.id) return;
+    fetch(`${API_BASE}/api/stations`)
+      .then(res => res.json())
+      .then(data => {
+        setStations(data);
+        if (data.length > 0) {
+          setPredictStationId(data[0].stationId); // 첫 번째 지점 자동 선택
+        }
+      })
+      .catch(err => console.error("지점 목록 로드 실패:", err));
+  }, []);
 
-    // 2. 일단 차트가 비어보이지 않게 더미 데이터를 먼저 깔아줍니다.
-    const seed = parseInt(selectedRisk.id, 10) || 0;
-    const dummy = makeForecast(seed);
-    setForecast({ ...dummy, name: selectedRisk.name, isDummy: true });
+  // 3. 지점 선택 시 실제 예측 데이터 가져오기 (이 부분이 핵심!)
+  useEffect(() => {
+    // 선택된 지점이 없으면 아무것도 안 함
+    if (!predictStationId) return;
 
-    // 3. 자바 서버에 진짜 AI 데이터를 요청합니다.
-    fetch(`${API_BASE}/api/forecast/${selectedRisk.id}`)
+    // (옵션) 더미 안 보여주기로 했으니 로딩 중임을 표시하기 위해 상태 초기화
+    setForecast(prev => ({ ...prev, isLoaded: false }));
+
+    // 자바 서버를 통해 파이썬 모델 결과 요청
+    fetch(`${API_BASE}/api/forecast/station/${predictStationId}`)
       .then((r) => {
         if (!r.ok) throw new Error("서버 응답 에러");
         return r.json();
       })
       .then((d) => {
         if (d.up && d.down) {
-          // ★ 성공 시: 초록불(isDummy: false)과 함께 내 모델 데이터 표시!
+          // ★ 진짜 AI 데이터로 차트 업데이트!
           setForecast({
             up: d.up,
             down: d.down,
-            name: d.crsrdNm || selectedRisk.name,
-            isDummy: false,
+            name: d.stationNm || "예측 지점", 
+            isLoaded: true, // 로딩 완료
+            isDummy: false
           });
         }
       })
       .catch((err) => {
         console.error("예측 데이터 로드 실패:", err);
-        // 실패하면 아까 깔아둔 더미를 그대로 유지합니다.
+        // 실패 시 차트를 비워둡니다
+        setForecast(prev => ({ ...prev, isLoaded: false }));
       });
-  }, [selectedRisk?.id]); // 이것만 있으면 클릭할 때마다 아주 잘 돌아갑니다!
-  
+  }, [predictStationId]); // ★ 이제 selectedRisk가 아니라 predictStationId가 바뀔 때 실행됨!
 
 
 
@@ -894,19 +965,26 @@ export default function MainDashboard({ onGoMap, onGoCctv, wsData }) {
             <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>시간대별 교통량 예측
             </span>
-            {/* 더미/실데이터 여부 표시 */}
-            <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11,
-              color: forecast.isDummy ? V.org : V.grn,
-              padding: "3px 8px", border: `1px solid ${forecast.isDummy ? "#3a2a14" : "#1a3a24"}`,
-              borderRadius: 2, background: forecast.isDummy ? "#1a1206" : "#0c1a12" }}>
-              {forecast.isDummy ? "더미 데이터" : "● 예측 모델"}
+            <span style={{ 
+              marginLeft: "auto", fontFamily: V.mono, fontSize: 11,
+              color: forecast.isLoaded ? V.grn : V.org,
+              padding: "3px 8px", border: `1px solid ${forecast.isLoaded ? "#1a3a24" : "#3a2a14"}`,
+              borderRadius: 2, background: forecast.isLoaded ? "#0c1a12" : "#1a1206" 
+            }}>
+              {forecast.isLoaded ? "● 예측 모델" : "로드 중/데이터 없음"}
             </span>
           </div>
-          {/* 관심 교차로 8개 중 선택 드롭다운 (선택 모드) */}
+
+          {/* 관심 교차로 대신 DB 스테이션 드롭다운 사용 */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: `1px solid ${V.line}`, background: "#060606" }}>
-            <span style={{ fontSize: 12, color: V.ink2, fontFamily: V.mono }}>교차로</span>
-            <RiskDropdown options={displayWatch} selectedIdx={riskIdx} onChange={setRiskIdx} />
+            <span style={{ fontSize: 12, color: V.ink2, fontFamily: V.mono }}>지점 선택</span>
+            <StationPredictDropdown 
+              stations={filteredStations} 
+              selectedId={predictStationId} 
+              onSelect={setPredictStationId} 
+            />
           </div>
+
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
             <ForecastChart up={forecast.up} down={forecast.down} name={forecast.name} />
           </div>
