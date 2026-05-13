@@ -124,7 +124,7 @@ def latest_news():
         if category:
             cursor.execute("""
                 SELECT link, category, title, summary, sentiment,
-                       pub_date, article_type, type_prob
+                       pub_date, clickbait_prob, article_type, type_prob
                 FROM traffic_news
                 WHERE category = :1
                 ORDER BY pub_date DESC
@@ -133,7 +133,7 @@ def latest_news():
         else:
             cursor.execute("""
                 SELECT link, category, title, summary, sentiment,
-                       pub_date, article_type, type_prob
+                       pub_date, clickbait_prob, article_type, type_prob
                 FROM traffic_news
                 ORDER BY pub_date DESC
                 FETCH FIRST :1 ROWS ONLY
@@ -141,7 +141,7 @@ def latest_news():
 
         rows = cursor.fetchall()
         cols = ["link", "category", "title", "summary",
-                "sentiment", "pub_date", "article_type", "type_prob"]
+                "sentiment", "pub_date", "clickbait_prob", "article_type", "type_prob"]
         result = [dict(zip(cols, row)) for row in rows]
         cursor.close()
         conn.close()

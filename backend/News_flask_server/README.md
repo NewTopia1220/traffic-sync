@@ -159,9 +159,48 @@ Invoke-WebRequest -Method POST -Uri http://127.0.0.1:5001/news/fetch -UseBasicPa
 | POST | `/news/fetch` | 뉴스 수집 시작 (백그라운드 실행) |
 | GET | `/news/latest?limit=20&category=교통사고` | DB에서 최근 뉴스 조회 |
 
+### 응답 JSON 구조
+
+```json
+{
+  "status": "ok",
+  "count": 20,
+  "news": [
+    {
+      "link":           "https://n.news.naver.com/...",
+      "category":       "교통사고",
+      "title":          "강남 교차로 사고로 도로 통제",
+      "summary":        "강남구 교차로에서 차량 충돌 사고로 도로가 통제되고 있다.",
+      "sentiment":      "혼잡악화",
+      "pub_date":       "2026-05-13 14:00",
+      "clickbait_prob": "19.2",
+      "article_type":   "사실형",
+      "type_prob":      "96.1"
+    }
+  ]
+}
+```
+
+### 필드 설명
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `link` | string | 네이버 뉴스 원문 URL |
+| `category` | string | `교통사고` / `도로혼잡` / `대중교통` / `교통정책` / `스마트교통` |
+| `title` | string | 기사 제목 |
+| `summary` | string | Groq AI 1문장 요약 |
+| `sentiment` | string | `혼잡악화` / `교통개선` / `중립` |
+| `pub_date` | string | 기사 발행일시 (`YYYY-MM-DD HH:mm`) |
+| `clickbait_prob` | string | 과장성 점수 (0~100, 높을수록 자극적인 기사) |
+| `article_type` | string | 기사 유형: `사실형` / `예측형` / `대화형` / `추론형` |
+| `type_prob` | string | 기사 유형 분류 신뢰도 (0~100) |
+
+> 프론트에서 주로 쓸 필드: `title`, `summary`, `sentiment`, `pub_date`, `category`, `link`  
+> `clickbait_prob`, `article_type`, `type_prob` 은 필요 시 활용
+
 ### 사용 예시
 
-```powershell
+```cmd
 # 서버 상태 확인
 curl http://localhost:5001/health
 
