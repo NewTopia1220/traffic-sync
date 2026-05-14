@@ -47,7 +47,7 @@ def _run_pipeline(table: str, config: dict, verify_fn, groq_keys: list):
 TRAFFIC_CONFIG = {
     "서울교통": {
         "search_query": "서울 교통 혼잡",
-        "keywords": ["교통", "혼잡", "신호", "교차로", "잠실", "강남", "도로", "정체"]
+        "keywords": ["교통", "혼잡", "신호", "교차로", "잠실", "강남", "도로", "정체","집회"]
     },
     "교통사고": {
         "search_query": "서울 교통사고 도로",
@@ -124,7 +124,7 @@ def latest_news():
         if category:
             cursor.execute("""
                 SELECT link, category, title, summary, sentiment,
-                       pub_date, article_type, type_prob
+                       pub_date, clickbait_prob, article_type, type_prob
                 FROM traffic_news
                 WHERE category = :1
                 ORDER BY pub_date DESC
@@ -133,7 +133,7 @@ def latest_news():
         else:
             cursor.execute("""
                 SELECT link, category, title, summary, sentiment,
-                       pub_date, article_type, type_prob
+                       pub_date, clickbait_prob, article_type, type_prob
                 FROM traffic_news
                 ORDER BY pub_date DESC
                 FETCH FIRST :1 ROWS ONLY
@@ -141,7 +141,7 @@ def latest_news():
 
         rows = cursor.fetchall()
         cols = ["link", "category", "title", "summary",
-                "sentiment", "pub_date", "article_type", "type_prob"]
+                "sentiment", "pub_date", "clickbait_prob", "article_type", "type_prob"]
         result = [dict(zip(cols, row)) for row in rows]
         cursor.close()
         conn.close()
