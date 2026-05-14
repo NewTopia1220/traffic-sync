@@ -69,8 +69,10 @@ public class SignalService {
     }
 
     public List<Map<String, Object>> getAllCrossroads() {
+        Set<String> hasPhase = phaseRepo.findAllIntNos();
         List<Map<String, Object>> list = new ArrayList<>();
         for (SignalCrossroadEntity e : crossroadRepo.findAll()) {
+            if (!hasPhase.contains(e.getIntNo())) continue;
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("intNo", e.getIntNo());
             m.put("intNm", e.getIntNm());
