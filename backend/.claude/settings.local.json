@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(Get-Process -Id 46072)"
+      "PowerShell(Get-Process -Id 46072)",
+      "Bash(xargs cat *)",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); print\\(data[0]['text']\\)\")",
+      "Bash(python -c \"import json,sys; data=json.load\\(open\\(r'C:\\\\Users\\\\kingh\\\\.claude\\\\projects\\\\c--gitFinal-traffic-sync-backend\\\\10194045-e156-4049-aaaf-963400b73c4d\\\\tool-results\\\\toolu_01Cb9nYvh6QsHo8QoYkysi9n.json'\\)\\); print\\(data[0]['text']\\)\")"
     ]
   }
 }
