@@ -2,6 +2,8 @@ import { useState } from 'react'
 import MainDashboard from './pages/MainDashboard'
 import MapDashboard from './pages/MapDashboard'
 import CctvDashboard from './pages/CctvDashboard'
+import SimulationDashboard from './pages/SimulationDashboard'
+import { useWebSocket } from './hooks/useWebSocket'
 
 /**
  * App 컴포넌트 — 애플리케이션 최상위 컴포넌트
@@ -24,6 +26,7 @@ export default function App() {
   // MainDashboard와 MapDashboard가 같은 데이터를 공유해야 하므로
   // 공통 부모인 App에서 관리하고 props로 내려줌
   const [wsData, setWsData] = useState([])
+  const { wsStatus, lastUpdate } = useWebSocket(setWsData)
 
   // 통합 대시보드에서 구를 클릭했을 때 해당 구의 좌표 저장
   // 지도 페이지로 이동할 때 initialCenter로 전달해 카카오맵 초기 중심을 설정
@@ -48,6 +51,14 @@ export default function App() {
   // if문을 순서대로 평가 → 해당하는 페이지 컴포넌트만 렌더링
   // (나머지 컴포넌트는 언마운트되어 메모리에서 제거됨)
 
+  // 신호 시뮬레이션 페이지
+  if (page === 'simulation') return (
+    <SimulationDashboard
+      onGoMain={() => setPage('main')}
+      onGoMap={() => setPage('map')}
+    />
+  )
+
   // CCTV 관제 페이지
   if (page === 'cctv') return (
     <CctvDashboard
@@ -64,6 +75,8 @@ export default function App() {
       wsData={wsData}                     // 교차로 신호 데이터 (읽기)
       setWsData={setWsData}               // WebSocket 수신 시 데이터 업데이트 (쓰기)
       initialCenter={mapCenter}           // 카카오맵 초기 중심 좌표
+      wsStatus={wsStatus}
+      lastUpdate={lastUpdate}
       stations={stations}                 // 메인에서 fetch해온 전체 데이터가 넘어감
     />
   )

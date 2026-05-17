@@ -10,7 +10,6 @@ import com.example.demo.websocket.TrafficWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -21,7 +20,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Component
-@EnableScheduling
 @RequiredArgsConstructor
 public class TrafficScheduler {
 
@@ -50,7 +48,7 @@ public class TrafficScheduler {
     }
 
     // 5초 후 첫 실행, 이후 ${traffic.poll.interval-ms}마다 실행 (예: 10000ms = 10초)
-    @Scheduled(initialDelay = 5000, fixedRateString = "${traffic.poll.interval-ms}0")
+    @Scheduled(initialDelay = 5000, fixedRateString = "${traffic.poll.interval-ms}")
     public void pollTrafficData() {
         log.info("===== 교통 데이터 폴링 시작 =====");
         try {

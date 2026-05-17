@@ -130,6 +130,8 @@ public class V2xApiService {
                 //            ]
                 //        }
                 //    }
+
+
                 //} --> 이런식으로 트리 구조로 파싱됨
                 JsonNode root = objectMapper.readTree(response);
                 // API 응답에서 신호등 데이터가 담긴 배열 추출 (body → items → item)
