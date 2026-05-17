@@ -17,8 +17,7 @@ public class ForecastController {
 
     private final ForecastService forecastService;
 
-    // 2. 이 부분의 경로를 리액트 fetch 주소와 정확히 맞춰야 합니다!
-    // 리액트가 /api/forecast/station/10 으로 보내고 있으니 아래와 같아야 함
+    // 2. 이 부분의 경로를 리액트 fetch 주소와 일치 (리액트가 /api/forecast/station/10 으로 보냄)
     @GetMapping("/forecast/station/{stationId}")
     public ResponseEntity<ForecastResult> getForecast(@PathVariable String stationId) {
         ForecastResult result = forecastService.getForecast(stationId);

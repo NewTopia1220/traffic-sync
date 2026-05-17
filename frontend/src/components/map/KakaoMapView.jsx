@@ -258,18 +258,19 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
 
     stations.forEach(st => {
       const pos = new kakao.maps.LatLng(st.latitude, st.longitude);
-      const MARKER_COLOR = "#ffca28";
+      // const MARKER_COLOR = "#ffca28";
 
       // 마커 디자인 (다이아몬드)
       const el = document.createElement("div");
-      el.style.cssText = "cursor:pointer; display:flex; flex-direction:column; align-items:center; filter: drop-shadow(0 0 4px #00e5ff);";
+      el.style.cssText = "cursor:pointer; display:flex; flex-direction:column; align-items:center; filter: drop-shadow(0 0 4px #ffca28);";
       el.innerHTML = `
-        <div style="width: 14px; height: 14px; background: #000; border: 2px solid #00e5ff; 
+        <div style="width: 14px; height: 14px; background: #000; border: 2px solid #ffca28; 
              border-radius: 2px; transform: rotate(45deg); display: flex; align-items: center; justify-content: center;">
-          <div style="width: 4px; height: 4px; background: #00e5ff; border-radius: 50%;"></div>
+          <div style="width: 4px; height: 4px; background: #ffca28; border-radius: 50%;"></div>
         </div>
-        <div style="margin-top: 6px; padding: 1px 8px; background: rgba(0, 10, 20, 0.8); 
-             border-bottom: 2px solid #00e5ff; color: #fff; font-size: 10px; font-weight: 700; white-space: nowrap;">
+        <div style="margin-top: 6px; padding: 1px 15px; background: transparent; 
+             color: #ffffff; font-size: 10px; font-weight: 700; white-space: nowrap;
+             filter: invert(1) hue-rotate(180deg);">
           ${st.stationName}
         </div>
       `;
@@ -313,9 +314,6 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       })
       .then(data => {
         // ForecastResult 모델 내부의 예측 데이터 리스트 추출
-        // 만약 ForecastResult 안에 List<Prediction> 형태의 필드가 있다면 그 이름을 써야 합니다.
-        // 여기서는 data.predictions 라고 가정하거나, data 자체가 리스트인지 확인이 필요합니다.
-        
         console.log("받은 데이터:", data);
 
         const st = stations.find(s => s.stationId === activeStation);
@@ -333,19 +331,18 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         // 2. 현재 시간 이후의 데이터만 필터링
         const futureData = predictionList.filter(item => item.hour >= currentHour);
       
-
         const pos = new window.kakao.maps.LatLng(st.latitude, st.longitude);
         const content = document.createElement("div");
         content.style.cssText = `
           position: relative; bottom: 45px; background: rgba(10, 20, 35, 0.95);
-          border: 1px solid #00e5ff; border-radius: 8px; padding: 12px;
+          border: 1px solid #ffca28; border-radius: 8px; padding: 12px;
           width: 180px; color: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
           backdrop-filter: blur(8px); z-index: 100;
         `;
 
         content.innerHTML = `
-          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(0,229,255,0.3); padding-bottom:5px; margin-bottom:8px;">
-            <span style="font-size:13px; font-weight:bold; color:#00e5ff;">${st.stationName}</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,202,40,0.3); padding-bottom:5px; margin-bottom:8px;">
+            <span style="font-size:13px; font-weight:bold; color:#ffffff;">${st.stationName}</span>
             <button id="close-ov" style="background:none; border:none; color:#fff; cursor:pointer; font-size:18px;">&times;</button>
           </div>
           <div style="max-height: 120px; overflow-y: auto;">
@@ -359,7 +356,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
               : '<div style="font-size:11px; color:#666; text-align:center; padding:10px;">이후 예측 데이터 없음</div>'
             }
           </div>
-          <div style="position:absolute; bottom:-10px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid #00e5ff;"></div>
+          <div style="position:absolute; bottom:-10px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid #ffca28;"></div>
         `;
 
         content.querySelector("#close-ov").onclick = () => setActiveStation(null);
@@ -458,7 +455,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
             color: showTraffic ? "#4ea6ff" : "#aab4c8",
             cursor: "pointer", backdropFilter: "blur(4px)",
           }}>
-          📊 교통량 지점 {stations.length}개
+          교통량 지점 {stations.length}개
         </button>
       </div>
 

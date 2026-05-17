@@ -43,19 +43,6 @@ function makeSpark(base, len = 40) {
  * @param {number} seed - crsrdId 숫자 부분 또는 인덱스
  * @returns {{ up: number[], down: number[] }} - 상행/하행 0~23시 대/시 배열
  */
-function makeForecast(seed = 0) {
-  // 출퇴근 피크 시간대를 반영한 24시간 기본 패턴
-  const peakPattern = [20, 15, 10, 8, 10, 30, 80, 120, 100, 70, 60, 65,
-                       70, 65, 60, 75, 110, 130, 100, 75, 60, 45, 35, 25];
-  const r = (seed % 7) * 17 + 50; // seed별 기본 스케일 (50~162)
-  const up   = peakPattern.map((v, i) => Math.max(0, Math.round(v * (r / 100) + (((seed * 13 + i * 7) % 30) - 15))));
-  const down = peakPattern.map((v, i) => {
-    // 하행은 상행보다 2시간 늦은 패턴
-    const shifted = peakPattern[(i + 2) % 24];
-    return Math.max(0, Math.round(shifted * (r / 90) + (((seed * 7 + i * 11) % 25) - 12)));
-  });
-  return { up, down };
-}
 
 // ── Sparkline ────────────────────────────────────────────────────────────────
 /**

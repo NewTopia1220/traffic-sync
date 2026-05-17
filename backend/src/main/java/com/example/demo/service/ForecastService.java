@@ -19,8 +19,7 @@ public class ForecastService {
     private final RestTemplate restTemplate = new RestTemplate();
 
     public List<TrafficStationEntity> findAllStations() {
-        // DB(TRAFFIC_STATION 테이블)에서 모든 지점을 긁어옵니다.
-        // 만약 리포지토리를 안 만드셨다면 팀원에게 "TrafficStationRepository"가 있는지 물어보세요!
+        // DB(TRAFFIC_STATION 테이블)에서 모든 지점을 가져옴
         return trafficStationRepository.findAll();
     }
 

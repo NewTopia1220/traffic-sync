@@ -10,16 +10,14 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# 1. 모델 로드 (경로에 파일이 있는지 확인하세요)
+# 1. 모델 로드
 model = joblib.load('xgboost_traffic_model.joblib')
 
-# 2. DB 접속 설정 (보내주신 application.properties 기반)
+# 2. DB 접속 설정
 db_config = {
      "user": "ADMIN",
      "password": "Heeyoun1220!",
      "dsn": "koreapoint_medium",
-     # Wallet 파일이 들어있는 폴더 경로입니다.
-     # app.py 파일 위치 기준으로 wallet 폴더가 어디있는지 확인 후 수정하세요.
      "wallet_location": "C:/Users/edu__/Downloads/Wallet_Orcle"
 }
 
@@ -52,18 +50,18 @@ def get_station_from_db(station_id):
           row = cursor.fetchone()
 
           if row:
-               print(f"✅ DB 조회 성공! [ID {station_id}] -> {row[0]}")
+               print(f"DB 조회 성공! [ID {station_id}] -> {row[0]}")
                result = {"name": row[0], "lat": float(row[1]), "lng": float(row[2])}
           else:
-               print(f"⚠️ DB에 ID {station_id} 데이터가 없습니다.")
+               print(f"DB에 ID {station_id} 데이터가 없습니다.")
                result = None
 
           cursor.close()
           return result
 
      except Exception as e:
-          # 접속 실패 시 터미널에 에러 내용을 상세히 출력합니다.
-          print(f"❌ DB 접속 실패 원인: {str(e)}")
+          # 접속 실패 시 터미널에 에러 내용을 출력
+          print(f"DB 접속 실패 원인: {str(e)}")
           return None
      finally:
           if conn:
