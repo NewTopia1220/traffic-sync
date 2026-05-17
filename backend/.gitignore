@@ -2,11 +2,11 @@ target/
 *.class
 *.jar
 
-# Local configuration with API keys or DB credentials.
+# 비밀번호 포함 설정파일
 src/main/resources/application.properties
-src/main/resources/application-local.properties
+src/main/resources/application-secret.properties
 
-# Oracle Wallet security files.
+# Oracle Wallet (보안 파일 - 절대 커밋 금지)
 src/main/resources/wallet/
 
 # Temporary Office lock files created while the workbook is open.
