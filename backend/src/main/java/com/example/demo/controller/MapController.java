@@ -4,12 +4,15 @@ import com.example.demo.entity.CrossroadEntity;
 import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.TrafficStatus;
 import com.example.demo.repository.CrossroadRepository;
+import com.example.demo.scheduler.SupplementalDataScheduler;
+import com.example.demo.service.SupplementalDataCacheService;
 import com.example.demo.service.TrafficCacheService;
 import com.example.demo.service.V2xApiService;
 import com.example.demo.websocket.TrafficWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,6 +36,10 @@ public class MapController {
     private final TrafficWebSocketHandler webSocketHandler;
     //CrossroadRepository는 DB에서 교차로 정보 조회하는 리포지토리
     private final CrossroadRepository crossroadRepository;
+    // WebSocket으로 내보내기 전 실제 속도/위험도/날씨 캐시를 TrafficStatus에 합친다.
+    private final SupplementalDataCacheService supplementalDataCacheService;
+    // 선택 구역 변경 직후 보조 데이터 캐시가 이전 구역에 머물지 않도록 즉시 갱신한다.
+    private final ObjectProvider<SupplementalDataScheduler> supplementalDataSchedulerProvider;
 
     @Value("${kakao.map.app-key}")
     private String kakaoAppKey;
@@ -50,15 +57,20 @@ public class MapController {
     @GetMapping("/api/signals")
     @ResponseBody
     public Collection<TrafficStatus> getSignals() {
+        cacheService.getAllSignals().values().forEach(supplementalDataCacheService::enrichTrafficStatus);
         return cacheService.getAllSignals().values();
     }
 
     @PostMapping("/api/fetch-area")
     @ResponseBody
-    public ResponseEntity<Map<String, Object>> fetchArea(
+    public synchronized ResponseEntity<Map<String, Object>> fetchArea(
             @RequestParam double lat,
             @RequestParam double lon,
             @RequestParam(defaultValue = "1.0") double radius) {
+        long startedAtMs = System.currentTimeMillis();
+        if (!cacheService.beginAreaRefresh()) {
+            return ResponseEntity.status(409).body(Map.of("message", "다른 구역 데이터를 수집 중입니다"));
+        }
         try {
             // 선택된 구 좌표 캐시에 저장 → 스케줄러가 이 좌표로 폴링
             cacheService.setCenter(lat, lon, radius);
@@ -101,18 +113,30 @@ public class MapController {
             //    "1009" → TrafficStatus { crsrdNm: "롯데타워교차로", signals: {...} }
             //}
 
-            //forEach 돌면:
-            //cacheService.updateSignal("1007", TrafficStatus {...})  // 캐시에 저장
-            //cacheService.updateSignal("1008", TrafficStatus {...})  // 캐시에 저장
-            //cacheService.updateSignal("1009", TrafficStatus {...})  // 캐시에 저장
-            signals.forEach(cacheService::updateSignal);
+            // 선택 구역은 이전 구역과 섞이면 안 되므로 전체 캐시를 새 구역 데이터로 교체한다.
+            cacheService.updateAllSignals(signals);
 
+            // V2X만 먼저 보내면 교차로 개수만 보이므로, 보조 API까지 모두 붙인 뒤 한 번만 broadcast한다.
+            supplementalDataCacheService.clearRoadSupplementalData();
+            refreshSupplementalDataForCurrentArea();
+            supplementalDataCacheService.enrichTrafficStatuses(signals);
+            cacheService.updateAllSignals(signals);
             webSocketHandler.broadcast(signals);
-            log.info("구역 수집: ({},{}) 반경{}km → {}개", lat, lon, radius, signals.size());
+            log.info("구역 수집: ({},{}) 반경{}km → {}개, elapsedMs={}", lat, lon, radius, signals.size(), System.currentTimeMillis() - startedAtMs);
             return ResponseEntity.ok(Map.of("count", signals.size(), "message", "ok"));
         } catch (Exception e) {
             log.error("구역 수집 실패: {}", e.getMessage());
             return ResponseEntity.internalServerError().body(Map.of("message", e.getMessage()));
+        } finally {
+            cacheService.finishAreaRefresh();
         }
+    }
+
+    private void refreshSupplementalDataForCurrentArea() {
+        supplementalDataSchedulerProvider.ifAvailable(scheduler -> {
+            scheduler.refreshRoadLinkMappings();
+            scheduler.refreshRoadSpeeds();
+            scheduler.refreshRoadRisks();
+        });
     }
 }

@@ -37,9 +37,12 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
     setActiveTab("map");
   }, []);
 
-  const bottlenecks = [...wsData].filter(c => c.congestion !== "원활").sort((a, b) => a.speed - b.speed);
-  const risks       = [...wsData].filter(c => c.riskScore >= 40).sort((a, b) => b.riskScore - a.riskScore);
-  const avgSpeed    = wsData.length ? Math.round(wsData.reduce((a, c) => a + c.speed, 0) / wsData.length) : 0;
+  const bottlenecks = [...wsData]
+    .filter(c => c.congestion === "혼잡" || c.congestion === "서행")
+    .sort((a, b) => (a.speed ?? Number.MAX_SAFE_INTEGER) - (b.speed ?? Number.MAX_SAFE_INTEGER));
+  const risks       = [...wsData].filter(c => Number.isFinite(c.riskScore) && c.riskScore >= 40).sort((a, b) => b.riskScore - a.riskScore);
+  const validSpeeds = wsData.map(c => c.speed).filter(Number.isFinite);
+  const avgSpeed    = validSpeeds.length ? Math.round(validSpeeds.reduce((a, v) => a + v, 0) / validSpeeds.length) : "—";
   const isConn      = wsStatus === "연결됨";
 
   return (
@@ -134,7 +137,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
             {[
               { label: "교차로 수",   value: wsData.length,                             suffix: "개",   color: "#4ea6ff" },
-              { label: "위험 교차로", value: wsData.filter(c => c.riskScore >= 70).length, suffix: "개",   color: "#ff5566" },
+              { label: "위험 교차로", value: wsData.filter(c => Number.isFinite(c.riskScore) && c.riskScore >= 70).length, suffix: "개",   color: "#ff5566" },
               { label: "평균 속도",   value: avgSpeed,                                   suffix: "km/h", color: "#2ee07a" },
             ].map(s => (
               <div key={s.label} style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "12px 10px", textAlign: "center" }}>

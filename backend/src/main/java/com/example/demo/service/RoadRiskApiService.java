@@ -12,6 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -35,6 +36,9 @@ public class RoadRiskApiService {
 
     @Value("${road-risk.api.num-of-rows:10}")
     private int numOfRows;
+
+    @Value("${road-risk.api.request-timeout-seconds:3}")
+    private long requestTimeoutSeconds;
 
     public RoadRiskApiService(WebClient webClient) {
         this.webClient = webClient;
@@ -70,6 +74,7 @@ public class RoadRiskApiService {
                 .uri(uri)
                 .retrieve()
                 .bodyToMono(String.class)
+                .timeout(Duration.ofSeconds(requestTimeoutSeconds))
                 .block();
         return parseRiskResponse(response, mapping.getLineString());
     }

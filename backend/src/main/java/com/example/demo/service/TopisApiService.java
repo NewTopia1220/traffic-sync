@@ -16,6 +16,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,6 +61,9 @@ public class TopisApiService {
     @Value("${topis.link-vertex.prefer-file:true}")
     private boolean preferLinkVertexFile;
 
+    @Value("${topis.api.request-timeout-seconds:3}")
+    private long requestTimeoutSeconds;
+
     TopisApiService(WebClient webClient, CoordinateTransformService coordinateTransformService) {
         this(webClient, coordinateTransformService, new DefaultResourceLoader());
     }
@@ -93,6 +97,7 @@ public class TopisApiService {
                 .uri(uri)
                 .retrieve()
                 .bodyToMono(String.class)
+                .timeout(Duration.ofSeconds(requestTimeoutSeconds))
                 .block();
         return parseSpeedResponse(response);
     }
@@ -130,6 +135,7 @@ public class TopisApiService {
                     .uri(uri)
                     .retrieve()
                     .bodyToMono(String.class)
+                    .timeout(Duration.ofSeconds(requestTimeoutSeconds))
                     .block();
 
             if (isErrorResponse(response)) {

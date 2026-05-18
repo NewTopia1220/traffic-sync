@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 // 교차로 정보 및 신호 데이터를 메모리에 캐싱 (PoC용, 추후 Redis로 교체)
 @Service
@@ -18,6 +19,8 @@ public class TrafficCacheService {
     private volatile double centerLat;
     private volatile double centerLon;
     private volatile double centerRadius = 1.0;
+    // 구역 선택 API가 V2X+보조 데이터를 한 번에 준비하는 동안 정기 폴링이 중간 데이터를 덮어쓰지 않도록 막는다.
+    private final AtomicBoolean areaRefreshInProgress = new AtomicBoolean(false);
 
     // 교차로ID → 교차로 정보
     public void setCenter(double lat, double lon, double radius) {
@@ -29,6 +32,18 @@ public class TrafficCacheService {
     public double getCenterLat() { return centerLat; }
     public double getCenterLon() { return centerLon; }
     public double getCenterRadius() { return centerRadius; }
+
+    public boolean beginAreaRefresh() {
+        return areaRefreshInProgress.compareAndSet(false, true);
+    }
+
+    public void finishAreaRefresh() {
+        areaRefreshInProgress.set(false);
+    }
+
+    public boolean isAreaRefreshInProgress() {
+        return areaRefreshInProgress.get();
+    }
 
     // 교차로ID → 최신 신호 상태
     private final ConcurrentHashMap<String, TrafficStatus> signalCache = new ConcurrentHashMap<>();

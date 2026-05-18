@@ -6,7 +6,7 @@ const DEFAULT_LAT = 37.5133;
 const DEFAULT_LON = 127.1002;
 
 // 스프링 REST API 주소 — CCTV 목록 조회용
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
 /**
  * KakaoMapView 컴포넌트

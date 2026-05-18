@@ -3,7 +3,7 @@ import { GU_LIST, calcDistKm } from "../constants/seoulGeoData";
 import SeoulSvgMap from "../components/map/SeoulSvgMap";
 
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
 // ── 전역 색상/폰트 디자인 토큰 ──────────────────────────────────────────────
 // 컴포넌트 인라인 스타일에서 일관된 색상을 쓰기 위한 상수 맵
@@ -17,21 +17,14 @@ const V = {
 
 // ── makeSpark ───────────────────────────────────────────────────────────────
 /**
- * 더미 sparkline 데이터 배열 생성
- * WebSocket 미연결 상태에서도 그래프가 비어 보이지 않도록 초기값 제공
+ * 실시간 속도 히스토리 초기 배열 생성
+ * 더미 랜덤값을 만들지 않고, 실제 API 속도가 들어온 경우에만 같은 값으로 시작한다.
  * @param {number} base  - 기준 속도값 (km/h)
  * @param {number} len   - 생성할 데이터 포인트 수 (기본 40)
- * @returns {number[]}   - 5~80 범위 내 랜덤 워크 배열
+ * @returns {number[]}   - 실제 속도 기반 초기 배열
  */
 function makeSpark(base, len = 40) {
-  const pts = [];
-  let v = base;
-  for (let i = 0; i < len; i++) {
-    // 이전값에서 ±3 범위 랜덤 워크, 5~80으로 클램핑
-    v = Math.max(5, Math.min(80, v + (Math.random() - 0.5) * 6));
-    pts.push(v);
-  }
-  return pts;
+  return Number.isFinite(base) ? [base] : [];
 }
 
 // ── makeForecast ─────────────────────────────────────────────────────────────
@@ -139,6 +132,20 @@ function statusOf(v) {
   return "원활";
 }
 
+function hasRiskScore(score) {
+  return Number.isFinite(score);
+}
+
+function riskColor(score) {
+  if (!hasRiskScore(score)) return V.ink2;
+  return score >= 70 ? V.red : score >= 50 ? V.org : V.grn;
+}
+
+function riskLevel(score) {
+  if (!hasRiskScore(score)) return "수집 대기";
+  return score >= 70 ? "위험" : score >= 50 ? "주의" : "안전";
+}
+
 // ── LivCard ──────────────────────────────────────────────────────────────────
 /**
  * 실시간 구간 속도 카드
@@ -205,11 +212,12 @@ function LivCard({ name, color, speed, sparkData }) {
  * @param {number} score - 위험도 점수 (0~100)
  */
 function DonutChart({ name, score }) {
-  const color = score >= 70 ? V.red : score >= 50 ? V.org : V.grn;
-  const level = score >= 70 ? "위험" : score >= 50 ? "주의" : "안전";
+  const ready = hasRiskScore(score);
+  const color = riskColor(score);
+  const level = riskLevel(score);
   const r = 80, sw = 18; // 반지름, 선 굵기
   const circ = 2 * Math.PI * r; // 원 둘레
-  const dash = (Math.min(score, 100) / 100) * circ; // 채워질 길이
+  const dash = ready ? (Math.min(score, 100) / 100) * circ : 0; // 채워질 길이
 
   return (
     <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 10, minHeight: 300 }}>
@@ -225,7 +233,7 @@ function DonutChart({ name, score }) {
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", pointerEvents: "none" }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 6 }}>{name || "—"}</div>
         <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 72, color: "#fff", letterSpacing: "-3px", lineHeight: 1 }}>
-          {score ?? 0}<span style={{ fontSize: 15, color: V.ink2, fontWeight: 500, marginLeft: 3 }}>점</span>
+          {ready ? score : "—"}<span style={{ fontSize: 15, color: V.ink2, fontWeight: 500, marginLeft: 3 }}>점</span>
         </div>
         <div style={{ marginTop: 8, fontFamily: V.mono, fontSize: 13, padding: "4px 12px", borderRadius: 2, border: `1px solid ${color}`, color, background: `${color}20`, fontWeight: 700 }}>{level}</div>
       </div>
@@ -410,7 +418,7 @@ function RiskDropdown({ options, selectedIdx, onChange, watchIds = [] }) {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  const levelLabel = score => score >= 70 ? "위험" : score >= 50 ? "주의" : "양호";
+  const levelLabel = riskLevel;
   const isRegisterMode = watchIds.length > 0 || selectedIdx === -1;
   const filtered = options.map((o, i) => ({ ...o, origIdx: i })).filter(o => o.name.includes(query));
 
@@ -435,7 +443,7 @@ function RiskDropdown({ options, selectedIdx, onChange, watchIds = [] }) {
             {filtered.length === 0
               ? <div style={{ padding: "14px", fontSize: 13, color: V.ink2, textAlign: "center" }}>검색 결과 없음</div>
               : filtered.map((opt) => {
-                  const color = opt.score >= 70 ? V.red : opt.score >= 50 ? V.org : V.grn;
+                  const color = riskColor(opt.score);
                   const isWatched = watchIds.includes(opt.id);
                   const isSel = opt.origIdx === selectedIdx;
                   return (
@@ -446,7 +454,7 @@ function RiskDropdown({ options, selectedIdx, onChange, watchIds = [] }) {
                         color: isSel || isWatched ? "#fff" : V.ink1, fontSize: 13 }}>
                       <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, minWidth: 28 }}>#{opt.origIdx + 1}</span>
                       <span style={{ flex: 1, fontWeight: 600 }}>{opt.name}</span>
-                      <span style={{ fontFamily: V.mono, fontSize: 13, color, fontWeight: 700 }}>{opt.score}점</span>
+                      <span style={{ fontFamily: V.mono, fontSize: 13, color, fontWeight: 700 }}>{hasRiskScore(opt.score) ? `${opt.score}점` : "—"}</span>
                       <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, minWidth: 36 }}>({levelLabel(opt.score)})</span>
                       {/* 등록 모드: + 또는 ✓ 표시 */}
                       {isRegisterMode && (
@@ -490,6 +498,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
   const [speedSelected, setSpeedSelected] = useState([]);
   // 교차로ID → 속도 히스토리 배열 (ref: setState 없이 직접 push/shift)
   const sparkRef = useRef({});
+  // 교차로ID → 마지막으로 그래프에 반영한 스냅샷 키
+  const sparkSampleKeyRef = useRef({});
 
   // 관심 교차로 목록 (최대 8개, 수동 등록)
   const [watchList, setWatchList] = useState([]);
@@ -505,33 +515,32 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
     return () => clearInterval(t);
   }, []);
 
-  // sparkline 히스토리 최대 보관 개수 (720개 = 1시간, 5초 간격)
+  // sparkline 히스토리 최대 보관 개수. WebSocket으로 새 스냅샷이 올 때만 실제 관측값을 추가한다.
   const LIV_MAX = 720;
 
-  // WebSocket으로 교차로가 새로 들어오면 더미 sparkline으로 초기화
+  // WebSocket/REST로 새 스냅샷이 들어올 때만 속도 히스토리에 추가한다.
+  // 5초마다 같은 speed를 반복 저장하면 실제 변화가 없는데도 관측수가 늘어나는 착시가 생긴다.
   useEffect(() => {
+    let changed = false;
     wsData.forEach(c => {
-      if (!sparkRef.current[c.crsrdId]) {
-        sparkRef.current[c.crsrdId] = makeSpark(c.speed ?? 20, 20);
-      }
-    });
-  }, [wsData.length]); // 교차로 수가 바뀔 때만 실행
+      if (!Number.isFinite(c.speed)) return;
 
-  // 5초마다 현재 speed를 sparkline 히스토리에 push (최대 LIV_MAX개 유지)
-  useEffect(() => {
-    const t = setInterval(() => {
-      wsData.forEach(c => {
-        if (!sparkRef.current[c.crsrdId]) {
-          sparkRef.current[c.crsrdId] = makeSpark(c.speed ?? 20, 20);
-        } else {
-          const arr = sparkRef.current[c.crsrdId];
-          arr.push(c.speed ?? arr[arr.length - 1]); // 속도 없으면 이전값 유지
-          if (arr.length > LIV_MAX) arr.shift();     // 오래된 데이터 제거
-        }
-      });
+      const sampleKey = `${c.serverTimeMs ?? ""}:${c.totDt ?? ""}:${c.speed}`;
+      if (sparkSampleKeyRef.current[c.crsrdId] === sampleKey) {
+        return;
+      }
+
+      const arr = sparkRef.current[c.crsrdId] ?? [];
+      arr.push(c.speed);
+      if (arr.length > LIV_MAX) arr.shift();
+      sparkRef.current[c.crsrdId] = arr;
+      sparkSampleKeyRef.current[c.crsrdId] = sampleKey;
+      changed = true;
+    });
+
+    if (changed) {
       setTime(new Date()); // 강제 리렌더 (sparkRef는 ref라 자동 리렌더 안 됨)
-    }, 5000);
-    return () => clearInterval(t);
+    }
   }, [wsData]);
 
   /**
@@ -542,15 +551,17 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
    * 4. fetchMsg 3초 표시 후 사라짐
    */
   const handleSelectGu = useCallback(async (gu) => {
-    setSelectedGu(gu);
-    setRiskIdx(0);       // 위험도 슬롯 초기화
-    setWatchList([]);    // 관심 목록 초기화
-    setSpeedSelected([]); // 속도 카드 선택 초기화
     setLoading(true);
     setFetchMsg(null);
     try {
       const res = await fetch(`${API_BASE}/api/fetch-area?lat=${gu.lat}&lon=${gu.lon}&radius=2.5`, { method: "POST" });
+      if (!res.ok) throw new Error("fetch-area failed");
       const data = await res.json();
+      // 새 구역 데이터가 백엔드에서 준비된 뒤에 선택 상태를 바꿔 이전 구역 데이터와 섞여 보이지 않게 한다.
+      setSelectedGu(gu);
+      setRiskIdx(0);       // 위험도 슬롯 초기화
+      setWatchList([]);    // 관심 목록 초기화
+      setSpeedSelected([]); // 속도 카드 선택 초기화
       setFetchMsg(`${gu.name} · ${data.count ?? 0}개 교차로 수집됨`);
     } catch {
       setFetchMsg(`${gu.name} 데이터 수집 실패`);
@@ -561,26 +572,29 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
   }, []);
 
   // ── 활성 데이터 계산 ────────────────────────────────────────────────────────
-  // 선택된 구 반경 2.5km 내 교차로만 필터 (결과 없으면 전체 사용)
+  // 선택된 구 반경 2.5km 내 교차로만 필터한다. 결과가 없을 때 이전 구역 전체 데이터로 대체하면 화면이 섞여 보인다.
   const guData = selectedGu
     ? wsData.filter(c => c.lat && c.lon && calcDistKm(c.lat, c.lon, selectedGu.lat, selectedGu.lon) <= 2.5)
     : wsData;
-  const activeData = guData.length > 0 ? guData : wsData;
+  const activeData = selectedGu ? guData : wsData;
   const isLive = wsData.length > 0; // WebSocket 연결 여부
 
   // ── KPI 계산 ────────────────────────────────────────────────────────────────
-  const avgSpeed  = activeData.length ? Math.round(activeData.reduce((a, c) => a + (c.speed ?? 30), 0) / activeData.length) : 40;
-  const highRisk  = activeData.filter(c => (c.riskScore ?? 0) >= 70).length;
-  const sortedByRisk = [...activeData].sort((a, b) => (b.riskScore ?? 0) - (a.riskScore ?? 0));
-  const maxRiskItem  = sortedByRisk[0];
-  const maxRisk      = maxRiskItem?.riskScore ?? 99;
+  const validSpeeds = activeData.map(c => c.speed).filter(Number.isFinite);
+  const avgSpeed  = validSpeeds.length ? Math.round(validSpeeds.reduce((a, v) => a + v, 0) / validSpeeds.length) : "—";
+  const riskReadyData = activeData.filter(c => hasRiskScore(c.riskScore));
+  const highRisk  = riskReadyData.filter(c => c.riskScore >= 70).length;
+  const sortedByRisk = [...activeData].sort((a, b) => (hasRiskScore(b.riskScore) ? b.riskScore : -1) - (hasRiskScore(a.riskScore) ? a.riskScore : -1));
+  const maxRiskItem  = [...riskReadyData].sort((a, b) => b.riskScore - a.riskScore)[0];
+  const maxRisk      = maxRiskItem?.riskScore ?? "—";
   const guLabel      = selectedGu ? `${selectedGu.name} 반경 2.5km` : "전체";
-  const speedStatus  = avgSpeed >= 40 ? "정상" : avgSpeed >= 20 ? "서행" : "혼잡";
+  const speedStatus  = typeof avgSpeed === "number" ? (avgSpeed >= 40 ? "정상" : avgSpeed >= 20 ? "서행" : "혼잡") : "대기";
+  const riskStatus   = riskReadyData.length === 0 ? "대기" : highRisk > 0 ? "위험" : "정상";
 
   // ── 위험도 리스트 (드롭다운 검색 + 그리드 슬롯용) ───────────────────────────
   const riskData = sortedByRisk.map(c => ({
-    name: c.crsrdNm, score: c.riskScore ?? 0,
-    speed: c.speed ?? 0, congestion: c.congestion ?? "—",
+    name: c.crsrdNm, score: hasRiskScore(c.riskScore) ? c.riskScore : null,
+    speed: c.speed, congestion: c.congestion ?? "—",
     id: c.crsrdId,
   }));
 
@@ -610,7 +624,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
   };
 
   // ── 속도 카드 데이터 ─────────────────────────────────────────────────────────
-  const speedOptions = activeData.map(c => ({ id: c.crsrdId, name: c.crsrdNm, speed: c.speed ?? 0 }));
+  const speedOptions = activeData.map(c => ({ id: c.crsrdId, name: c.crsrdNm, speed: c.speed }));
+  const speedCardSource = activeData.filter(c => Number.isFinite(c.speed));
 
   // 드롭다운 선택 있으면 그것, 없으면 속도 하위 3개 자동 선택, wsData 없으면 더미
   const displayCards = speedSelected.length > 0
@@ -619,17 +634,23 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
         const spd = live?.speed ?? s.speed;
         return { name: s.name, color: CARD_COLORS[i % 3], speed: spd, sparkData: sparkRef.current[s.id] ?? makeSpark(spd, 30) };
       })
-    : activeData.length > 0
-    ? [...activeData].sort((a, b) => (a.speed ?? 0) - (b.speed ?? 0)).slice(0, 3).map((c, i) => ({
+    : speedCardSource.length > 0
+    ? [...speedCardSource].sort((a, b) => a.speed - b.speed).slice(0, 3).map((c, i) => ({
         name: c.crsrdNm, color: CARD_COLORS[i],
-        speed: c.speed ?? 0,
-        sparkData: sparkRef.current[c.crsrdId] ?? makeSpark(c.speed ?? 20, 30),
+        speed: c.speed,
+        sparkData: sparkRef.current[c.crsrdId] ?? makeSpark(c.speed, 30),
       }))
-    // wsData 없을 때 더미 카드
+    : activeData.length > 0
+    ? activeData.slice(0, 3).map((c, i) => ({
+        name: c.crsrdNm, color: CARD_COLORS[i],
+        speed: null,
+        sparkData: [],
+      }))
+    // wsData 없을 때는 카드 틀만 유지하고 숫자 더미는 만들지 않는다.
     : [
-        { name: "잠실역", color: V.red, speed: null, sparkData: makeSpark(17, 30) },
-        { name: "석촌호수", color: V.org, speed: null, sparkData: makeSpark(17, 30) },
-        { name: "잠실나루", color: V.grn, speed: null, sparkData: makeSpark(32, 30) },
+        { name: "수집 대기", color: V.red, speed: null, sparkData: [] },
+        { name: "수집 대기", color: V.org, speed: null, sparkData: [] },
+        { name: "수집 대기", color: V.grn, speed: null, sparkData: [] },
       ];
 
   /**
@@ -686,8 +707,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
   // ── 위험도 breakdown 아이템 ──────────────────────────────────────────────────
   // 선택된 교차로의 위험도·속도·혼잡도를 수평 프로그레스 바로 표시
   const bdItems = selectedRisk ? [
-    { label: "도로 위험도", sub: "교차로 구조 · 사고 이력 종합", value: selectedRisk.score, unit: "점", color: selectedRisk.score >= 70 ? V.red : selectedRisk.score >= 50 ? V.org : V.grn, pct: selectedRisk.score },
-    { label: "실시간 평균 속도", sub: "V2X 수집 · 낮을수록 위험", value: selectedRisk.speed, unit: "km/h", color: V.org, pct: Math.min((selectedRisk.speed / 80) * 100, 100) },
+    { label: "도로 위험도", sub: "교차로 구조 · 사고 이력 종합", value: hasRiskScore(selectedRisk.score) ? selectedRisk.score : "—", unit: "점", color: riskColor(selectedRisk.score), pct: hasRiskScore(selectedRisk.score) ? selectedRisk.score : 0 },
+    { label: "실시간 평균 속도", sub: "TOPIS 수집 · 낮을수록 위험", value: selectedRisk.speed ?? "—", unit: "km/h", color: V.org, pct: selectedRisk.speed == null ? 0 : Math.min((selectedRisk.speed / 80) * 100, 100) },
     { label: "혼잡 상태", sub: "현재 구간 추정", value: selectedRisk.congestion, unit: "", color: V.blu, pct: 50 },
   ] : [];
 
@@ -753,9 +774,9 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
       {/* ── KPI 카드 4개 ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, padding: 8 }}>
         <KpiCard value={activeData.length || 0} unit="개" label="모니터링 교차로" sub={guLabel} status="정상" />
-        <KpiCard value={highRisk} unit="개" label="위험 교차로" sub="위험도 70점 이상" status={highRisk > 0 ? "위험" : "정상"} />
+        <KpiCard value={riskReadyData.length ? highRisk : "—"} unit={riskReadyData.length ? "개" : ""} label="위험 교차로" sub={riskReadyData.length ? "위험도 70점 이상" : "위험도 수집 대기"} status={riskStatus} />
         <KpiCard value={avgSpeed} unit="km/h" label="현재 평균 속도" sub="전 교차로 추정" status={speedStatus === "혼잡" ? "혼잡" : speedStatus === "서행" ? "서행" : "정상"} />
-        <KpiCard value={maxRisk} unit="점" label="최고 위험도" sub={maxRiskItem?.crsrdNm ?? "—"} status={maxRisk >= 70 ? "위험" : maxRisk >= 50 ? "피크" : "정상"} />
+        <KpiCard value={maxRisk} unit={hasRiskScore(maxRisk) ? "점" : ""} label="최고 위험도" sub={maxRiskItem?.crsrdNm ?? "위험도 수집 대기"} status={hasRiskScore(maxRisk) ? (maxRisk >= 70 ? "위험" : maxRisk >= 50 ? "피크" : "정상") : "대기"} />
       </div>
 
       {/* ── 2행: 실시간 속도 + 서울 지도 ── */}
@@ -834,7 +855,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
               {Array.from({ length: 8 }).map((_, i) => {
                 const d = displayWatch[i];
                 const isManual = d && watchList.some(w => w.id === d.id);
-                const color = d ? (d.score >= 70 ? V.red : d.score >= 50 ? V.org : V.grn) : V.line;
+                const color = d ? riskColor(d.score) : V.line;
                 const isSel = i === riskIdx;
                 return d ? (
                   <div key={i} onClick={() => setRiskIdx(i)} style={{
@@ -847,7 +868,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
                     <span style={{ fontFamily: V.mono, fontSize: 12, color: isSel ? "#fff" : V.ink2, fontWeight: 700 }}>#{i + 1}</span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "#d8dde8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                      <span style={{ fontFamily: V.mono, fontSize: 16, fontWeight: 700, color: "#fff" }}>{d.score}</span>
+                      <span style={{ fontFamily: V.mono, fontSize: 16, fontWeight: 700, color: "#fff" }}>{hasRiskScore(d.score) ? d.score : "—"}</span>
                       {/* 수동 등록 항목만 ✕ 제거 버튼 표시 */}
                       {isManual && (
                         <span onClick={e => { e.stopPropagation(); toggleWatch(d); }}
@@ -866,7 +887,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
 
             {/* 도넛 차트 + 위험도 breakdown */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <DonutChart name={selectedRisk?.name} score={selectedRisk?.score ?? 0} />
+              <DonutChart name={selectedRisk?.name} score={selectedRisk?.score} />
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {bdItems.map((b, i) => (
                   <div key={i} style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "16px 18px", display: "grid", gridTemplateColumns: "1fr auto", rowGap: 12 }}>

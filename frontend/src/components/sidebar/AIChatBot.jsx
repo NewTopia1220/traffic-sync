@@ -2,14 +2,14 @@ import { useState, useCallback, useEffect } from "react";
 import { AI_RESPONSES } from "../../constants/aiResponses";
 
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
 /**
  * AIChatBot 컴포넌트
  *
  * 🤖 버튼 클릭으로 패널 열기/닫기 (토글)
  * 선택된 교차로 데이터를 컨텍스트로 스프링 /api/chat에 POST
- * 스프링 → ContextService(캐시에서 신호 데이터) → Groq llama-3.3-70b → 답변
+ * 스프링 → TrafficStatus(신호+속도+위험도 통합 상태) → Groq llama-3.3-70b → 답변
  *
  * 토글 구조:
  *   isOpen: false → 🤖 버튼만 표시 (패널 DOM 없음)
@@ -34,10 +34,12 @@ export default function AIChatBot({ selected }) {
   // 새 교차로 선택 시 해당 교차로의 기본 정보로 채팅 리셋
   useEffect(() => {
     if (!selected) return;
+    const riskText = selected.riskScore == null ? "수집 대기" : `${selected.riskScore}점`;
+    const waitText = selected.avgWait == null ? "수집 대기" : `${selected.avgWait}초`;
     setChatMessages([
       {
         role: "ai",
-        text: `[${selected.crsrdNm}] 선택됨.\n위험도 ${selected.riskScore}점 / ${selected.congestion} / 평균대기 ${selected.avgWait}초`,
+        text: `[${selected.crsrdNm}] 선택됨.\n위험도 ${riskText} / ${selected.congestion} / 평균대기 ${waitText}`,
       },
     ]);
   }, [selected?.crsrdId]);
@@ -50,8 +52,8 @@ export default function AIChatBot({ selected }) {
    * 전송 흐름:
    * 1. 사용자 메시지 즉시 UI에 추가 (낙관적 업데이트)
    * 2. POST /api/chat → 스프링 ChatController
-   * 3. 스프링: TrafficCacheService에서 교차로 신호 캐시 조회
-   *           → ContextService로 TrafficContext 빌드
+   * 3. 스프링: TrafficCacheService에서 교차로 TrafficStatus 조회
+   *           → 실제 보조 API 캐시를 합쳐 챗봇 프롬프트 생성
    *           → ChatService → Groq API 호출
    * 4. 응답 data.answer를 AI 메시지로 추가
    * 5. 실패 시 에러 메시지 표시
@@ -132,7 +134,7 @@ export default function AIChatBot({ selected }) {
           {/* 현재 선택 교차로 정보 / 안내 문구 */}
           {selected
             ? <div style={{ fontSize: 15, color: "#7a7a7a", marginBottom: 10 }}>
-                ● {selected.crsrdNm} · 위험도 {selected.riskScore}점 · 대기 {selected.avgWait}초
+                ● {selected.crsrdNm} · 위험도 {selected.riskScore == null ? "수집 대기" : `${selected.riskScore}점`} · 대기 {selected.avgWait == null ? "수집 대기" : `${selected.avgWait}초`}
               </div>
             : <div style={{ fontSize: 15, color: "#3a3a3a", marginBottom: 10 }}>
                 교차로를 클릭하면 분석 시작

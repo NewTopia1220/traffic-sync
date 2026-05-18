@@ -4,6 +4,7 @@ import com.example.demo.entity.CrossroadEntity;
 import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.TrafficStatus;
 import com.example.demo.repository.CrossroadRepository;
+import com.example.demo.service.SupplementalDataCacheService;
 import com.example.demo.service.TrafficCacheService;
 import com.example.demo.service.V2xApiService;
 import com.example.demo.websocket.TrafficWebSocketHandler;
@@ -31,6 +32,8 @@ public class TrafficScheduler {
     private final TrafficWebSocketHandler webSocketHandler;
     // 교차로 정보 DB 접근 레포지토리
     private final CrossroadRepository crossroadRepository;
+    // TOPIS 속도, 도로위험도, 날씨 등 보조 API 캐시를 TrafficStatus에 합치는 서비스
+    private final SupplementalDataCacheService supplementalDataCacheService;
 
     @Value("${jamsil.lat}")
     private double jamsilLat;
@@ -50,6 +53,10 @@ public class TrafficScheduler {
     // 5초 후 첫 실행, 이후 ${traffic.poll.interval-ms}마다 실행 (예: 10000ms = 10초)
     @Scheduled(initialDelay = 5000, fixedRateString = "${traffic.poll.interval-ms}")
     public void pollTrafficData() {
+        if (cacheService.isAreaRefreshInProgress()) {
+            log.info("구역 수집 중이라 정기 폴링을 건너뜀");
+            return;
+        }
         log.info("===== 교통 데이터 폴링 시작 =====");
         try {
             // DB에서 현재 선택된 구 반경 교차로 조회 (기본: 잠실)
@@ -76,6 +83,8 @@ public class TrafficScheduler {
 
             // V2X API 호출하여 교차로별 최신 신호 상태 가져오기
             Map<String, TrafficStatus> freshData = v2xApiService.fetchSignalData(crossroads);
+            // 프론트와 챗봇이 같은 값을 쓰도록 실제 보조 API 캐시와 계산 지표를 합친다.
+            supplementalDataCacheService.enrichTrafficStatuses(freshData);
             // API 호출 결과를 캐시에 업데이트 (교차로ID → 신호 상태 맵)
             cacheService.updateAllSignals(freshData);
             // WebSocket 핸들러를 통해 프론트엔드에 실시간 데이터 브로드캐스트 (예: { "CRSRD001": { stsg: "녹색", rmndCs: 150 }, ... })

@@ -10,6 +10,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.*;
 
 @Slf4j
@@ -35,6 +36,9 @@ public class V2xApiService {
     @Value("${v2x.api.num-of-rows}")
     private int numOfRows;
 
+    @Value("${v2x.api.request-timeout-seconds:10}")
+    private long requestTimeoutSeconds;
+
     // 신호등 API에서 방향과 신호 유형을 조합하여 필드명을 구성하기 위한 상수 배열
     private static final String[] DIRECTIONS = {"nt", "et", "st", "wt", "ne", "se", "sw", "nw"};
     // 신호 유형 배열: Stsg, Ltsg, Pdsg, Utsg, Bssg, Bcsg
@@ -54,6 +58,7 @@ public class V2xApiService {
     //    CrossroadInfo { crsrdId: "1009", crsrdNm: "롯데타워교차로", lat: 37.51, lon: 127.10 }
     //] 이렇게 넘엉옴
     public Map<String, TrafficStatus> fetchSignalData(List<CrossroadInfo> crossroads) {
+        long startedAtMs = System.currentTimeMillis();
 
 
         Map<String, CrossroadInfo> crossroadMap = new HashMap<>();
@@ -108,6 +113,7 @@ public class V2xApiService {
                         .uri(signalUri)
                         .retrieve()
                         .bodyToMono(String.class)
+                        .timeout(Duration.ofSeconds(requestTimeoutSeconds))
                         .block();
 
 
@@ -167,7 +173,7 @@ public class V2xApiService {
             }
         }
 
-        log.info("신호 데이터 수집 완료: {}개", result.size());
+        log.info("신호 데이터 수집 완료: {}개, pages={}, elapsedMs={}", result.size(), pageNo, System.currentTimeMillis() - startedAtMs);
         return result;
     }
 

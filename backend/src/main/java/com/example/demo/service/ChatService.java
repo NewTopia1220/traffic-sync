@@ -1,7 +1,9 @@
 package com.example.demo.service;
 
 import com.example.demo.model.DirectionSignal;
-import com.example.demo.model.TrafficContext;
+import com.example.demo.model.SignalDirection;
+import com.example.demo.model.TrafficStatus;
+import com.example.demo.model.context.WeatherSnapshot;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -13,6 +15,9 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+
+import java.util.Locale;
+import java.util.Map;
 
 // AI API 호출 및 응답 처리 서비스
 @Slf4j
@@ -43,52 +48,22 @@ public class ChatService {
     @Value("${grok.api.model:llama-3.3-70b-versatile}")
     private String model;
 
-    // 트래픽 컨텍스트와 사용자 질문을 받아 AI API에 요청하고, 응답을 반환하는 메서드
-    public String ask(TrafficContext ctx, String question) {
+    // 대시보드와 같은 TrafficStatus를 AI 프롬프트로 바꿔 답변을 요청한다.
+    public String ask(TrafficStatus status, String question) {
         try {
-            // AI API 요청 바디 구성
-            //createObjectNode()는 빈 JSON 객체를 만드는 것
             ObjectNode body = objectMapper.createObjectNode();
             body.put("model", model);
             body.put("max_tokens", 300);
 
-            // 메시지 배열 구성 (system + user)
-            //body 안에 "messages" 키로 빈 배열 만든다:
-            //
-            //
-            //{
-            //  "model": "grok-2",
-            //  "messages": []   ← 여기
-            //}
             ArrayNode messages = body.putArray("messages");
 
-            //배열 안에 빈 객체 하나 추가:
-            //
-            //
-            //{
-            //  "messages": [
-            //    {}   ← 여기
-            //  ]
-            //}
             ObjectNode sysMsg = messages.addObject();
             sysMsg.put("role", "system");
-            //최종적으로 Grok API가 받는 구조:
-            //
-            //
-            //{
-            //  "model": "grok-2",
-            //  "max_tokens": 300,
-            //  "messages": [
-            //    { "role": "system", "content": "당신은 교통 관제 AI..." }, --> 이건 밑에 프롬포트 보면됨
-            //    { "role": "user",   "content": "지금 날씨 어때?" } --> 이건 유저임
-            //  ]
-            //}
             sysMsg.put("content", buildSystemPrompt());
 
-            // 사용자 메시지에는 트래픽 컨텍스트와 질문을 함께 담아서 보냄 → AI가 상황을 이해하고 답변 생성할 수 있도록
             ObjectNode userMsg = messages.addObject();
             userMsg.put("role", "user");
-            userMsg.put("content", buildUserPrompt(ctx, question));
+            userMsg.put("content", buildUserPrompt(status, question));
 
             String response = webClient.post()
                     .uri(apiUrl)
@@ -123,72 +98,136 @@ public class ChatService {
     }
 
 
-    // 트래픽 컨텍스트의 다양한 정보를 프롬프트에 보기 좋게 정리하여 포함시키는 메서드
-    // AI가 현재 상황을 최대한 이해할 수 있도록 상세히 기술 → 답변의 정확도와 유용성 향상 기대
-    private String buildUserPrompt(TrafficContext ctx, String question) {
-
-        // 트래픽 컨텍스트의 신호등 정보는 방향별로 다를 수 있으므로, 각 방향에 대해 신호 상태와 남은 시간을 보기 좋게 정리하여 프롬프트에 포함
-        //String은 더할 때마다 새로 만들어서 비효율적이라 StringBuilder 사용함
-        StringBuilder signals = new StringBuilder();
-
-        if (ctx.getSignals() != null) {
-
-            //{
-            //  "nt" → SignalDirection { stsg: { status: "protected-Movement-Allowed", rmndCs: 150 } }
-            //  "et" → SignalDirection { stsg: { status: "stop-And-Remain", rmndCs: 200 } }
-            //  "st" → SignalDirection { stsg: null }
-            //}
-            ctx.getSignals().forEach((dir, sd) -> {
-                //private DirectionSignal stsg; // 그록엔 직진정보만 넘김
-                if (sd.getStsg() != null) {
-                    //정보 파신 신호 상태
-                    String status = sd.getStsg().getStatus();
-                    //정보 파싱 신호 남은 시간(초) → API에서 10초 단위로 줘서 10으로 나눠서 초 단위로 환산
-                    int sec = sd.getStsg().getRmndCs() / 10;
-                    //녹색 적색으로 넘김 -> API에서 "protected-Movement-Allowed" 이런식으로 주는데, "Movement"라는 단어가 들어가면 녹색, 아니면 적색으로 간단히 구분해서 프롬프트에 넣어줌
-                    String color = status != null && status.contains("Movement") ? "녹색" : "적색";
-                    //ctx {
-                    //  crsrdId: "1007"
-                    //  crsrdNm: "잠실역사거리"
-                    //  delayMin: 2
-                    //  weather: { condition: "비", temperature: 19, hour: 14 }
-                    //  speed: { north: 18, south: 22, east: 15, west: 25, avg: 20 }
-                    //  risk: { score: 87 }
-                    //  signals: {
-                    //    "et" → { stsg: ("protected-Movement-Allowed", 445) }
-                    //    "st" → { pdsg: ("stop-And-Remain", 495) }
-                    //    "wt" → { stsg: ("protected-Movement-Allowed", 445) }
-                    //  }
-                    //}
-                     //교차로 클릭하고 질문할때 이런식으로 데이터를 계속 이런식으로 프롬프트에 넣어서 AI가 상황을 이해할 수 있도록 도와줌
-                    signals.append(String.format("  - %s 직진: %s %d초\n", dirLabel(dir), color, sec));
-                }
-            });
+    // TrafficStatus를 사람이 읽을 수 있는 요약으로 바꿔 AI에 넘긴다.
+    // 여기서 쓰는 속도/위험도는 프론트 더미가 아니라 백엔드에 합쳐진 실제 API 캐시 값이다.
+    private String buildUserPrompt(TrafficStatus status, String question) {
+        if (status == null) {
+            return "[현재 선택된 교차로 데이터]\n"
+                    + "교차로 데이터 없음\n"
+                    + "[질문]\n"
+                    + question;
         }
 
-        String delayStr = ctx.getDelayMin() <= 0 ? "실시간" : ctx.getDelayMin() + "분 지연";
-        //팀원들 이 주는 데이터에 따라 유동적으로 바뀔예정
+        String signals = buildSignalSummary(status.getSignals());
+
         return String.format(
                 "[현재 선택된 교차로 데이터]\n"
                 + "교차로명: %s\n"
-                + "날씨: %s %d°C\n"
-                + "현재 구간속도: %dkm/h (평시 %dkm/h)\n"
-                + "위험도: %d등급 (위험지수 %d)\n"
-                + "데이터 상태: %s\n"
+                + "현재 속도: %s\n"
+                + "혼잡 상태: %s\n"
+                + "평균 대기시간: %s\n"
+                + "도로 위험도: %s\n"
+                + "날씨: %s\n"
                 + "신호 현황:\n%s\n"
                 + "[질문]\n%s",
-                ctx.getCrsrdNm(),
-                ctx.getWeather().getCondition(), ctx.getWeather().getTemp(),
-                ctx.getSpeed().getCurrent(), ctx.getSpeed().getNormal(),
-                ctx.getRisk().getGrade(), ctx.getRisk().getValue(),
-                delayStr,
-                signals.length() > 0 ? signals : "  - 신호 데이터 없음\n",
+                status.getCrsrdNm(),
+                formatSpeed(status),
+                valueOrWaiting(status.getCongestion()),
+                status.getAvgWaitSec() == null ? "수집 대기" : status.getAvgWaitSec() + "초",
+                formatRisk(status),
+                formatWeather(status.getWeather()),
+                signals,
                 question
         );
     }
 
+    private String buildSignalSummary(Map<String, SignalDirection> signals) {
+        if (signals == null || signals.isEmpty()) {
+            return "  - 신호 데이터 없음\n";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        signals.forEach((dir, signalDirection) -> {
+            if (signalDirection == null) {
+                return;
+            }
+            appendSignal(builder, dir, "직진", signalDirection.getStsg());
+            appendSignal(builder, dir, "좌회전", signalDirection.getLtsg());
+            appendSignal(builder, dir, "보행", signalDirection.getPdsg());
+        });
+        return builder.length() == 0 ? "  - 신호 데이터 없음\n" : builder.toString();
+    }
+
+    private void appendSignal(StringBuilder builder, String dir, String type, DirectionSignal signal) {
+        if (signal == null) {
+            return;
+        }
+        builder.append(String.format(
+                "  - %s %s: %s %d초\n",
+                dirLabel(dir),
+                type,
+                signalColor(signal.getStatus()),
+                signal.getRmndCs() / 10
+        ));
+    }
+
+    private String formatSpeed(TrafficStatus status) {
+        if (status.getSpeedKph() == null) {
+            return "수집 대기";
+        }
+        String stale = status.isSpeedStale() ? " (갱신 대기)" : "";
+        return String.format(Locale.KOREA, "%.1fkm/h%s", status.getSpeedKph(), stale);
+    }
+
+    private String formatRisk(TrafficStatus status) {
+        if (status.getRiskScore() == null && status.getRiskGrade() == null) {
+            return "수집 대기";
+        }
+        String stale = status.isRiskStale() ? " (갱신 대기)" : "";
+        String score = status.getRiskScore() == null ? "점수 수집 대기" : status.getRiskScore() + "점";
+        if (status.getRiskIndex() != null) {
+            return String.format(Locale.KOREA, "%s, 등급 %s, 지수 %.1f%s",
+                    score, valueOrWaiting(status.getRiskGrade()), status.getRiskIndex(), stale);
+        }
+        return String.format("%s, 등급 %s%s", score, valueOrWaiting(status.getRiskGrade()), stale);
+    }
+
+    private String formatWeather(WeatherSnapshot weather) {
+        if (weather == null) {
+            return "수집 대기";
+        }
+
+        return String.format(Locale.KOREA,
+                "기온 %s, 강수량 %s, 습도 %s, 풍속 %s%s",
+                weather.getTemperatureC() == null ? "수집 대기" : String.format(Locale.KOREA, "%.1f°C", weather.getTemperatureC()),
+                weather.getPrecipitationMm() == null ? "수집 대기" : String.format(Locale.KOREA, "%.1fmm", weather.getPrecipitationMm()),
+                weather.getHumidityPercent() == null ? "수집 대기" : weather.getHumidityPercent() + "%",
+                weather.getWindSpeedMs() == null ? "수집 대기" : String.format(Locale.KOREA, "%.1fm/s", weather.getWindSpeedMs()),
+                weather.isStale() ? " (갱신 대기)" : ""
+        );
+    }
+
+    private String signalColor(String status) {
+        if (status == null) {
+            return "상태 불명";
+        }
+        String lower = status.toLowerCase();
+        if (lower.contains("movement-allowed")) {
+            return "녹색";
+        }
+        if (lower.contains("stop")) {
+            return "적색";
+        }
+        if (lower.contains("clearance")) {
+            return "전환";
+        }
+        return status;
+    }
+
+    private String valueOrWaiting(String value) {
+        return value == null || value.isBlank() ? "수집 대기" : value;
+    }
+
     private String dirLabel(String dir) {
         return switch (dir) {
+            case "nt" -> "북";
+            case "st" -> "남";
+            case "et" -> "동";
+            case "wt" -> "서";
+            case "ne" -> "북동";
+            case "se" -> "남동";
+            case "sw" -> "남서";
+            case "nw" -> "북서";
             case "north" -> "북";
             case "south" -> "남";
             case "east"  -> "동";
