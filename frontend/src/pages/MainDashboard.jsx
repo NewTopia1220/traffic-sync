@@ -483,7 +483,6 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
   // 기본 선택 구: 송파구 (잠실 V2X 데이터가 있는 지역)
   const [selectedGu, setSelectedGu] = useState(GU_LIST.find(g => g.name === "송파구"));
   const [loading, setLoading] = useState(false);
-  // "송파구 · 12개 교차로 수집됨" 같은 임시 메시지 (3초 후 사라짐)
   const [fetchMsg, setFetchMsg] = useState(null);
 
   // 속도 카드: 드롭다운에서 선택한 교차로 최대 3개
@@ -543,11 +542,12 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
    */
   const handleSelectGu = useCallback(async (gu) => {
     setSelectedGu(gu);
-    setRiskIdx(0);       // 위험도 슬롯 초기화
-    setWatchList([]);    // 관심 목록 초기화
-    setSpeedSelected([]); // 속도 카드 선택 초기화
+    setRiskIdx(0);
+    setWatchList([]);
+    setSpeedSelected([]);
     setLoading(true);
     setFetchMsg(null);
+    // V2X 데이터 수집
     try {
       const res = await fetch(`${API_BASE}/api/fetch-area?lat=${gu.lat}&lon=${gu.lon}&radius=2.5`, { method: "POST" });
       const data = await res.json();
@@ -799,10 +799,10 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
             </button>
           </div>
           <div style={{ flex: 1, minHeight: 0 }}>
-            {/* SeoulSvgMap: 구 클릭 → handleSelectGu 호출 */}
             <SeoulSvgMap onGoMap={onGoMap} selectedGu={selectedGu} onSelectGu={handleSelectGu} loading={loading} />
           </div>
         </div>
+
       </div>
 
       {/* ── 3행: 위험도 패널 + 예측 차트 ── */}
