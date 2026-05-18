@@ -86,7 +86,12 @@ async def list_tools() -> list[Tool]:
         # ── 도구 5: 신호 타이밍 조정 ────────────────────────────────────────────
         Tool(
             name="set_signal_timing",
-            description="특정 교차로의 신호 타이밍을 조정합니다. 정체 해소를 위한 신호 연장에 사용합니다.",
+            description=(
+    "특정 교차로의 신호 타이밍을 조정합니다. "
+    "호출 전에 반드시 search_project_docs로 "
+    "날씨·속도 기반 최적 신호 공식을 먼저 조회하고 "
+    "그 근거를 바탕으로 delay 값을 결정하세요."
+),
             # Human-in-the-loop: AI가 권고 → 관제사 승인 후 실제 적용 예정
             # 현재 Spring쪽 /api/signal/adjust 미구현이라 404 반환됨
             inputSchema={
