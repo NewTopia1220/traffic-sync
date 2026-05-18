@@ -18,7 +18,7 @@ db_config = {
      "user": "ADMIN",
      "password": "Heeyoun1220!",
      "dsn": "koreapoint_medium",
-     "wallet_location": "C:/Users/edu__/Downloads/Wallet_Orcle"
+     "wallet_location": "/Users/parkheeyoun/traffic-sync-git/backend/src/main/resources/wallet"
 }
 
 # 3. 모델 입력 컬럼 순서 (학습 시와 동일해야 함)
