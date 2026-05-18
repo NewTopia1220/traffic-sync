@@ -45,6 +45,8 @@ export default function App() {
     setPage('map')
   }
 
+  const [stations, setStations] = useState([]);
+
   // ── 페이지 조건부 렌더링 ──────────────────────────────
   // if문을 순서대로 평가 → 해당하는 페이지 컴포넌트만 렌더링
   // (나머지 컴포넌트는 언마운트되어 메모리에서 제거됨)
@@ -68,24 +70,26 @@ export default function App() {
   // 실시간 지도 페이지
   if (page === 'map') return (
     <MapDashboard
-      onGoMain={() => setPage('main')}
-      onGoCctv={() => setPage('cctv')}
-      wsData={wsData}
-      setWsData={setWsData}
-      initialCenter={mapCenter}
+      onGoMain={() => setPage('main')}    // "← 대시보드" 버튼
+      onGoCctv={() => setPage('cctv')}    // "CCTV 관제" 버튼
+      wsData={wsData}                     // 교차로 신호 데이터 (읽기)
+      setWsData={setWsData}               // WebSocket 수신 시 데이터 업데이트 (쓰기)
+      initialCenter={mapCenter}           // 카카오맵 초기 중심 좌표
       wsStatus={wsStatus}
       lastUpdate={lastUpdate}
+      stations={stations}                 // 메인에서 fetch해온 전체 데이터가 넘어감
     />
   )
 
   // 통합 대시보드 (기본 페이지 — page === 'main')
   return (
     <MainDashboard
-      onGoMap={goMap}
-      onGoCctv={() => setPage('cctv')}
-      onGoSimulation={() => setPage('simulation')}
-      wsData={wsData}
-      setWsData={setWsData}
+      onGoMap={goMap}                     // 구 클릭 시 좌표와 함께 지도 페이지로 이동
+      onGoCctv={() => setPage('cctv')}    // CCTV 관제 페이지로 이동
+      wsData={wsData}                     // 교차로 신호 데이터 (읽기)
+      setWsData={setWsData}               // 데이터 업데이트 (쓰기) — 현재는 미사용
+      stations={stations} 
+      setStations={setStations}
     />
   )
 }

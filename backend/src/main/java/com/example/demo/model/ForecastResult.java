@@ -7,8 +7,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ForecastResult {
-    private String crsrdId;   // 교차로 ID (Station_Number)
-    private String crsrdNm;   // 교차로 이름
-    private int[] up;         // direction_0 데이터들
-    private int[] down;       // direction_1 데이터들
+    private String stationId;   // 교통량 지점 ID
+    private String stationNm;   // 교통량 지점 이름
+    private int[] up;           // 상행 예측 데이터 (24개)
+    private int[] down;         // 하행 예측 데이터 (24개)
 }
