@@ -20,9 +20,9 @@ public class TrafficStationEntity {
     @Column(name = "STATION_NAME")
     private String stationName;
 
-    @Column(name = "LATITUDE")
+    @Column(name = "LATITUDE", columnDefinition = "NUMBER")
     private Double latitude;
 
-    @Column(name = "LONGITUDE")
+    @Column(name = "LONGITUDE", columnDefinition = "NUMBER")
     private Double longitude;
 }
