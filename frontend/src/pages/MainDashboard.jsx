@@ -3,7 +3,7 @@ import { GU_LIST, calcDistKm } from "../constants/seoulGeoData";
 import SeoulSvgMap from "../components/map/SeoulSvgMap";
 
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
 // ── 전역 색상/폰트 디자인 토큰 ──────────────────────────────────────────────
 // 컴포넌트 인라인 스타일에서 일관된 색상을 쓰기 위한 상수 맵
@@ -493,7 +493,7 @@ const CARD_COLORS = [V.red, V.org, V.grn];
  *   wsData    - App에서 관리하는 WebSocket 교차로 신호 데이터 배열
  */
 
-export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsData, stations=[], setStations }) {
+export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, onGoNews, wsData, stations=[], setStations }) {
   const [time, setTime] = useState(new Date());
   // 기본 선택 구: 송파구 (잠실 V2X 데이터가 있는 지역)
   const [selectedGu, setSelectedGu] = useState(GU_LIST.find(g => g.name === "송파구"));
@@ -769,12 +769,12 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
 
         {/* 페이지 탭: 통합 대시보드(현재) / 실시간 지도 / CCTV 관제 */}
         <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 3 }}>
-          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["CCTV 관제", "cctv"], ["🚦 신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
+          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["CCTV 관제", "cctv"], ["🚦 신호 시뮬레이션", "simulation"], ["📰 뉴스", "news"]].map(([label, tab]) => {
             const isActive = tab === "main";
             return (
               <button key={tab}
-                onClick={tab === "map" ? () => onGoMap(selectedGu) : tab === "cctv" ? onGoCctv : tab === "simulation" ? onGoSimulation : undefined}
-                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
+                onClick={tab === "map" ? () => onGoMap(selectedGu) : tab === "cctv" ? onGoCctv : tab === "simulation" ? onGoSimulation : tab === "news" ? onGoNews : undefined}
+                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : tab === "news" ? "#2ee07a" : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink3, display: "inline-block" }} />
                 {label}
               </button>
