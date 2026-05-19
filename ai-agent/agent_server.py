@@ -34,7 +34,8 @@ llm = ChatOllama(
     model=OLLAMA_MODEL,
     base_url=OLLAMA_URL,
     temperature=0.3,
-    num_predict=2048,
+    num_predict=4096,   # 복잡한 멀티툴 요청(5단계+) 대응
+    num_ctx=8192,       # 도구 결과 누적되는 컨텍스트 창 확장
 )
 
 # 에이전트는 앱 시작 시 한 번만 생성 (MCP 클라이언트 포함)

@@ -11,6 +11,9 @@ stdio 방식으로 실행, LangChain MCP 어댑터와 연동
 import asyncio          # 파이썬 비동기 처리 (async/await) 기본 라이브러리
 import json             # dict → JSON 문자열 변환 (LLM에게 결과 돌려줄 때 사용)
 import httpx            # 비동기 HTTP 클라이언트 (Spring API 호출에 사용, requests의 async 버전)
+import smtplib          # Gmail SMTP 전송
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from mcp.server import Server                   # MCP 서버 객체 (도구 등록·실행 담당)
 from mcp.server.stdio import stdio_server       # stdin/stdout 기반 통신 처리
 from mcp.types import Tool, TextContent         # Tool: 도구 스펙 정의, TextContent: 응답 포맷
@@ -19,6 +22,11 @@ from mcp.types import Tool, TextContent         # Tool: 도구 스펙 정의, Te
 SPRING_BASE = "http://localhost:8080"           # Spring Boot 백엔드 주소
 ANYTHINGLLM_BASE = "http://localhost:3001"      # AnythingLLM RAG 서버 주소
 ANYTHINGLLM_API_KEY = "EEZ2246-Z5JM2NG-K9XSXQ3-CNKF9W7"  # AnythingLLM 인증 키
+
+# ── Gmail 설정 ──────────────────────────────────────────────────────────────────
+GMAIL_SENDER   = "juya0947@gmail.com"       # 보내는 Gmail 주소 (본인 계정)
+GMAIL_APP_PWD  = "hgma peeg rfbm sboq"  # Gmail 앱 비밀번호 (16자리)
+GMAIL_DEFAULT_TO = "juya0947@gmail.com"     # 기본 수신자 (미지정 시 여기로)
 
 # MCP 서버 인스턴스 생성. "traffic-mcp-server"는 이 서버의 식별 이름
 app = Server("traffic-mcp-server")
@@ -118,7 +126,27 @@ async def list_tools() -> list[Tool]:
             }
         ),
 
-        # ── 도구 7: 프로젝트 문서 RAG 검색 ──────────────────────────────────────
+        # ── 도구 7: 이메일 리포트 전송 ──────────────────────────────────────────
+        Tool(
+            name="send_email_report",
+            description=(
+                "교통 리포트를 이메일로 전송합니다. "
+                "특정 교차로 상세 리포트, 병목 현황 top3/top5/top10, 신호 조정 권고 등 "
+                "어떤 교통 리포트든 내용을 작성한 뒤 이 도구로 전송하세요. "
+                "수신자를 따로 말하지 않으면 기본 수신자에게 전송합니다."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string", "description": "이메일 제목 (예: '강남구 교통 현황 리포트')"},
+                    "body":    {"type": "string", "description": "리포트 본문 (마크다운 형식 가능)"},
+                    "to":      {"type": "string", "description": "수신자 이메일 주소. 생략 시 기본 수신자로 전송."}
+                },
+                "required": ["subject", "body"]
+            }
+        ),
+
+        # ── 도구 8: 프로젝트 문서 RAG 검색 ──────────────────────────────────────
         Tool(
             name="search_project_docs",
             description=(
@@ -265,7 +293,7 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
     # ── search_project_docs ─────────────────────────────────────────────────────
     elif name == "search_project_docs":
         query = args["query"]
-        url = f"{ANYTHINGLLM_BASE}/api/v1/workspace/기말-프로젝트/chat"
+        url = f"{ANYTHINGLLM_BASE}/api/v1/workspace/159a2d66-831c-4bb0-a851-0ee51dddb366/chat"
         # Bearer 토큰 인증: AnythingLLM이 요청자 검증에 사용
         headers = {"Authorization": f"Bearer {ANYTHINGLLM_API_KEY}", "Content-Type": "application/json"}
         try:
@@ -284,10 +312,38 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
                 return {"error": f"AnythingLLM 오류 (status {r.status_code})", "query": query}
             # AnythingLLM 응답에서 실제 텍스트만 꺼냄
             text = r.json().get("textResponse", "")
+            # qwen3 think 태그 제거
+            if "</think>" in text:
+                text = text.split("</think>")[-1].strip()
             return {"query": query, "result": text}
         except httpx.ConnectError:
             # AnythingLLM이 꺼져 있어도 에이전트 전체가 멈추지 않게 오류 메시지만 반환
             return {"error": "AnythingLLM 서버(localhost:3001)에 연결할 수 없습니다. 서버가 실행 중인지 확인하세요."}
+
+    # ── send_email_report ───────────────────────────────────────────────────────
+    elif name == "send_email_report":
+        to      = args.get("to", GMAIL_DEFAULT_TO)  # 수신자 미지정 시 기본값 사용
+        subject = args["subject"]
+        body    = args["body"]
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = GMAIL_SENDER
+        msg["To"]      = to
+
+        # 마크다운을 그대로 plain text로 전송 (HTML 변환 없이)
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+
+        try:
+            # SSL로 Gmail SMTP 연결 → 로그인 → 전송 → 자동 종료
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+                smtp.login(GMAIL_SENDER, GMAIL_APP_PWD)
+                smtp.send_message(msg)
+            return {"success": True, "to": to, "subject": subject}
+        except smtplib.SMTPAuthenticationError:
+            return {"error": "Gmail 인증 실패. GMAIL_SENDER와 GMAIL_APP_PWD를 확인하세요."}
+        except Exception as e:
+            return {"error": f"이메일 전송 실패: {str(e)}"}
 
     # ── 알 수 없는 도구 ─────────────────────────────────────────────────────────
     else:
