@@ -21,14 +21,12 @@ _fetch_running = False
 def _run_pipeline(table: str, config: dict, verify_fn, groq_keys: list):
     global _fetch_running
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         from news_common import run_pipeline_async
-        loop.run_until_complete(run_pipeline_async(
+        asyncio.run(run_pipeline_async(
             sector_config=config,
             verify_fn=verify_fn,
             db_table=table,
-            max_per_sector=5,
+            max_per_sector=100,
             groq_api_keys=groq_keys,
         ))
     except Exception as e:
@@ -36,26 +34,47 @@ def _run_pipeline(table: str, config: dict, verify_fn, groq_keys: list):
         print(f"[pipeline 오류] {e}")
         traceback.print_exc()
     finally:
-        try:
-            loop.close()
-        except Exception:
-            pass
         _fetch_running = False
 
 
 # ── 교통 뉴스 수집 설정 ───────────────────────────────────────────
 TRAFFIC_CONFIG = {
     "서울교통": {
-        "search_query": "서울 교통 혼잡",
-        "keywords": ["교통", "혼잡", "신호", "교차로", "잠실", "강남", "도로", "정체","집회"]
+        "search_query": "서울 교통 정체",
+        "keywords": [
+            "정체", "혼잡", "교통", "도로", "교차로", "신호", "강남", "잠실",
+             "올림픽대로", "강변북로", "내부순환", "서행", "지체", "막힘",
+            "통제", "집회", "병목", "우회", "출퇴근", "차량", "체증", "간선",
+            "도심", "교통난", "포화", "시내", "고속화", "혼잡구간", "러시아워"
+        ]
     },
     "교통사고": {
-        "search_query": "서울 교통사고 도로",
-        "keywords": ["사고", "충돌", "도로통제", "우회", "부상", "사망"]
+        "search_query": "서울 교통사고",
+        "keywords": [
+            "사고", "충돌", "추돌", "통제", "우회", "부상", "사망", "보행자",
+            "역주행", "음주", "차량", "신호위반", "전복", "화재", "갓길",
+            "응급", "구조", "현장", "뺑소니", "중상", "경상", "사상", "피해",
+            "봉쇄", "다중충돌", "연쇄", "도주", "과실", "차선", "충격"
+        ]
     },
     "대중교통": {
-        "search_query": "서울 지하철 버스 지연",
-        "keywords": ["지하철", "버스", "지연", "파업", "운행중단", "결행"]
+        "search_query": "서울 지하철 버스",
+        "keywords": [
+            "지하철", "버스", "지연", "파업", "운행", "중단", "결행", "연착",
+            "환승", "노선", "서울교통공사", "개통", "폐선", "기관사", "열차",
+            "전동차", "시내버스", "광역버스", "배차", "혼잡", "막차", "첫차",
+            "승객", "탑승", "플랫폼", "승강장", "마을버스", "교통카드", "운행재개", "결항"
+        ]
+    },
+    "날씨교통": {
+        "search_query": "서울 기상",
+        "keywords": [
+            "폭우", "폭설", "결빙", "빙판", "안개", "강풍", "태풍", "호우",
+            "침수", "통제", "서행", "미끄럼", "제설", "블랙아이스", "가시거리",
+            "기상", "특보", "경보", "주의보", "한파", "폭염", "우박", "낙뢰",
+            "도로", "사고", "차량", "운행", "결항", "지연", "교통", "날씨",
+            "강수", "적설", "노면", "위험", "서리", "저기압", "돌풍", "비"
+        ]
     }
 }
 

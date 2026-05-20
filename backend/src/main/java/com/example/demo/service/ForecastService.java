@@ -29,7 +29,7 @@ public class ForecastService {
             Map<String, Object> request = new HashMap<>();
             request.put("Station_Number", stationId);
 
-            String flaskUrl = "http://127.0.0.1:5000/predict_traffic";
+            String flaskUrl = "http://127.0.0.1:5002/predict_traffic";
 
             // 2. Flask 서버 호출
             Map<String, Object> response = restTemplate.postForObject(flaskUrl, request, Map.class);
