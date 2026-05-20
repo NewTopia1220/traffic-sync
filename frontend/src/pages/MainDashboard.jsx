@@ -493,7 +493,7 @@ const CARD_COLORS = [V.red, V.org, V.grn];
  *   wsData    - App에서 관리하는 WebSocket 교차로 신호 데이터 배열
  */
 
-export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsData, stations=[], setStations }) {
+export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, wsData, stations=[], setStations }) {
   const [time, setTime] = useState(new Date());
   // 기본 선택 구: 송파구 (잠실 V2X 데이터가 있는 지역)
   const [selectedGu, setSelectedGu] = useState(GU_LIST.find(g => g.name === "송파구"));
@@ -755,7 +755,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
     <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, minHeight: "100vh", display: "flex", flexDirection: "column", overflowY: "auto" }}>
 
       {/* ── 헤더 (sticky) ── */}
-      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 18px", height: 72, display: "flex", alignItems: "center", gap: 18, flexShrink: 0, position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 24px", height: 72, display: "flex", alignItems: "center", gap: 18, flexShrink: 0, position: "sticky", top: 0, zIndex: 100 }}>
         {/* 로고 영역 */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 260 }}>
           <div style={{ width: 28, height: 28, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}` }}>
@@ -769,12 +769,17 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
 
         {/* 페이지 탭: 통합 대시보드(현재) / 실시간 지도 / CCTV 관제 */}
         <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 3 }}>
-          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["CCTV 관제", "cctv"], ["🚦 신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
+          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스 감성 분석", "news"], ["CCTV 관제", "cctv"], ["🚦 신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
             const isActive = tab === "main";
+            const onClick = tab === "map" ? () => onGoMap(selectedGu)
+              : tab === "cctv" ? onGoCctv
+              : tab === "news" ? onGoNews
+              : tab === "simulation" ? onGoSimulation
+              : undefined;
             return (
               <button key={tab}
-                onClick={tab === "map" ? () => onGoMap(selectedGu) : tab === "cctv" ? onGoCctv : tab === "simulation" ? onGoSimulation : undefined}
-                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
+                onClick={onClick}
+                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : tab === "news" ? V.org : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink3, display: "inline-block" }} />
                 {label}
               </button>
@@ -810,7 +815,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
       </div>
 
       {/* ── KPI 카드 4개 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, padding: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, padding: "8px 14px" }}>
         <KpiCard value={activeData.length || 0} unit="개" label="모니터링 교차로" sub={guLabel} status="정상" />
         <KpiCard value={highRisk} unit="개" label="위험 교차로" sub="위험도 70점 이상" status={highRisk > 0 ? "위험" : "정상"} />
         <KpiCard value={avgSpeed} unit="km/h" label="현재 평균 속도" sub="전 교차로 추정" status={speedStatus === "혼잡" ? "혼잡" : speedStatus === "서행" ? "서행" : "정상"} />
@@ -818,7 +823,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
       </div>
 
       {/* ── 2행: 실시간 속도 + 서울 지도 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, padding: "0 8px", alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, padding: "0 14px", alignItems: "stretch" }}>
 
         {/* 실시간 구간 속도 패널 */}
         <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column" }}>
@@ -865,7 +870,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
       </div>
 
       {/* ── 3행: 위험도 패널 + 예측 차트 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, padding: "8px 8px 24px", alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, padding: "8px 14px 24px", alignItems: "stretch" }}>
 
         {/* 위험도 패널 */}
         <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2 }}>

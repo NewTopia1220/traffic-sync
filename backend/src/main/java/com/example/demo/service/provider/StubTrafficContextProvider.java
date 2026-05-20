@@ -27,7 +27,7 @@ public class StubTrafficContextProvider implements TrafficContextProvider {
                 LocalTime.now().getHour()
         );
     }
-
+    //ㅇㅇ
     @Override
     public SpeedInfo getSpeed(double lat, double lon) {
         int normal = 40 + RANDOM.nextInt(20);

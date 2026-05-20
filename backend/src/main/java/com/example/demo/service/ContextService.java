@@ -37,6 +37,7 @@ public class ContextService {
     // 예시: buildContext("CRSRD001") → TrafficContext { crsrdId: "CRSRD001", crsrdNm: "잠실역 사거리", delayMin: 5, signals: {...}, weather: {...}, speed: {...}, risk: {...} }
 
     public TrafficContext buildContext(String crsrdId) {
+        if (crsrdId == null) return null;
         TrafficStatus signal = cacheService.getSignal(crsrdId);
         if (signal == null) {
             log.warn("캐시에 없는 교차로: {}", crsrdId);
