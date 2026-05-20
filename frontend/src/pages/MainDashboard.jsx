@@ -493,11 +493,7 @@ const CARD_COLORS = [V.red, V.org, V.grn];
  *   wsData    - App에서 관리하는 WebSocket 교차로 신호 데이터 배열
  */
 
-<<<<<<< HEAD
-export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, onGoNews, wsData, stations=[], setStations }) {
-=======
 export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, wsData, stations=[], setStations }) {
->>>>>>> develop
   const [time, setTime] = useState(new Date());
   // 기본 선택 구: 송파구 (잠실 V2X 데이터가 있는 지역)
   const [selectedGu, setSelectedGu] = useState(GU_LIST.find(g => g.name === "송파구"));
@@ -773,11 +769,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
 
         {/* 페이지 탭: 통합 대시보드(현재) / 실시간 지도 / CCTV 관제 */}
         <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 3 }}>
-<<<<<<< HEAD
-          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["CCTV 관제", "cctv"], ["🚦 신호 시뮬레이션", "simulation"], ["📰 뉴스", "news"]].map(([label, tab]) => {
-=======
           {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스 감성 분석", "news"], ["CCTV 관제", "cctv"], ["🚦 신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
->>>>>>> develop
             const isActive = tab === "main";
             const onClick = tab === "map" ? () => onGoMap(selectedGu)
               : tab === "cctv" ? onGoCctv
@@ -786,13 +778,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
               : undefined;
             return (
               <button key={tab}
-<<<<<<< HEAD
-                onClick={tab === "map" ? () => onGoMap(selectedGu) : tab === "cctv" ? onGoCctv : tab === "simulation" ? onGoSimulation : tab === "news" ? onGoNews : undefined}
-                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : tab === "news" ? "#2ee07a" : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
-=======
                 onClick={onClick}
                 style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : tab === "news" ? V.org : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
->>>>>>> develop
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink3, display: "inline-block" }} />
                 {label}
               </button>
