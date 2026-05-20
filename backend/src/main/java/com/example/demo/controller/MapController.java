@@ -4,6 +4,7 @@ import com.example.demo.entity.CrossroadEntity;
 import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.TrafficStatus;
 import com.example.demo.repository.CrossroadRepository;
+import com.example.demo.service.ChatService;
 import com.example.demo.service.TrafficCacheService;
 import com.example.demo.service.V2xApiService;
 import com.example.demo.websocket.TrafficWebSocketHandler;
@@ -27,12 +28,10 @@ public class MapController {
 
     //서비스 주입
     private final TrafficCacheService cacheService;
-    //V2xApiService는 공공 API 호출하여 교차로 신호등 데이터 가져오는 서비스
     private final V2xApiService v2xApiService;
-    //TrafficWebSocketHandler는 WebSocket 연결 관리 및 실시간 데이터 전송 담당
     private final TrafficWebSocketHandler webSocketHandler;
-    //CrossroadRepository는 DB에서 교차로 정보 조회하는 리포지토리
     private final CrossroadRepository crossroadRepository;
+    private final ChatService chatService;
 
     @Value("${kakao.map.app-key}")
     private String kakaoAppKey;
@@ -113,6 +112,23 @@ public class MapController {
         } catch (Exception e) {
             log.error("구역 수집 실패: {}", e.getMessage());
             return ResponseEntity.internalServerError().body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    // 구 단위 AI 리포트 — 메인 대시보드 구 클릭 시 호출
+    @PostMapping("/api/district/report")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> districtReport(@RequestBody Map<String, String> body) {
+        String district = body.get("district");
+        if (district == null || district.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "district 파라미터가 필요합니다."));
+        }
+        try {
+            String report = chatService.districtReport(district);
+            return ResponseEntity.ok(Map.of("report", report, "district", district));
+        } catch (Exception e) {
+            log.error("구 리포트 생성 실패: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
     }
 }

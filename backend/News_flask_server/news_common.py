@@ -237,7 +237,7 @@ class ArticleProcessor:
             return True
         with self._okt_lock:
             nouns = self.okt.nouns(text)
-        return sum(1 for n in nouns if n in keywords) >= 2
+        return sum(1 for n in nouns if n in keywords) >= 1
 
     def verify_company(
         self, title: str, text: str, core_keywords: list, sub_keywords: list
@@ -426,7 +426,7 @@ async def run_pipeline_async(
         await asyncio.sleep(0.1)  # 네이버 API 속도 제한
         api_url = (
             "https://openapi.naver.com/v1/search/news.json"
-            f"?query={info['search_query']}&display=100&sort=sim"
+            f"?query={info['search_query']}&display=100&sort=date"
         )
         try:
             timeout = aiohttp.ClientTimeout(total=10)
@@ -472,7 +472,7 @@ async def run_pipeline_async(
             return
 
         async with seen_lock:
-            if sector_counts[sector_name] >= 5:
+            if sector_counts[sector_name] >= max_per_sector:
                 return
             sector_counts[sector_name] += 1
 
@@ -562,6 +562,13 @@ async def run_pipeline_async(
     connection.close()
     db_executor.shutdown(wait=False)
     cpu_executor.shutdown(wait=False)
+
+    # httpx AsyncClient를 루프 종료 전에 명시적으로 닫아 'Event loop is closed' 경고 방지
+    for client in groq._clients:
+        try:
+            await client.aclose()
+        except Exception:
+            pass
 
     total = sum(sector_counts.values())
     print(f"\n✅ [{db_table}] 완료 — 처리: {total}개 | 신규: {success}개 | 중복: {duplicate}개")

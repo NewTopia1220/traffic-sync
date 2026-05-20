@@ -48,7 +48,7 @@ public class TrafficScheduler {
     }
 
     // 5초 후 첫 실행, 이후 ${traffic.poll.interval-ms}마다 실행 (예: 10000ms = 10초)
-    @Scheduled(initialDelay = 5000, fixedRateString = "${traffic.poll.interval-ms}")
+    @Scheduled(initialDelay = 100000, fixedRateString = "${traffic.poll.interval-ms}")
     public void pollTrafficData() {
         log.info("===== 교통 데이터 폴링 시작 =====");
         try {

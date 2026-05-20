@@ -52,11 +52,21 @@ export default function App() {
   // if문을 순서대로 평가 → 해당하는 페이지 컴포넌트만 렌더링
   // (나머지 컴포넌트는 언마운트되어 메모리에서 제거됨)
 
+<<<<<<< HEAD
   // 뉴스 페이지
   if (page === 'news') return (
     <NewsDashboard
       onGoMain={() => setPage('main')}
       onGoMap={() => setPage('map')}
+=======
+  // 뉴스 감성 분석 페이지
+  if (page === 'news') return (
+    <NewsDashboard
+      onGoMain={() => setPage('main')}
+      onGoMap={goMap}
+      onGoCctv={() => setPage('cctv')}
+      onGoSimulation={() => setPage('simulation')}
+>>>>>>> develop
     />
   )
 
@@ -93,12 +103,22 @@ export default function App() {
   // 통합 대시보드 (기본 페이지 — page === 'main')
   return (
     <MainDashboard
+<<<<<<< HEAD
       onGoMap={goMap}                     // 구 클릭 시 좌표와 함께 지도 페이지로 이동
       onGoCctv={() => setPage('cctv')}    // CCTV 관제 페이지로 이동
       onGoNews={() => setPage('news')}     // 뉴스 페이지로 이동
       wsData={wsData}                     // 교차로 신호 데이터 (읽기)
       setWsData={setWsData}               // 데이터 업데이트 (쓰기) — 현재는 미사용
       stations={stations} 
+=======
+      onGoMap={goMap}                           // 구 클릭 시 좌표와 함께 지도 페이지로 이동
+      onGoCctv={() => setPage('cctv')}          // CCTV 관제 페이지로 이동
+      onGoNews={() => setPage('news')}          // 뉴스 감성 분석 페이지로 이동
+      onGoSimulation={() => setPage('simulation')} // 신호 시뮬레이션 페이지로 이동
+      wsData={wsData}                           // 교차로 신호 데이터 (읽기)
+      setWsData={setWsData}                     // 데이터 업데이트 (쓰기) — 현재는 미사용
+      stations={stations}
+>>>>>>> develop
       setStations={setStations}
     />
   )

@@ -109,6 +109,11 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
                   <div style={{ fontSize: 13, color: "#475569" }}>스프링 부트 실행 확인 (port 8080)</div>
                 </div>
               )}
+              {/* 우측 하단: AI 챗봇 오버레이 (항상 표시) */}
+              <div style={{ position: "absolute", bottom: 14, right: 14, zIndex: 20, pointerEvents: "auto" }}>
+                <AIChatBot selected={selected} />
+              </div>
+
               {/* 좌측 하단: 신호 현황 오버레이 */}
               {selected && (
                 <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 340, pointerEvents: "auto" }}>
@@ -119,12 +124,6 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
                     </div>
                     <SignalPanel cr={selected} />
                   </div>
-                </div>
-              )}
-              {/* 우측 하단: AI 챗봇 오버레이 */}
-              {selected && (
-                <div style={{ position: "absolute", bottom: 14, right: 14, zIndex: 20, width: 320, pointerEvents: "auto" }}>
-                  <AIChatBot selected={selected} />
                 </div>
               )}
             </div>
