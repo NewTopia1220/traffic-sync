@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { statusCls, riskColor } from "../../utils/signalUtils";
+import { clampRiskPercent, formatRiskScore, riskColorByGrade, statusCls } from "../../utils/signalUtils";
 
 // ── 방향 레이블 상수 ──────────────────────────────────────────────────────────
 // V2X API 키(nt/et/st/wt...)를 signalUtils.mapKeys()로 변환한 후
@@ -180,7 +180,8 @@ function DirCard({ dir, label, arrow, signals, elapsed }) {
  *
  * @param {Object} cr - 선택된 교차로 데이터
  *   cr.mappedSignals - { north: SignalDirection, east: ..., ... } (signalUtils.mapKeys 변환 후)
- *   cr.riskScore     - 위험도 점수 (0~99)
+ *   cr.riskScore     - 도로위험도 API anals_value
+ *   cr.riskGrade     - 도로위험도 API anals_grd
  *   cr.crsrdNm       - 교차로 이름
  *   cr.totDt         - API 수집 시각 ("20260511181500" 형식)
  */
@@ -197,6 +198,9 @@ export default function SignalPanel({ cr }) {
   const ts = t
     ? `${t.slice(0,4)}-${t.slice(4,6)}-${t.slice(6,8)} ${t.slice(8,10)}:${t.slice(10,12)}`
     : "-";
+  const riskGradeColor = riskColorByGrade(cr.riskGrade);
+  const riskPct = clampRiskPercent(cr.riskScore);
+  const riskText = Number.isFinite(cr.riskScore) ? formatRiskScore(cr.riskScore) : "대기";
 
   // ── elapsed 카운트다운 ──────────────────────────────────────────────────────
   // totDt가 바뀔 때 (새 신호 데이터 수신 시) elapsed를 0으로 리셋하고 다시 증가
@@ -245,10 +249,10 @@ export default function SignalPanel({ cr }) {
           {/* 위험도 도넛 차트: CSS conic-gradient로 구현
               conic-gradient(색상 n%, 배경색 0) → n% 만큼 색상 채워진 원형
               안쪽 작은 원으로 덮어 도넛 모양 만들기
-              riskColor: 70+ 빨강, 50+ 주황, 미만 초록 */}
+              색상은 위험도 API 등급(anals_grd), 숫자는 점수(anals_value)를 그대로 사용 */}
           <div style={{
             width: 36, height: 36, borderRadius: "50%",
-            background: `conic-gradient(${riskColor(cr.riskScore)} ${cr.riskScore}%, #1f2937 0)`,
+            background: `conic-gradient(${riskGradeColor} ${riskPct}%, #1f2937 0)`,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             {/* 안쪽 원 (도넛 구멍 역할) + 점수 텍스트 */}
@@ -256,10 +260,10 @@ export default function SignalPanel({ cr }) {
               width: 26, height: 26, borderRadius: "50%",
               background: "rgba(0,0,0,0.82)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 14, fontWeight: 700,
-              color: riskColor(cr.riskScore),
+              fontSize: riskText.length > 4 ? 10 : 13, fontWeight: 700,
+              color: riskGradeColor,
             }}>
-              {cr.riskScore}
+              {riskText}
             </div>
           </div>
         </div>

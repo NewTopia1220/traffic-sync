@@ -6,7 +6,7 @@ import { GU_LIST, calcDistKm } from "../constants/seoulGeoData";
 const UTIC_KEY = import.meta.env.VITE_UTIC_KEY || "";
 
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
 // ── 전역 디자인 토큰 ─────────────────────────────────────────────────────────
 // MainDashboard와 동일한 색상 체계 사용 (일관성 유지)

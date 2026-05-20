@@ -30,46 +30,6 @@ export const domColor = signals => {
   return "#6b7280";
 };
 
-export const calcRisk = signals => {
-  if (!signals) return 0;
-  let tr = 0, ts = 0, lw = 0;
-  Object.values(signals).forEach(d => {
-    ["stsg", "ltsg", "pdsg"].forEach(k => {
-      const s = d?.[k];
-      if (!s) return;
-      ts++;
-      if (statusCls(s.status) === "red") {
-        tr++;
-        if (s.rmndCs > 300) lw++;
-      }
-    });
-  });
-  return ts ? Math.min(99, Math.round((tr / ts) * 60 + lw * 8)) : 0;
-};
-
-export const calcCong = signals => {
-  if (!signals) return "알 수 없음";
-  let sum = 0, cnt = 0;
-  Object.values(signals).forEach(d => {
-    if (!d?.stsg) return;
-    if (statusCls(d.stsg.status) === "red") { sum += d.stsg.rmndCs / 10; cnt++; }
-  });
-  if (!cnt) return "원활";
-  const avg = sum / cnt;
-  return avg > 60 ? "혼잡" : avg > 30 ? "서행" : "원활";
-};
-
-export const calcWait = signals => {
-  if (!signals) return 0;
-  let s = 0, c = 0;
-  Object.values(signals).forEach(d => {
-    if (!d?.stsg) return;
-    s += d.stsg.rmndCs / 10;
-    c++;
-  });
-  return c ? Math.round(s / c) : 0;
-};
-
 export const congColor = c =>
   c === "혼잡" ? "#ef4444" : c === "서행" ? "#f59e0b" : "#22c55e";
 
@@ -78,3 +38,40 @@ export const riskColor = s =>
 
 export const riskLabel = s =>
   s >= 70 ? "높음" : s >= 50 ? "보통" : "낮음";
+
+export const riskGradeValue = grade => {
+  const n = Number.parseInt(String(grade ?? "").trim(), 10);
+  return Number.isFinite(n) ? n : null;
+};
+
+export const riskColorByGrade = grade => {
+  switch (riskGradeValue(grade)) {
+    case 1: return "#22c55e";
+    case 2: return "#facc15";
+    case 3: return "#f97316";
+    case 4: return "#ef4444";
+    default: return "#6b7280";
+  }
+};
+
+export const riskLabelByGrade = grade => {
+  switch (riskGradeValue(grade)) {
+    case 1: return "안전";
+    case 2: return "주의";
+    case 3: return "위험";
+    case 4: return "심각";
+    default: return "수집 대기";
+  }
+};
+
+export const clampRiskPercent = score => {
+  const n = Number(score);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, n));
+};
+
+export const formatRiskScore = score => {
+  const n = Number(score);
+  if (!Number.isFinite(n)) return "수집 대기";
+  return String(n);
+};

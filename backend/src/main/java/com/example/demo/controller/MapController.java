@@ -3,7 +3,11 @@ package com.example.demo.controller;
 import com.example.demo.entity.CrossroadEntity;
 import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.TrafficStatus;
+import com.example.demo.model.context.CrossroadRoadLinkMapping;
 import com.example.demo.repository.CrossroadRepository;
+import com.example.demo.scheduler.SupplementalDataScheduler;
+import com.example.demo.service.CrossroadSupplementalMappingService;
+import com.example.demo.service.SupplementalDataCacheService;
 import com.example.demo.service.ChatService;
 import com.example.demo.service.TrafficCacheService;
 import com.example.demo.service.V2xApiService;
@@ -11,6 +15,7 @@ import com.example.demo.websocket.TrafficWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,10 +33,18 @@ public class MapController {
 
     //서비스 주입
     private final TrafficCacheService cacheService;
+    //V2xApiService는 공공 API 호출하여 교차로 신호등 데이터 가져오는 서비스
     private final V2xApiService v2xApiService;
+    //TrafficWebSocketHandler는 WebSocket 연결 관리 및 실시간 데이터 전송 담당
     private final TrafficWebSocketHandler webSocketHandler;
+    //CrossroadRepository는 DB에서 교차로 정보 조회하는 리포지토리
     private final CrossroadRepository crossroadRepository;
     private final ChatService chatService;
+    // WebSocket으로 내보내기 전 실제 속도/위험도/날씨 캐시를 TrafficStatus에 합친다.
+    private final SupplementalDataCacheService supplementalDataCacheService;
+    private final CrossroadSupplementalMappingService crossroadSupplementalMappingService;
+    // 선택 구역 변경 직후 보조 데이터 캐시가 이전 구역에 머물지 않도록 즉시 갱신한다.
+    private final ObjectProvider<SupplementalDataScheduler> supplementalDataSchedulerProvider;
 
     @Value("${kakao.map.app-key}")
     private String kakaoAppKey;
@@ -49,21 +62,28 @@ public class MapController {
     @GetMapping("/api/signals")
     @ResponseBody
     public Collection<TrafficStatus> getSignals() {
+        cacheService.getAllSignals().values().forEach(supplementalDataCacheService::enrichTrafficStatus);
         return cacheService.getAllSignals().values();
     }
 
     @PostMapping("/api/fetch-area")
     @ResponseBody
-    public ResponseEntity<Map<String, Object>> fetchArea(
+    public synchronized ResponseEntity<Map<String, Object>> fetchArea(
+            @RequestParam(required = false) String guName,
             @RequestParam double lat,
             @RequestParam double lon,
             @RequestParam(defaultValue = "1.0") double radius) {
+        long startedAtMs = System.currentTimeMillis();
+        if (!cacheService.beginAreaRefresh()) {
+            return ResponseEntity.status(409).body(Map.of("message", "다른 구역 데이터를 수집 중입니다"));
+        }
         try {
             // 선택된 구 좌표 캐시에 저장 → 스케줄러가 이 좌표로 폴링
             cacheService.setCenter(lat, lon, radius);
 
             // DB에서 해당 좌표 반경 교차로 조회
             List<CrossroadEntity> entities = crossroadRepository.findWithinRadius(lat, lon, radius);
+            String normalizedGuName = normalizeGuName(guName);
             // 해당 구역에 교차로가 없으면 바로 응답
             if (entities.isEmpty()) {
                 return ResponseEntity.ok(Map.of("count", 0, "message", "해당 구역에 교차로 없음"));
@@ -81,9 +101,15 @@ public class MapController {
                 info.setCrsrdNm(e.getCrsrdNm());
                 info.setLat(e.getLat());
                 info.setLon(e.getLon());
+                info.setGuName(normalizedGuName);
                 return info;
 
             }).collect(Collectors.toList()); // .collect(Collectors.toList())  // Stream → List (파이프라인 종료)
+
+            supplementalDataCacheService.clearRoadSupplementalData();
+            Map<String, CrossroadRoadLinkMapping> mappings = crossroadSupplementalMappingService.loadOrCreateMappings(crossroads);
+            supplementalDataCacheService.updateMappings(mappings);
+            supplementalDataCacheService.updateDirectionalMappings(Map.of());
 
             //최종적으론 List<CrossroadInfo> crossroads = [
             //    CrossroadInfo { crsrdId: "1007", crsrdNm: "잠실역사거리",  lat: 37.51, lon: 127.08 },
@@ -100,18 +126,21 @@ public class MapController {
             //    "1009" → TrafficStatus { crsrdNm: "롯데타워교차로", signals: {...} }
             //}
 
-            //forEach 돌면:
-            //cacheService.updateSignal("1007", TrafficStatus {...})  // 캐시에 저장
-            //cacheService.updateSignal("1008", TrafficStatus {...})  // 캐시에 저장
-            //cacheService.updateSignal("1009", TrafficStatus {...})  // 캐시에 저장
-            signals.forEach(cacheService::updateSignal);
+            // 선택 구역은 이전 구역과 섞이면 안 되므로 전체 캐시를 새 구역 데이터로 교체한다.
+            cacheService.updateAllSignals(signals);
 
+            // 보조 매핑은 먼저 확보하고, 속도/위험도 값은 백그라운드에서 갱신한다.
+            refreshSupplementalDataForCurrentArea();
+            supplementalDataCacheService.enrichTrafficStatuses(signals);
+            cacheService.updateAllSignals(signals);
             webSocketHandler.broadcast(signals);
-            log.info("구역 수집: ({},{}) 반경{}km → {}개", lat, lon, radius, signals.size());
+            log.info("구역 수집: ({},{}) 반경{}km → {}개, elapsedMs={}", lat, lon, radius, signals.size(), System.currentTimeMillis() - startedAtMs);
             return ResponseEntity.ok(Map.of("count", signals.size(), "message", "ok"));
         } catch (Exception e) {
             log.error("구역 수집 실패: {}", e.getMessage());
             return ResponseEntity.internalServerError().body(Map.of("message", e.getMessage()));
+        } finally {
+            cacheService.finishAreaRefresh();
         }
     }
 
@@ -130,5 +159,18 @@ public class MapController {
             log.error("구 리포트 생성 실패: {}", e.getMessage());
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
+    }
+
+    private void refreshSupplementalDataForCurrentArea() {
+        supplementalDataSchedulerProvider.ifAvailable(scheduler -> {
+            scheduler.refreshCurrentAreaSupplementalDataAsync();
+        });
+    }
+
+    private String normalizeGuName(String guName) {
+        if (guName == null || guName.isBlank()) {
+            return null;
+        }
+        return guName.trim();
     }
 }

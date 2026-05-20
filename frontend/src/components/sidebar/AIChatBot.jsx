@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { AI_RESPONSES } from "../../constants/aiResponses";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
