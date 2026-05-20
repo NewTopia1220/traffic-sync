@@ -85,6 +85,7 @@ public class TrafficCacheService {
         crossroad.setCrsrdNm(status.getCrsrdNm());
         crossroad.setLat(status.getLat());
         crossroad.setLon(status.getLon());
+        crossroad.setGuName(status.getGuName());
         return crossroad;
     }
 }

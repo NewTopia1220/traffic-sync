@@ -53,7 +53,6 @@ public class SupplementalDataCacheService {
         mappingsByCrossroadId.clear();
         directionalMappingsByCrossroadId.clear();
         speedsByLinkId.clear();
-        risksByLinkId.clear();
     }
 
     public Optional<CrossroadRoadLinkMapping> getMapping(String crsrdId) {
@@ -129,6 +128,16 @@ public class SupplementalDataCacheService {
         risksByLinkId.values().forEach(risk -> risk.setStale(true));
     }
 
+    public void markRiskStale(String linkId) {
+        if (linkId == null || linkId.isBlank()) {
+            return;
+        }
+        RoadRiskSnapshot risk = risksByLinkId.get(linkId);
+        if (risk != null) {
+            risk.setStale(true);
+        }
+    }
+
     // V2X 신호만 들어 있는 TrafficStatus에 실제 보조 API 값을 합쳐서
     // 프론트와 챗봇이 같은 "현재 교차로 상태"를 보도록 만든다.
     public Map<String, TrafficStatus> enrichTrafficStatuses(Map<String, TrafficStatus> statuses) {
@@ -148,8 +157,12 @@ public class SupplementalDataCacheService {
         status.setAvgWaitSec(calculateAverageWaitSec(status.getSignals()));
 
         CrossroadRoadLinkMapping mapping = getMapping(status.getCrsrdId()).orElse(null);
-        RoadSpeedSnapshot speed = hasLinkId(mapping) ? getSpeed(mapping.getLinkId()).orElse(null) : null;
-        RoadRiskSnapshot risk = hasLinkId(mapping) ? getRisk(mapping.getLinkId()).orElse(null) : null;
+        RoadSpeedSnapshot speed = speedLinkId(mapping)
+                .flatMap(this::getSpeed)
+                .orElse(null);
+        RoadRiskSnapshot risk = riskCacheKey(mapping)
+                .flatMap(this::getRisk)
+                .orElse(null);
 
         applySpeed(status, speed);
         applyRisk(status, risk);
@@ -184,7 +197,7 @@ public class SupplementalDataCacheService {
 
         status.setRiskIndex(risk.getRiskIndex());
         status.setRiskGrade(risk.getRiskGrade());
-        status.setRiskScore(toRiskScore(risk));
+        status.setRiskScore(risk.getRiskIndex());
         status.setRiskStale(risk.isStale());
     }
 
@@ -249,31 +262,29 @@ public class SupplementalDataCacheService {
         return count == 0 ? 0 : Math.round((float) sum / count);
     }
 
-    private Integer toRiskScore(RoadRiskSnapshot risk) {
-        if (risk.getRiskIndex() != null) {
-            return clampScore((int) Math.round(risk.getRiskIndex()));
+    private Optional<String> speedLinkId(CrossroadRoadLinkMapping mapping) {
+        if (mapping == null) {
+            return Optional.empty();
         }
-
-        int grade = parseRiskGrade(risk.getRiskGrade());
-        return grade < 0 ? null : clampScore(grade * 20);
+        if (mapping.getSpeedLinkId() != null && !mapping.getSpeedLinkId().isBlank()) {
+            return Optional.of(mapping.getSpeedLinkId());
+        }
+        if (mapping.getLinkId() != null && !mapping.getLinkId().isBlank()) {
+            return Optional.of(mapping.getLinkId());
+        }
+        return Optional.empty();
     }
 
-    private int parseRiskGrade(String riskGrade) {
-        if (riskGrade == null || riskGrade.isBlank()) {
-            return -1;
+    private Optional<String> riskCacheKey(CrossroadRoadLinkMapping mapping) {
+        if (mapping == null) {
+            return Optional.empty();
         }
-        try {
-            return Integer.parseInt(riskGrade.trim());
-        } catch (NumberFormatException ignored) {
-            return -1;
+        if (mapping.getLineString() != null && !mapping.getLineString().isBlank()) {
+            return Optional.of(mapping.getLineString());
         }
-    }
-
-    private int clampScore(int score) {
-        return Math.max(0, Math.min(100, score));
-    }
-
-    private boolean hasLinkId(CrossroadRoadLinkMapping mapping) {
-        return mapping != null && mapping.getLinkId() != null && !mapping.getLinkId().isBlank();
+        if (mapping.getLinkId() != null && !mapping.getLinkId().isBlank()) {
+            return Optional.of(mapping.getLinkId());
+        }
+        return Optional.empty();
     }
 }

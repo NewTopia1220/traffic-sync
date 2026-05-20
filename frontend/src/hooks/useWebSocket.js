@@ -9,10 +9,14 @@ function normalizeTrafficStatuses(list) {
     // 속도/위험도/혼잡도는 더 이상 프론트에서 더미로 만들지 않는다.
     // 백엔드 TrafficStatus에 합쳐진 실제 API 값만 기존 UI 필드명으로 매핑한다.
     const speed = s.speedKph == null ? null : Math.round(s.speedKph);
-    const riskScore = s.riskScore == null ? null : Math.round(s.riskScore);
+    const riskIndex = s.riskIndex == null ? null : Number(s.riskIndex);
+    const fallbackRiskScore = s.riskScore == null ? null : Number(s.riskScore);
+    const riskScoreSource = Number.isFinite(riskIndex) ? riskIndex : fallbackRiskScore;
+    const riskScore = Number.isFinite(riskScoreSource) ? riskScoreSource : null;
+    const riskGrade = s.riskGrade == null ? null : String(s.riskGrade).trim();
     const congestion = s.congestion ?? "알 수 없음";
     const avgWait = s.avgWaitSec ?? null;
-    return { ...s, mappedSignals: ms, riskScore, congestion, speed, avgWait };
+    return { ...s, mappedSignals: ms, riskIndex, riskGrade, riskScore, congestion, speed, avgWait };
   });
 }
 

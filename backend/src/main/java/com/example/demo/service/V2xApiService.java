@@ -202,6 +202,7 @@ public class V2xApiService {
         status.setCrsrdNm(crossroad.getCrsrdNm());
         status.setLat(crossroad.getLat());
         status.setLon(crossroad.getLon());
+        status.setGuName(crossroad.getGuName());
         status.setTotDt(item.path("totDt").asText());
         status.setServerTimeMs(System.currentTimeMillis());
 

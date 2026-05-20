@@ -174,11 +174,9 @@ public class ChatService {
             return "수집 대기";
         }
         String stale = status.isRiskStale() ? " (갱신 대기)" : "";
-        String score = status.getRiskScore() == null ? "점수 수집 대기" : status.getRiskScore() + "점";
-        if (status.getRiskIndex() != null) {
-            return String.format(Locale.KOREA, "%s, 등급 %s, 지수 %.1f%s",
-                    score, valueOrWaiting(status.getRiskGrade()), status.getRiskIndex(), stale);
-        }
+        String score = status.getRiskScore() == null
+                ? "점수 수집 대기"
+                : status.getRiskScore() + "점";
         return String.format("%s, 등급 %s%s", score, valueOrWaiting(status.getRiskGrade()), stale);
     }
 

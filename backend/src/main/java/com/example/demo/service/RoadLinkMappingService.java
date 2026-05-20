@@ -22,6 +22,9 @@ public class RoadLinkMappingService {
     @Value("${road-link.max-match-distance-meters:150}")
     private double maxMatchDistanceMeters;
 
+    @Value("${road-risk.local-line-length-meters:60}")
+    private double roadRiskLocalLineLengthMeters;
+
     public Map<String, CrossroadRoadLinkMapping> mapCrossroadsToNearestLinks(
             List<CrossroadInfo> crossroads,
             Collection<TopisLinkGeometry> geometries
@@ -53,9 +56,12 @@ public class RoadLinkMappingService {
             result.put(crossroad.getCrsrdId(), CrossroadRoadLinkMapping.builder()
                     .crsrdId(crossroad.getCrsrdId())
                     .linkId(bestGeometry.getLinkId())
+                    .speedLinkId(bestGeometry.getLinkId())
                     .distanceMeters(bestDistance)
+                    .speedDistanceMeters(bestDistance)
                     .vertices(bestGeometry.getVertices())
-                    .lineString(RoadRiskApiService.buildLineString(bestGeometry.getVertices()))
+                    .lineString(RoadRiskApiService.buildLineStringNearPoint(
+                            bestGeometry.getVertices(), crossroadPoint, roadRiskLocalLineLengthMeters))
                     .build());
         }
 
@@ -97,10 +103,13 @@ public class RoadLinkMappingService {
                         .crsrdId(crossroad.getCrsrdId())
                         .directionCode(directionCode)
                         .linkId(geometry.getLinkId())
+                        .speedLinkId(geometry.getLinkId())
                         .distanceMeters(closest.distanceMeters())
+                        .speedDistanceMeters(closest.distanceMeters())
                         .bearingDegrees(closest.bearingDegrees())
                         .vertices(geometry.getVertices())
-                        .lineString(RoadRiskApiService.buildLineString(geometry.getVertices()))
+                        .lineString(RoadRiskApiService.buildLineStringNearPoint(
+                                geometry.getVertices(), crossroadPoint, roadRiskLocalLineLengthMeters))
                         .build());
             }
 

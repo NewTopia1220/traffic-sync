@@ -2,6 +2,7 @@ package com.example.demo;
 
 import com.example.demo.repository.CctvRepository;
 import com.example.demo.repository.CrossroadRepository;
+import com.example.demo.repository.CrossroadSupplementalMappingRepository;
 import com.example.demo.repository.SignalCrossroadRepository;
 import com.example.demo.repository.SignalPhaseRepository;
 import com.example.demo.repository.SignalPlanRepository;
@@ -26,6 +27,9 @@ class DemoApplicationTests {
 
 	@MockBean
 	private CrossroadRepository crossroadRepository;
+
+	@MockBean
+	private CrossroadSupplementalMappingRepository crossroadSupplementalMappingRepository;
 
 	@MockBean
 	private SignalCrossroadRepository signalCrossroadRepository;

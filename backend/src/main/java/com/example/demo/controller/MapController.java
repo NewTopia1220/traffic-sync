@@ -3,8 +3,10 @@ package com.example.demo.controller;
 import com.example.demo.entity.CrossroadEntity;
 import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.TrafficStatus;
+import com.example.demo.model.context.CrossroadRoadLinkMapping;
 import com.example.demo.repository.CrossroadRepository;
 import com.example.demo.scheduler.SupplementalDataScheduler;
+import com.example.demo.service.CrossroadSupplementalMappingService;
 import com.example.demo.service.SupplementalDataCacheService;
 import com.example.demo.service.TrafficCacheService;
 import com.example.demo.service.V2xApiService;
@@ -38,6 +40,7 @@ public class MapController {
     private final CrossroadRepository crossroadRepository;
     // WebSocket으로 내보내기 전 실제 속도/위험도/날씨 캐시를 TrafficStatus에 합친다.
     private final SupplementalDataCacheService supplementalDataCacheService;
+    private final CrossroadSupplementalMappingService crossroadSupplementalMappingService;
     // 선택 구역 변경 직후 보조 데이터 캐시가 이전 구역에 머물지 않도록 즉시 갱신한다.
     private final ObjectProvider<SupplementalDataScheduler> supplementalDataSchedulerProvider;
 
@@ -64,6 +67,7 @@ public class MapController {
     @PostMapping("/api/fetch-area")
     @ResponseBody
     public synchronized ResponseEntity<Map<String, Object>> fetchArea(
+            @RequestParam(required = false) String guName,
             @RequestParam double lat,
             @RequestParam double lon,
             @RequestParam(defaultValue = "1.0") double radius) {
@@ -77,6 +81,7 @@ public class MapController {
 
             // DB에서 해당 좌표 반경 교차로 조회
             List<CrossroadEntity> entities = crossroadRepository.findWithinRadius(lat, lon, radius);
+            String normalizedGuName = normalizeGuName(guName);
             // 해당 구역에 교차로가 없으면 바로 응답
             if (entities.isEmpty()) {
                 return ResponseEntity.ok(Map.of("count", 0, "message", "해당 구역에 교차로 없음"));
@@ -94,9 +99,15 @@ public class MapController {
                 info.setCrsrdNm(e.getCrsrdNm());
                 info.setLat(e.getLat());
                 info.setLon(e.getLon());
+                info.setGuName(normalizedGuName);
                 return info;
 
             }).collect(Collectors.toList()); // .collect(Collectors.toList())  // Stream → List (파이프라인 종료)
+
+            supplementalDataCacheService.clearRoadSupplementalData();
+            Map<String, CrossroadRoadLinkMapping> mappings = crossroadSupplementalMappingService.loadOrCreateMappings(crossroads);
+            supplementalDataCacheService.updateMappings(mappings);
+            supplementalDataCacheService.updateDirectionalMappings(Map.of());
 
             //최종적으론 List<CrossroadInfo> crossroads = [
             //    CrossroadInfo { crsrdId: "1007", crsrdNm: "잠실역사거리",  lat: 37.51, lon: 127.08 },
@@ -116,8 +127,7 @@ public class MapController {
             // 선택 구역은 이전 구역과 섞이면 안 되므로 전체 캐시를 새 구역 데이터로 교체한다.
             cacheService.updateAllSignals(signals);
 
-            // V2X만 먼저 보내면 교차로 개수만 보이므로, 보조 API까지 모두 붙인 뒤 한 번만 broadcast한다.
-            supplementalDataCacheService.clearRoadSupplementalData();
+            // 보조 매핑은 먼저 확보하고, 속도/위험도 값은 백그라운드에서 갱신한다.
             refreshSupplementalDataForCurrentArea();
             supplementalDataCacheService.enrichTrafficStatuses(signals);
             cacheService.updateAllSignals(signals);
@@ -134,9 +144,14 @@ public class MapController {
 
     private void refreshSupplementalDataForCurrentArea() {
         supplementalDataSchedulerProvider.ifAvailable(scheduler -> {
-            scheduler.refreshRoadLinkMappings();
-            scheduler.refreshRoadSpeeds();
-            scheduler.refreshRoadRisks();
+            scheduler.refreshCurrentAreaSupplementalDataAsync();
         });
+    }
+
+    private String normalizeGuName(String guName) {
+        if (guName == null || guName.isBlank()) {
+            return null;
+        }
+        return guName.trim();
     }
 }

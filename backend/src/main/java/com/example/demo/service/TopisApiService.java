@@ -99,7 +99,13 @@ public class TopisApiService {
                 .bodyToMono(String.class)
                 .timeout(Duration.ofSeconds(requestTimeoutSeconds))
                 .block();
-        return parseSpeedResponse(response);
+        Optional<RoadSpeedSnapshot> parsed = parseSpeedResponse(response);
+        parsed.ifPresent(speed -> {
+            if (speed.getLinkId() == null || speed.getLinkId().isBlank()) {
+                speed.setLinkId(linkId);
+            }
+        });
+        return parsed;
     }
 
     public Map<String, TopisLinkGeometry> fetchAllLinkGeometries() throws Exception {

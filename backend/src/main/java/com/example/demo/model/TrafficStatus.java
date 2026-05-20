@@ -14,6 +14,7 @@ public class TrafficStatus {
     private String crsrdNm;
     private double lat;
     private double lon;
+    private String guName;
 
     // key: "nt","et","st","wt","ne","se","sw","nw" b
     private Map<String, SignalDirection> signals;
@@ -38,7 +39,7 @@ public class TrafficStatus {
     // 도로위험도 API에서 가져온 실제 위험 지수/등급.
     private Double riskIndex;
     private String riskGrade;
-    private Integer riskScore;
+    private Double riskScore;
     private boolean riskStale;
 
     // 현재 수집된 날씨 스냅샷. 아직 수집 전이면 null일 수 있다.

@@ -50,4 +50,16 @@ class RoadRiskApiServiceTest {
 
         assertThat(lineString).isEqualTo("LineString(127.1002000 37.5133000,127.1005000 37.5135000)");
     }
+
+    @Test
+    void buildsShortRoadRiskLineStringNearCrossroadPoint() {
+        String lineString = RoadRiskApiService.buildLineStringNearPoint(List.of(
+                new GeoPoint(37.0000, 127.0000),
+                new GeoPoint(37.0000, 127.0020)
+        ), new GeoPoint(37.0000, 127.0010), 60.0);
+
+        assertThat(RoadRiskApiService.lineStringCoordinateCount(lineString)).isEqualTo(3);
+        assertThat(RoadRiskApiService.estimateLineStringLengthMeters(lineString)).isLessThan(70.0);
+        assertThat(lineString).contains("127.0010000 37.0000000");
+    }
 }

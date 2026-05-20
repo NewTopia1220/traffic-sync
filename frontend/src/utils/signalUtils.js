@@ -38,3 +38,40 @@ export const riskColor = s =>
 
 export const riskLabel = s =>
   s >= 70 ? "높음" : s >= 50 ? "보통" : "낮음";
+
+export const riskGradeValue = grade => {
+  const n = Number.parseInt(String(grade ?? "").trim(), 10);
+  return Number.isFinite(n) ? n : null;
+};
+
+export const riskColorByGrade = grade => {
+  switch (riskGradeValue(grade)) {
+    case 1: return "#22c55e";
+    case 2: return "#facc15";
+    case 3: return "#f97316";
+    case 4: return "#ef4444";
+    default: return "#6b7280";
+  }
+};
+
+export const riskLabelByGrade = grade => {
+  switch (riskGradeValue(grade)) {
+    case 1: return "안전";
+    case 2: return "주의";
+    case 3: return "위험";
+    case 4: return "심각";
+    default: return "수집 대기";
+  }
+};
+
+export const clampRiskPercent = score => {
+  const n = Number(score);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, n));
+};
+
+export const formatRiskScore = score => {
+  const n = Number(score);
+  if (!Number.isFinite(n)) return "수집 대기";
+  return String(n);
+};

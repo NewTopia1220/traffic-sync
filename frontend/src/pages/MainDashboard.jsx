@@ -10,7 +10,7 @@ const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").repla
 const V = {
   bg0: "#000", bg1: "#0a0a0a", line: "#1a1a1a",       // 배경/구분선
   ink0: "#e7ecf5", ink1: "#aab4c8", ink2: "#7a7a7a", ink3: "#3a3a3a",  // 텍스트 단계
-  grn: "#2ee07a", red: "#ff5566", org: "#ffaa33", blu: "#4ea6ff",       // 상태 색상
+  grn: "#2ee07a", yel: "#facc15", red: "#ff5566", org: "#ffaa33", blu: "#4ea6ff",       // 상태 색상
   mono: "'IBM Plex Mono',ui-monospace,Menlo,monospace",
   sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
 };
@@ -102,8 +102,8 @@ function Sparkline({ values, color }) {
  */
 function KpiCard({ value, unit, label, sub, status }) {
   // 상태별 배지 스타일
-  const s = status === "위험" ? { c: V.red, bg: "#1a0a10", bd: "#3a1820" }
-    : status === "서행" || status === "피크" ? { c: V.org, bg: "#1a1206", bd: "#3a2a14" }
+  const s = status === "심각" ? { c: V.red, bg: "#1a0a10", bd: "#3a1820" }
+    : status === "위험" || status === "서행" || status === "피크" || status === "주의" ? { c: V.org, bg: "#1a1206", bd: "#3a2a14" }
     : { c: V.ink1, bg: V.bg0, bd: V.line };
   return (
     <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "18px 22px", position: "relative", minHeight: 118 }}>
@@ -136,14 +136,44 @@ function hasRiskScore(score) {
   return Number.isFinite(score);
 }
 
-function riskColor(score) {
-  if (!hasRiskScore(score)) return V.ink2;
-  return score >= 70 ? V.red : score >= 50 ? V.org : V.grn;
+function riskGradeValue(grade) {
+  const n = Number.parseInt(String(grade ?? "").trim(), 10);
+  return Number.isFinite(n) ? n : null;
 }
 
-function riskLevel(score) {
-  if (!hasRiskScore(score)) return "수집 대기";
-  return score >= 70 ? "위험" : score >= 50 ? "주의" : "안전";
+function hasRiskGrade(grade) {
+  return riskGradeValue(grade) != null;
+}
+
+function riskPercent(score) {
+  if (!hasRiskScore(score)) return 0;
+  return Math.max(0, Math.min(100, score));
+}
+
+function riskColor(score, grade) {
+  switch (riskGradeValue(grade)) {
+    case 1: return V.grn;
+    case 2: return V.yel;
+    case 3: return V.org;
+    case 4: return V.red;
+    default: return V.ink2;
+  }
+}
+
+function riskLevel(score, grade) {
+  switch (riskGradeValue(grade)) {
+    case 1: return "안전";
+    case 2: return "주의";
+    case 3: return "위험";
+    case 4: return "심각";
+    default: return hasRiskScore(score) ? "등급 대기" : "수집 대기";
+  }
+}
+
+function riskRank(item) {
+  const grade = riskGradeValue(item?.riskGrade ?? item?.grade);
+  const score = hasRiskScore(item?.riskScore ?? item?.score) ? (item.riskScore ?? item.score) : -1;
+  return grade == null ? -1 : grade * 100000 + score;
 }
 
 // ── LivCard ──────────────────────────────────────────────────────────────────
@@ -206,18 +236,19 @@ function LivCard({ name, color, speed, sparkData }) {
 /**
  * 위험도 도넛 차트
  * SVG strokeDasharray 기법으로 원형 진행률 표시
- * 점수에 따라 색상 자동 결정: 70+ 빨강, 50+ 주황, 미만 초록
+ * 색상은 위험도 API 등급(anals_grd), 숫자는 점수(anals_value)를 그대로 사용
  *
  * @param {string} name  - 교차로 이름 (중앙 표시)
- * @param {number} score - 위험도 점수 (0~100)
+ * @param {number} score - 위험도 API 점수
+ * @param {string} grade - 위험도 API 등급
  */
-function DonutChart({ name, score }) {
+function DonutChart({ name, score, grade }) {
   const ready = hasRiskScore(score);
-  const color = riskColor(score);
-  const level = riskLevel(score);
+  const color = riskColor(score, grade);
+  const level = riskLevel(score, grade);
   const r = 80, sw = 18; // 반지름, 선 굵기
   const circ = 2 * Math.PI * r; // 원 둘레
-  const dash = ready ? (Math.min(score, 100) / 100) * circ : 0; // 채워질 길이
+  const dash = ready ? (riskPercent(score) / 100) * circ : 0; // 채워질 길이
 
   return (
     <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 10, minHeight: 300 }}>
@@ -443,7 +474,7 @@ function RiskDropdown({ options, selectedIdx, onChange, watchIds = [] }) {
             {filtered.length === 0
               ? <div style={{ padding: "14px", fontSize: 13, color: V.ink2, textAlign: "center" }}>검색 결과 없음</div>
               : filtered.map((opt) => {
-                  const color = riskColor(opt.score);
+                  const color = riskColor(opt.score, opt.grade);
                   const isWatched = watchIds.includes(opt.id);
                   const isSel = opt.origIdx === selectedIdx;
                   return (
@@ -455,7 +486,7 @@ function RiskDropdown({ options, selectedIdx, onChange, watchIds = [] }) {
                       <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, minWidth: 28 }}>#{opt.origIdx + 1}</span>
                       <span style={{ flex: 1, fontWeight: 600 }}>{opt.name}</span>
                       <span style={{ fontFamily: V.mono, fontSize: 13, color, fontWeight: 700 }}>{hasRiskScore(opt.score) ? `${opt.score}점` : "—"}</span>
-                      <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, minWidth: 36 }}>({levelLabel(opt.score)})</span>
+                      <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, minWidth: 36 }}>({levelLabel(opt.score, opt.grade)})</span>
                       {/* 등록 모드: + 또는 ✓ 표시 */}
                       {isRegisterMode && (
                         <span style={{ fontFamily: V.mono, fontSize: 11, color: isWatched ? V.grn : V.ink3, minWidth: 18, textAlign: "center" }}>
@@ -554,7 +585,13 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
     setLoading(true);
     setFetchMsg(null);
     try {
-      const res = await fetch(`${API_BASE}/api/fetch-area?lat=${gu.lat}&lon=${gu.lon}&radius=2.5`, { method: "POST" });
+      const params = new URLSearchParams({
+        guName: gu.name,
+        lat: String(gu.lat),
+        lon: String(gu.lon),
+        radius: "2.5",
+      });
+      const res = await fetch(`${API_BASE}/api/fetch-area?${params.toString()}`, { method: "POST" });
       if (!res.ok) throw new Error("fetch-area failed");
       const data = await res.json();
       // 새 구역 데이터가 백엔드에서 준비된 뒤에 선택 상태를 바꿔 이전 구역 데이터와 섞여 보이지 않게 한다.
@@ -582,18 +619,20 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
   // ── KPI 계산 ────────────────────────────────────────────────────────────────
   const validSpeeds = activeData.map(c => c.speed).filter(Number.isFinite);
   const avgSpeed  = validSpeeds.length ? Math.round(validSpeeds.reduce((a, v) => a + v, 0) / validSpeeds.length) : "—";
-  const riskReadyData = activeData.filter(c => hasRiskScore(c.riskScore));
-  const highRisk  = riskReadyData.filter(c => c.riskScore >= 70).length;
-  const sortedByRisk = [...activeData].sort((a, b) => (hasRiskScore(b.riskScore) ? b.riskScore : -1) - (hasRiskScore(a.riskScore) ? a.riskScore : -1));
-  const maxRiskItem  = [...riskReadyData].sort((a, b) => b.riskScore - a.riskScore)[0];
+  const riskReadyData = activeData.filter(c => hasRiskScore(c.riskScore) || hasRiskGrade(c.riskGrade));
+  const highRisk  = riskReadyData.filter(c => (riskGradeValue(c.riskGrade) ?? 0) >= 3).length;
+  const sortedByRisk = [...activeData].sort((a, b) => riskRank(b) - riskRank(a));
+  const maxRiskItem  = [...riskReadyData].sort((a, b) => riskRank(b) - riskRank(a))[0];
   const maxRisk      = maxRiskItem?.riskScore ?? "—";
   const guLabel      = selectedGu ? `${selectedGu.name} 반경 2.5km` : "전체";
   const speedStatus  = typeof avgSpeed === "number" ? (avgSpeed >= 40 ? "정상" : avgSpeed >= 20 ? "서행" : "혼잡") : "대기";
-  const riskStatus   = riskReadyData.length === 0 ? "대기" : highRisk > 0 ? "위험" : "정상";
+  const maxRiskGrade = riskReadyData.reduce((max, c) => Math.max(max, riskGradeValue(c.riskGrade) ?? 0), 0);
+  const riskStatus   = riskReadyData.length === 0 ? "대기" : maxRiskGrade >= 4 ? "심각" : maxRiskGrade >= 3 ? "위험" : maxRiskGrade >= 2 ? "주의" : "정상";
 
   // ── 위험도 리스트 (드롭다운 검색 + 그리드 슬롯용) ───────────────────────────
   const riskData = sortedByRisk.map(c => ({
     name: c.crsrdNm, score: hasRiskScore(c.riskScore) ? c.riskScore : null,
+    grade: c.riskGrade,
     speed: c.speed, congestion: c.congestion ?? "—",
     id: c.crsrdId,
   }));
@@ -707,7 +746,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
   // ── 위험도 breakdown 아이템 ──────────────────────────────────────────────────
   // 선택된 교차로의 위험도·속도·혼잡도를 수평 프로그레스 바로 표시
   const bdItems = selectedRisk ? [
-    { label: "도로 위험도", sub: "교차로 구조 · 사고 이력 종합", value: hasRiskScore(selectedRisk.score) ? selectedRisk.score : "—", unit: "점", color: riskColor(selectedRisk.score), pct: hasRiskScore(selectedRisk.score) ? selectedRisk.score : 0 },
+    { label: "도로 위험도", sub: "교차로 구조 · 사고 이력 종합", value: hasRiskScore(selectedRisk.score) ? selectedRisk.score : "—", unit: "점", color: riskColor(selectedRisk.score, selectedRisk.grade), pct: riskPercent(selectedRisk.score) },
     { label: "실시간 평균 속도", sub: "TOPIS 수집 · 낮을수록 위험", value: selectedRisk.speed ?? "—", unit: "km/h", color: V.org, pct: selectedRisk.speed == null ? 0 : Math.min((selectedRisk.speed / 80) * 100, 100) },
     { label: "혼잡 상태", sub: "현재 구간 추정", value: selectedRisk.congestion, unit: "", color: V.blu, pct: 50 },
   ] : [];
@@ -774,9 +813,9 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
       {/* ── KPI 카드 4개 ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, padding: 8 }}>
         <KpiCard value={activeData.length || 0} unit="개" label="모니터링 교차로" sub={guLabel} status="정상" />
-        <KpiCard value={riskReadyData.length ? highRisk : "—"} unit={riskReadyData.length ? "개" : ""} label="위험 교차로" sub={riskReadyData.length ? "위험도 70점 이상" : "위험도 수집 대기"} status={riskStatus} />
+        <KpiCard value={riskReadyData.length ? highRisk : "—"} unit={riskReadyData.length ? "개" : ""} label="위험 교차로" sub={riskReadyData.length ? "등급 3 이상" : "위험도 수집 대기"} status={riskStatus} />
         <KpiCard value={avgSpeed} unit="km/h" label="현재 평균 속도" sub="전 교차로 추정" status={speedStatus === "혼잡" ? "혼잡" : speedStatus === "서행" ? "서행" : "정상"} />
-        <KpiCard value={maxRisk} unit={hasRiskScore(maxRisk) ? "점" : ""} label="최고 위험도" sub={maxRiskItem?.crsrdNm ?? "위험도 수집 대기"} status={hasRiskScore(maxRisk) ? (maxRisk >= 70 ? "위험" : maxRisk >= 50 ? "피크" : "정상") : "대기"} />
+        <KpiCard value={maxRisk} unit={hasRiskScore(maxRisk) ? "점" : ""} label="최고 위험도" sub={maxRiskItem?.crsrdNm ?? "위험도 수집 대기"} status={maxRiskItem ? riskLevel(maxRiskItem.riskScore, maxRiskItem.riskGrade) : "대기"} />
       </div>
 
       {/* ── 2행: 실시간 속도 + 서울 지도 ── */}
@@ -855,7 +894,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
               {Array.from({ length: 8 }).map((_, i) => {
                 const d = displayWatch[i];
                 const isManual = d && watchList.some(w => w.id === d.id);
-                const color = d ? riskColor(d.score) : V.line;
+                const color = d ? riskColor(d.score, d.grade) : V.line;
                 const isSel = i === riskIdx;
                 return d ? (
                   <div key={i} onClick={() => setRiskIdx(i)} style={{
@@ -887,7 +926,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoSimulation, wsDat
 
             {/* 도넛 차트 + 위험도 breakdown */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <DonutChart name={selectedRisk?.name} score={selectedRisk?.score} />
+              <DonutChart name={selectedRisk?.name} score={selectedRisk?.score} grade={selectedRisk?.grade} />
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {bdItems.map((b, i) => (
                   <div key={i} style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "16px 18px", display: "grid", gridTemplateColumns: "1fr auto", rowGap: 12 }}>
