@@ -8,6 +8,7 @@ import com.example.demo.repository.CrossroadRepository;
 import com.example.demo.scheduler.SupplementalDataScheduler;
 import com.example.demo.service.CrossroadSupplementalMappingService;
 import com.example.demo.service.SupplementalDataCacheService;
+import com.example.demo.service.ChatService;
 import com.example.demo.service.TrafficCacheService;
 import com.example.demo.service.V2xApiService;
 import com.example.demo.websocket.TrafficWebSocketHandler;
@@ -38,6 +39,7 @@ public class MapController {
     private final TrafficWebSocketHandler webSocketHandler;
     //CrossroadRepository는 DB에서 교차로 정보 조회하는 리포지토리
     private final CrossroadRepository crossroadRepository;
+    private final ChatService chatService;
     // WebSocket으로 내보내기 전 실제 속도/위험도/날씨 캐시를 TrafficStatus에 합친다.
     private final SupplementalDataCacheService supplementalDataCacheService;
     private final CrossroadSupplementalMappingService crossroadSupplementalMappingService;
@@ -139,6 +141,23 @@ public class MapController {
             return ResponseEntity.internalServerError().body(Map.of("message", e.getMessage()));
         } finally {
             cacheService.finishAreaRefresh();
+        }
+    }
+
+    // 구 단위 AI 리포트 — 메인 대시보드 구 클릭 시 호출
+    @PostMapping("/api/district/report")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> districtReport(@RequestBody Map<String, String> body) {
+        String district = body.get("district");
+        if (district == null || district.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "district 파라미터가 필요합니다."));
+        }
+        try {
+            String report = chatService.districtReport(district);
+            return ResponseEntity.ok(Map.of("report", report, "district", district));
+        } catch (Exception e) {
+            log.error("구 리포트 생성 실패: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
     }
 

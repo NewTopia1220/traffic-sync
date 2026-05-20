@@ -20,7 +20,7 @@ const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").repla
  * @param {Object}   initialCenter - 최초 지도 중심 좌표 { lat, lon } (구 클릭 시 전달)
  * @param {Function} onCctvClick   - CCTV 마커 클릭 시 CCTV 객체 전달 콜백 → CctvModal 열기
  */
-export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter, onCctvClick }) {
+export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter, onCctvClick, stations = [], onStationSelect }) {
 
   // ── Ref: 재렌더링 없이 값 유지 ──────────────────────────────────────────────
   const mapRef       = useRef(null); // 카카오맵이 실제로 렌더링될 DOM div 요소
@@ -34,6 +34,12 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
   const [zoom,     setZoom]     = useState(4);     // 현재 줌 레벨 (마커↔클러스터 전환 기준)
   const [cctvList, setCctvList] = useState([]);    // 스프링 /api/cctv에서 받은 CCTV 목록
   const [showCctv, setShowCctv] = useState(false); // CCTV 마커 표시 여부 (토글 버튼)
+
+  // ── 교통량 추가 ────────────────────────────────────────────
+  const trafficOverlays = useRef([]); // 교통량 오버레이 관리용
+  const [showTraffic, setShowTraffic] = useState(false); // 교통량 마커 토글 상태
+  const [activeStation, setActiveStation] = useState(null); // 클릭된 지점 상세 정보
+  const stationDetailOverlay = useRef(null); // 상세정보 오버레이 관리용
 
   // ── useEffect 1: 카카오맵 SDK 동적 로드 ────────────────────────────────────
   // 카카오맵 SDK는 index.html에 미리 넣지 않고 컴포넌트 마운트 시 동적으로 삽입.
@@ -238,7 +244,140 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     });
   }, [ready, showCctv, cctvList, onCctvClick]);
 
-  // ── useEffect 7: 교차로 마커 클릭 이벤트 ───────────────────────────────────
+  
+  // ── useEffect 7: 교통량 지점(AI Station) 마커 표시 ─────────────────────────────
+  useEffect(() => {
+    if (!ready || !mapObj.current) return;
+    const kakao = window.kakao;
+
+    // 기존 교통량 오버레이 제거
+    trafficOverlays.current.forEach(ov => ov.setMap(null));
+    trafficOverlays.current = [];
+
+    if (!showTraffic) return; 
+
+    stations.forEach(st => {
+      const pos = new kakao.maps.LatLng(st.latitude, st.longitude);
+      // const MARKER_COLOR = "#ffca28";
+
+      // 마커 디자인 (다이아몬드)
+      const el = document.createElement("div");
+      el.style.cssText = "cursor:pointer; display:flex; flex-direction:column; align-items:center; filter: drop-shadow(0 0 4px #ffca28);";
+      el.innerHTML = `
+        <div style="width: 14px; height: 14px; background: #000; border: 2px solid #ffca28; 
+             border-radius: 2px; transform: rotate(45deg); display: flex; align-items: center; justify-content: center;">
+          <div style="width: 4px; height: 4px; background: #ffca28; border-radius: 50%;"></div>
+        </div>
+        <div style="margin-top: 6px; padding: 1px 15px; background: transparent; 
+             color: #ffffff; font-size: 10px; font-weight: 700; white-space: nowrap;
+             filter: invert(1) hue-rotate(180deg);">
+          ${st.stationName}
+        </div>
+      `;
+
+      // 마커 클릭 이벤트: activeStation 상태 업데이트 + 부모 콜백 호출
+      el.onclick = (e) => {
+        e.stopPropagation();
+        setActiveStation(st.stationId); // 상세 팝업 트리거z
+        if (onStationSelect) onStationSelect(st.stationId);
+      };
+
+      const ov = new kakao.maps.CustomOverlay({
+        position: pos,
+        content: el,
+        zIndex: 6,
+        xAnchor: 0.5,
+        yAnchor: 0.5,
+      });
+      ov.setMap(mapObj.current);
+      trafficOverlays.current.push(ov);
+    });
+  }, [ready, showTraffic, stations]);
+
+  // ── useEffect 7-1: 상세 정보 팝업(오버레이) Fetch 및 표시 ──────────────────────
+  // 상세 정보 팝업(오버레이) 관리 useEffect
+  useEffect(() => {
+    if (!ready || !mapObj.current || !activeStation) return;
+
+    if (stationDetailOverlay.current) {
+      stationDetailOverlay.current.setMap(null);
+    }
+
+    // 백엔드 ForecastController 주소와 정확히 일치시킴
+    const requestUrl = `${API_BASE}/api/forecast/station/${activeStation}`;
+    console.log("요청 주소:", requestUrl);
+
+    fetch(requestUrl)
+      .then(res => {
+        if (!res.ok) throw new Error(`서버 에러: ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        // ForecastResult 모델 내부의 예측 데이터 리스트 추출
+        console.log("받은 데이터:", data);
+
+        const st = stations.find(s => s.stationId === activeStation);
+        if (!st) return;
+
+        const currentHour = new Date().getHours();
+
+        // 1. 단순 숫자 배열(up 또는 down)을 { hour, count } 객체 배열로 변환
+        // 백엔드에서 준 up: (24) [347, 235, ...] 구조를 활용합니다.
+        const predictionList = (data.up || []).map((val, idx) => ({
+          hour: idx,      // 배열의 인덱스가 곧 시간(0~23)
+          count: val      // 해당 인덱스의 값이 교통량
+        }));
+
+        // 2. 현재 시간 이후의 데이터만 필터링
+        const futureData = predictionList.filter(item => item.hour >= currentHour);
+      
+        const pos = new window.kakao.maps.LatLng(st.latitude, st.longitude);
+        const content = document.createElement("div");
+        content.style.cssText = `
+          position: relative; bottom: 45px; background: rgba(10, 20, 35, 0.95);
+          border: 1px solid #ffca28; border-radius: 8px; padding: 12px;
+          width: 180px; color: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+          backdrop-filter: blur(8px); z-index: 100;
+        `;
+
+        content.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,202,40,0.3); padding-bottom:5px; margin-bottom:8px;">
+            <span style="font-size:13px; font-weight:bold; color:#ffffff;">${st.stationName}</span>
+            <button id="close-ov" style="background:none; border:none; color:#fff; cursor:pointer; font-size:18px;">&times;</button>
+          </div>
+          <div style="max-height: 120px; overflow-y: auto;">
+            ${futureData.length > 0 
+              ? futureData.map(d => `
+                  <div style="display:flex; justify-content:space-between; font-size:12px; padding:4px 0;">
+                    <span style="color:#aab4c8;">${d.hour}시</span>
+                    <span style="color:#fff; font-weight:700;">${Number(d.value || d.count).toLocaleString()}대</span>
+                  </div>
+                `).join('')
+              : '<div style="font-size:11px; color:#666; text-align:center; padding:10px;">이후 예측 데이터 없음</div>'
+            }
+          </div>
+          <div style="position:absolute; bottom:-10px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid #ffca28;"></div>
+        `;
+
+        content.querySelector("#close-ov").onclick = () => setActiveStation(null);
+
+        const ov = new window.kakao.maps.CustomOverlay({
+          position: pos,
+          content: content,
+          yAnchor: 1
+        });
+
+        ov.setMap(mapObj.current);
+        stationDetailOverlay.current = ov;
+      })
+      .catch(err => {
+        console.error("상세 데이터 로드 실패:", err.message);
+        setActiveStation(null);
+      });
+
+  }, [activeStation, ready, stations]);
+
+  // ── useEffect 8: 교차로 마커 클릭 이벤트 ───────────────────────────────────
   // CustomOverlay는 카카오맵 이벤트 시스템 밖의 일반 DOM이라
   // kakao.maps.event.addListener로 클릭을 잡을 수 없음.
   // → mapRef div에 직접 click 리스너 등록 후
@@ -304,6 +443,19 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
             cursor: "pointer", fontFamily: "inherit", backdropFilter: "blur(4px)",
           }}>
           📹 CCTV {cctvList.length > 0 ? `${cctvList.length}개` : ""}
+        </button>
+
+        {/* 교통량 지점 토글 버튼 */}
+        <button
+          onClick={() => setShowTraffic(v => !v)}
+          style={{
+            background: showTraffic ? "rgba(78,166,255,0.15)" : "rgba(18,14,10,0.88)",
+            border: `1px solid ${showTraffic ? "rgba(78,166,255,0.5)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: 4, padding: "4px 12px", fontSize: 12,
+            color: showTraffic ? "#4ea6ff" : "#aab4c8",
+            cursor: "pointer", backdropFilter: "blur(4px)",
+          }}>
+          교통량 지점 {stations.length}개
         </button>
       </div>
 

@@ -1,12 +1,12 @@
 package com.example.demo.service;
 
+import com.example.demo.model.TrafficContext;
 import com.example.demo.model.DirectionSignal;
 import com.example.demo.model.SignalDirection;
 import com.example.demo.model.TrafficStatus;
 import com.example.demo.model.context.WeatherSnapshot;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,49 +25,23 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ChatService {
 
-    // WebClient는 Bean으로 주입받아 재사용 (커넥션 풀링, 설정 일관성)
-    // AI API 호출용 WebClient
-    // WebClient는 스프링에서 제공하는 비동기 HTTP 클라이언트로, REST API 호출에 최적화되어 있음.
-    //3곳에서 같은 WebClient 빈을 주입
-
-    //V2xApiService	V2X 공공API 호출
-    //ChatService	Grok AI API 호출
-    //CrossroadDataInitService	교차로 초기 적재 API 호출
     private final WebClient webClient;
-
-    // JSON 처리용 ObjectMapper (필요 시 커스터마이징 가능)
-    //Java 객체 ↔ JSON 변환해주는 도구
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Value("${grok.api.key}")
-    private String apiKey;
+    @Value("${agent.api.url:http://localhost:8000}")
+    private String agentUrl;
 
-    @Value("${grok.api.url:https://api.groq.com/openai/v1/chat/completions}")
-    private String apiUrl;
-
-    @Value("${grok.api.model:llama-3.3-70b-versatile}")
-    private String model;
-
-    // 대시보드와 같은 TrafficStatus를 AI 프롬프트로 바꿔 답변을 요청한다.
-    public String ask(TrafficStatus status, String question) {
+    // 자유 챗봇 — 지도 페이지 (교차로 선택 여부 무관)
+    public String ask(TrafficContext ctx, String question) {
         try {
             ObjectNode body = objectMapper.createObjectNode();
-            body.put("model", model);
-            body.put("max_tokens", 300);
-
-            ArrayNode messages = body.putArray("messages");
-
-            ObjectNode sysMsg = messages.addObject();
-            sysMsg.put("role", "system");
-            sysMsg.put("content", buildSystemPrompt());
-
-            ObjectNode userMsg = messages.addObject();
-            userMsg.put("role", "user");
-            userMsg.put("content", buildUserPrompt(status, question));
+            body.put("question", question);
+            if (ctx != null && ctx.getCrsrdId() != null) {
+                body.put("crsrdId", ctx.getCrsrdId());
+            }
 
             String response = webClient.post()
-                    .uri(apiUrl)
-                    .header("Authorization", "Bearer " + apiKey)
+                    .uri(agentUrl + "/api/agent/chat")
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body)
                     .retrieve()
@@ -75,60 +49,38 @@ public class ChatService {
                     .block();
 
             JsonNode root = objectMapper.readTree(response);
-            return root.path("choices").path(0).path("message").path("content").asText("응답 없음");
+            return root.path("answer").asText("응답 없음");
 
         } catch (WebClientResponseException e) {
-            log.error("AI API 오류 {} - 응답: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            log.error("에이전트 오류 {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
             return "AI 분석 실패 (" + e.getStatusCode() + ")";
         } catch (Exception e) {
-            log.error("AI API 호출 실패: {}", e.getMessage());
+            log.error("에이전트 호출 실패: {}", e.getMessage());
             return "AI 분석 중 오류가 발생했습니다.";
         }
     }
 
-    private String buildSystemPrompt() {
-        return "당신은 서울 실시간 교통 관제 AI 어시스턴트입니다.\n"
-             + "규칙:\n"
-             + "1. 반드시 순수한 한국어로만 답하세요. 한자, 중국어, 일본어, 베트남어 등 다른 언어 문자를 절대 사용하지 마세요.\n"
-             + "2. 3문장 이내로 간결하게 답하세요.\n"
-             + "3. 선택된 교차로 데이터가 있으면 그것을 기반으로 답하고, 없으면 일반적인 교통 지식으로 답하세요.\n"
-             + "4. 교차로 ID 숫자는 절대 출력하지 마세요. 교차로 이름만 사용하세요.\n"
-             + "5. 교통과 무관한 질문(날씨, 요리 등)은 '교통 관련 질문을 해주세요'라고 답하세요.\n"
-             + "6. 영어 단어도 가능하면 한국어로 바꿔서 답하세요.";
-    }
+    // 구 단위 리포트 — 메인 대시보드
+    public String districtReport(String districtName) {
+        try {
+            ObjectNode body = objectMapper.createObjectNode();
+            body.put("district", districtName);
 
+            String response = webClient.post()
+                    .uri(agentUrl + "/api/agent/district-report")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
 
-    // TrafficStatus를 사람이 읽을 수 있는 요약으로 바꿔 AI에 넘긴다.
-    // 여기서 쓰는 속도/위험도는 프론트 더미가 아니라 백엔드에 합쳐진 실제 API 캐시 값이다.
-    private String buildUserPrompt(TrafficStatus status, String question) {
-        if (status == null) {
-            return "[현재 선택된 교차로 데이터]\n"
-                    + "교차로 데이터 없음\n"
-                    + "[질문]\n"
-                    + question;
+            JsonNode root = objectMapper.readTree(response);
+            return root.path("report").asText("리포트 생성 실패");
+
+        } catch (Exception e) {
+            log.error("구 리포트 생성 실패: {}", e.getMessage());
+            return "리포트 생성 중 오류가 발생했습니다.";
         }
-
-        String signals = buildSignalSummary(status.getSignals());
-
-        return String.format(
-                "[현재 선택된 교차로 데이터]\n"
-                + "교차로명: %s\n"
-                + "현재 속도: %s\n"
-                + "혼잡 상태: %s\n"
-                + "평균 대기시간: %s\n"
-                + "도로 위험도: %s\n"
-                + "날씨: %s\n"
-                + "신호 현황:\n%s\n"
-                + "[질문]\n%s",
-                status.getCrsrdNm(),
-                formatSpeed(status),
-                valueOrWaiting(status.getCongestion()),
-                status.getAvgWaitSec() == null ? "수집 대기" : status.getAvgWaitSec() + "초",
-                formatRisk(status),
-                formatWeather(status.getWeather()),
-                signals,
-                question
-        );
     }
 
     private String buildSignalSummary(Map<String, SignalDirection> signals) {

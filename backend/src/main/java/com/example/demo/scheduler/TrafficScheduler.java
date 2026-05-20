@@ -51,7 +51,7 @@ public class TrafficScheduler {
     }
 
     // 5초 후 첫 실행, 이후 ${traffic.poll.interval-ms}마다 실행 (예: 10000ms = 10초)
-    @Scheduled(initialDelay = 5000, fixedRateString = "${traffic.poll.interval-ms}")
+    @Scheduled(initialDelay = 100000, fixedRateString = "${traffic.poll.interval-ms}")
     public void pollTrafficData() {
         if (cacheService.isAreaRefreshInProgress()) {
             log.info("구역 수집 중이라 정기 폴링을 건너뜀");
