@@ -201,7 +201,7 @@ public class CrossroadSupplementalMappingService {
     }
 
     private boolean isLegacyWideRiskLineString(String lineString) {
-        return RoadRiskApiService.lineStringCoordinateCount(lineString) > 3
+        return RoadRiskApiService.lineStringCoordinateCount(lineString) != 2
                 || RoadRiskApiService.estimateLineStringLengthMeters(lineString) > 120.0;
     }
 }

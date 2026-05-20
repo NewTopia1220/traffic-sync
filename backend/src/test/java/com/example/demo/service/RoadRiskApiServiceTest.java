@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 
@@ -58,8 +59,22 @@ class RoadRiskApiServiceTest {
                 new GeoPoint(37.0000, 127.0020)
         ), new GeoPoint(37.0000, 127.0010), 60.0);
 
-        assertThat(RoadRiskApiService.lineStringCoordinateCount(lineString)).isEqualTo(3);
+        assertThat(RoadRiskApiService.lineStringCoordinateCount(lineString)).isEqualTo(2);
         assertThat(RoadRiskApiService.estimateLineStringLengthMeters(lineString)).isLessThan(70.0);
-        assertThat(lineString).contains("127.0010000 37.0000000");
+        assertThat(lineString).doesNotContain("127.0010000 37.0000000");
+    }
+
+    @Test
+    void encodesSearchLineStringQueryParamWithoutDoubleEncodingServiceKey() {
+        ReflectionTestUtils.setField(service, "roadRiskUrl", "http://example.com/risk");
+        ReflectionTestUtils.setField(service, "serviceKey", "abc%2Fdef");
+        ReflectionTestUtils.setField(service, "vehicleTypeCode", "01");
+        ReflectionTestUtils.setField(service, "numOfRows", 10);
+
+        URI uri = service.buildRiskUri("LineString(126.9877428 37.5718466,126.9878281 37.5723454)");
+
+        assertThat(uri.toString()).contains("ServiceKey=abc%2Fdef");
+        assertThat(uri.toString()).contains("searchLineString=LineString(126.9877428%2037.5718466,126.9878281%2037.5723454)");
+        assertThat(uri.toString()).doesNotContain("126.9877428 37.5718466");
     }
 }

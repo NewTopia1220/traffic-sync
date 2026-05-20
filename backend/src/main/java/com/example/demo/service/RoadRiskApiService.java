@@ -10,8 +10,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
@@ -60,15 +62,7 @@ public class RoadRiskApiService {
             return Optional.empty();
         }
 
-        URI uri = UriComponentsBuilder.fromHttpUrl(roadRiskUrl)
-                .queryParam("ServiceKey", serviceKey)
-                .queryParam("searchLineString", mapping.getLineString())
-                .queryParam("vhctyCd", vehicleTypeCode)
-                .queryParam("type", "json")
-                .queryParam("numOfRows", numOfRows)
-                .queryParam("pageNo", 1)
-                .build(false)
-                .toUri();
+        URI uri = buildRiskUri(mapping.getLineString());
 
         String response = webClient.get()
                 .uri(uri)
@@ -77,6 +71,19 @@ public class RoadRiskApiService {
                 .timeout(Duration.ofSeconds(requestTimeoutSeconds))
                 .block();
         return parseRiskResponse(response, mapping.getLineString());
+    }
+
+    URI buildRiskUri(String lineString) {
+        String encodedLineString = UriUtils.encodeQueryParam(lineString, StandardCharsets.UTF_8);
+        return UriComponentsBuilder.fromHttpUrl(roadRiskUrl)
+                .queryParam("ServiceKey", serviceKey)
+                .queryParam("searchLineString", encodedLineString)
+                .queryParam("vhctyCd", vehicleTypeCode)
+                .queryParam("type", "json")
+                .queryParam("numOfRows", numOfRows)
+                .queryParam("pageNo", 1)
+                .build(true)
+                .toUri();
     }
 
     Optional<RoadRiskSnapshot> parseRiskResponse(String response, String lineString) throws Exception {
@@ -128,9 +135,8 @@ public class RoadRiskApiService {
 
         double halfLength = Math.max(10.0, lengthMeters) / 2.0;
         GeoPoint start = interpolateAtDistance(vertices, Math.max(0.0, closest.alongMeters() - halfLength));
-        GeoPoint center = interpolateAtDistance(vertices, closest.alongMeters());
         GeoPoint end = interpolateAtDistance(vertices, Math.min(closest.totalMeters(), closest.alongMeters() + halfLength));
-        return buildLineString(List.of(start, center, end));
+        return buildLineString(List.of(start, end));
     }
 
     static double estimateLineStringLengthMeters(String lineString) {
