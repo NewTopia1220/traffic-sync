@@ -10,8 +10,14 @@ function toCoord(val) {
   return n / 1e7;
 }
 
-// 차량 GLB (로컬 public 폴더)
-const CAR_GLB_URL = "/car.glb";
+// OSM 도로 링크가 실패할 때 쓰는 최소 fallback 방향
+const SIM_DIRECTIONS = [
+  { heading: 0, start: [0, -0.0022], end: [0, 0.0022], lane: [0.000055, 0] },
+  { heading: 180, start: [0, 0.0022], end: [0, -0.0022], lane: [-0.000055, 0] },
+  { heading: 90, start: [-0.0022, 0], end: [0.0022, 0], lane: [0, -0.000055] },
+  { heading: 270, start: [0.0022, 0], end: [-0.0022, 0], lane: [0, 0.000055] },
+];
+const CARS_PER_DIRECTION = 6;
 
 // 교차로별 도로 경로 좌표 (방향별 진입/진출 waypoints)
 // 형식: { intNo: { "남→북": [[lon,lat], ...], "북→남": [...], ... } }
@@ -23,6 +29,11 @@ export default function SimulationMapView({ selected, onSelect, phaseIdx }) {
   const viewerRef      = useRef(null);
   const entityMapRef   = useRef({});
   const carEntitiesRef = useRef([]);
+  const simCarsRef     = useRef([]);
+  const animationRef   = useRef(null);
+  const lastTickRef    = useRef(null);
+  const phaseIdxRef    = useRef(phaseIdx);
+  const roadRouteCacheRef = useRef({});
   const [crossroads,   setCrossroads]  = useState([]);
   const [cesiumReady,  setCesiumReady] = useState(false);
   const [status,       setStatus]      = useState("VWorld 3D 지도 로딩 중...");
@@ -112,6 +123,10 @@ export default function SimulationMapView({ selected, onSelect, phaseIdx }) {
     setStatus(null);
 
     return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
       if (viewerRef.current && !viewerRef.current.isDestroyed()) {
         viewerRef.current.destroy();
         viewerRef.current = null;
@@ -157,7 +172,7 @@ export default function SimulationMapView({ selected, onSelect, phaseIdx }) {
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         } : undefined,
-        properties: { intNo: cr.intNo, intNm: cr.intNm },
+        properties: { intNo: cr.intNo, intNm: cr.intNm, xCoord: cr.xCoord, yCoord: cr.yCoord },
       });
 
       entityMapRef.current[cr.intNo] = entity;
@@ -171,7 +186,9 @@ export default function SimulationMapView({ selected, onSelect, phaseIdx }) {
         if (picked?.id?.properties) {
           const intNo = picked.id.properties.intNo?.getValue();
           const intNm = picked.id.properties.intNm?.getValue();
-          if (intNo) onSelect({ intNo, intNm });
+          const xCoord = picked.id.properties.xCoord?.getValue();
+          const yCoord = picked.id.properties.yCoord?.getValue();
+          if (intNo) onSelect({ intNo, intNm, xCoord, yCoord });
         }
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
       viewer._simClickHandler = handler;
@@ -202,114 +219,359 @@ export default function SimulationMapView({ selected, onSelect, phaseIdx }) {
 
   // 신호 현시 바뀌면 차량 상태 업데이트
   useEffect(() => {
+    phaseIdxRef.current = phaseIdx;
     if (!viewerRef.current || !selected) return;
     updateCarMovement(phaseIdx);
   }, [phaseIdx]);
 
   // 차량 생성 함수
-  function spawnCars(crossroad, currentPhaseIdx) {
+  async function spawnCars(crossroad, currentPhaseIdx) {
     if (!viewerRef.current) return;
     const Cesium = window.Cesium;
     const viewer = viewerRef.current;
 
-    // 기존 차량 제거
     carEntitiesRef.current.forEach(e => viewer.entities.remove(e));
     carEntitiesRef.current = [];
+    simCarsRef.current = [];
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    lastTickRef.current = null;
 
     const lon = toCoord(crossroad.xCoord);
     const lat = toCoord(crossroad.yCoord);
     if (!lon || !lat) return;
 
-    const waypoints = ROAD_WAYPOINTS[crossroad.intNo];
+    const routes = await buildRoadLikeRoutes(crossroad, lon, lat);
 
-    if (waypoints) {
-      // 좌표가 등록된 교차로: 실제 도로 위에 차량 배치
-      Object.entries(waypoints).forEach(([dir, points], dirIdx) => {
-        for (let i = 0; i < 3; i++) {
-          const startPt = points[i % points.length];
-          const car = viewer.entities.add({
-            position: Cesium.Cartesian3.fromDegrees(startPt[0], startPt[1], 2),
-            model: {
-              uri: CAR_GLB_URL,
-              minimumPixelSize: 24,
-              maximumScale: 8,
-              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            },
-            properties: { dirIdx, moving: false, points, ptIdx: i % points.length },
-          });
-          carEntitiesRef.current.push(car);
-        }
-      });
-    } else {
-      // 좌표 미등록: 교차로 주변 4방향에 임시 차량 배치
-      const offsets = [
-        { dx: 0,      dy: 0.001  },
-        { dx: 0,      dy: -0.001 },
-        { dx: 0.001,  dy: 0      },
-        { dx: -0.001, dy: 0      },
-      ];
-      offsets.forEach((off, dirIdx) => {
-        for (let i = 0; i < 2; i++) {
-          const carLon = lon + off.dx * (1 + i * 0.3);
-          const carLat = lat + off.dy * (1 + i * 0.3);
-          const car = viewer.entities.add({
-            position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 2),
-            model: {
-              uri: CAR_GLB_URL,
-              minimumPixelSize: 20,
-              maximumScale: 6,
-              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            },
-            properties: {
-              dirIdx,
-              moving: false,
-              baseLon: lon + off.dx,
-              baseLat: lat + off.dy,
-              dx: off.dx,
-              dy: off.dy,
-            },
-          });
-          carEntitiesRef.current.push(car);
-        }
-      });
-    }
+    routes.forEach((route, routeIdx) => {
+      for (let i = 0; i < 4; i++) {
+        const state = {
+          routeIdx,
+          groupIdx: route.groupIdx,
+          queueIdx: i,
+          progress: -0.06 - i * 0.16,
+          speed: 0.12 + (i % 2) * 0.018,
+          route,
+          entity: null,
+        };
+        const [carLon, carLat] = pointOnRoute(route, state.progress, i);
+        const position = Cesium.Cartesian3.fromDegrees(carLon, carLat, 3);
+        const car = viewer.entities.add({
+          position,
+          billboard: {
+            image: createCarCanvas(route.heading, routeIdx),
+            width: 34,
+            height: 20,
+            verticalOrigin: Cesium.VerticalOrigin.CENTER,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          properties: { routeIdx, queueIdx: i },
+        });
+        state.entity = car;
+        carEntitiesRef.current.push(car);
+        simCarsRef.current.push(state);
+      }
+    });
+
+    phaseIdxRef.current = currentPhaseIdx;
+    tickCars();
   }
 
   // 신호 현시 기반 차량 이동 업데이트
   function updateCarMovement(currentPhaseIdx) {
-    if (!viewerRef.current || carEntitiesRef.current.length === 0) return;
+    phaseIdxRef.current = currentPhaseIdx;
+  }
+
+  function tickCars(timestamp = performance.now()) {
+    if (!viewerRef.current || simCarsRef.current.length === 0) return;
     const Cesium = window.Cesium;
-    const viewer = viewerRef.current;
+    const dt = lastTickRef.current ? Math.min((timestamp - lastTickRef.current) / 1000, 0.08) : 0.016;
+    lastTickRef.current = timestamp;
 
-    carEntitiesRef.current.forEach((car, i) => {
-      const props = car.properties;
-      const dirIdx = props.dirIdx?.getValue() ?? i % 4;
-      const isGreen = currentPhaseIdx != null && dirIdx + 1 === currentPhaseIdx;
+    simCarsRef.current.forEach(car => {
+      const greenGroup = phaseIdxRef.current != null ? (phaseIdxRef.current - 1) % 2 : 0;
+      const green = car.groupIdx === greenGroup;
+      const stopAt = Math.max(0.08, car.route.stopProgress - car.queueIdx * 0.055);
+      const canRollToQueue = car.progress < stopAt;
+      const speed = green ? car.speed : canRollToQueue ? car.speed * 0.3 : 0;
 
-      if (isGreen) {
-        // 초록불: 교차로 방향으로 이동
-        const points = props.points?.getValue();
-        if (points && points.length > 1) {
-          const ptIdx = (props.ptIdx?.getValue() ?? 0) + 1;
-          const nextPt = points[ptIdx % points.length];
-          car.position = Cesium.Cartesian3.fromDegrees(nextPt[0], nextPt[1], 2);
-        } else {
-          // 임시 차량: 교차로 중심 방향으로 이동
-          const baseLon = props.baseLon?.getValue();
-          const baseLat = props.baseLat?.getValue();
-          const dx = props.dx?.getValue() ?? 0;
-          const dy = props.dy?.getValue() ?? 0;
-          if (baseLon != null) {
-            car.position = Cesium.Cartesian3.fromDegrees(
-              baseLon - dx * 0.5,
-              baseLat - dy * 0.5,
-              2
-            );
-          }
-        }
-      }
-      // 빨간불: 현재 위치 유지 (정지)
+      car.progress += speed * dt;
+      if (!green && car.progress > stopAt) car.progress = stopAt;
+      if (car.progress > 1.08) car.progress = -0.08 - car.queueIdx * 0.12;
+
+      const [carLon, carLat] = pointOnRoute(car.route, car.progress, car.queueIdx);
+      car.entity.position = Cesium.Cartesian3.fromDegrees(carLon, carLat, 3);
+      car.entity.billboard.scale = green ? 1.12 : 0.96;
     });
+
+    viewerRef.current.scene.requestRender();
+    animationRef.current = requestAnimationFrame(tickCars);
+  }
+
+  async function buildRoadLikeRoutes(crossroad, lon, lat) {
+    const manual = ROAD_WAYPOINTS[crossroad.intNo];
+    if (manual) {
+      return Object.values(manual).flatMap((points, idx) => ([
+        makeRoute(points, idx % 2, idx, lon, lat),
+        makeRoute([...points].reverse(), idx % 2, idx + 1, lon, lat),
+      ]));
+    }
+
+    const cacheKey = crossroad.intNo;
+    if (roadRouteCacheRef.current[cacheKey]) return roadRouteCacheRef.current[cacheKey];
+
+    try {
+      const osmRoutes = await fetchOsmRoadRoutes(lon, lat);
+      if (osmRoutes.length > 0) {
+        roadRouteCacheRef.current[cacheKey] = osmRoutes;
+        return osmRoutes;
+      }
+    } catch (err) {
+      console.warn('OSM road route load failed, using fallback routes:', err);
+    }
+
+    const fallbackRoutes = buildCrossroadFallbackRoutes(crossroad, lon, lat);
+    roadRouteCacheRef.current[cacheKey] = fallbackRoutes;
+    return fallbackRoutes;
+  }
+
+  async function fetchOsmRoadRoutes(lon, lat) {
+    const radiusDeg = 0.0045;
+    const bbox = [lat - radiusDeg, lon - radiusDeg, lat + radiusDeg, lon + radiusDeg].join(',');
+    const query = [
+      '[out:json][timeout:8];',
+      'way["highway"]["highway"!~"footway|path|cycleway|steps|pedestrian|service|track|corridor"](' + bbox + ');',
+      '(._;>;);',
+      'out body;'
+    ].join('\n');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: query,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!response.ok) throw new Error('Overpass ' + response.status);
+
+    const data = await response.json();
+    const nodes = new Map();
+    data.elements?.forEach(el => {
+      if (el.type === 'node') nodes.set(el.id, [el.lon, el.lat]);
+    });
+
+    const candidates = (data.elements || [])
+      .filter(el => el.type === 'way' && el.nodes?.length >= 2)
+      .map(way => {
+        const points = way.nodes.map(id => nodes.get(id)).filter(Boolean);
+        if (points.length < 2) return null;
+        const nearest = nearestProgressOnPolyline(points, lon, lat);
+        const length = polylineLengthMeters(points, lat);
+        const heading = bearingDeg(points[0][0], points[0][1], points[points.length - 1][0], points[points.length - 1][1]);
+        return { way, points, nearest, length, heading };
+      })
+      .filter(Boolean)
+      .filter(item => item.length > 90 && item.nearest.distanceMeters < 55)
+      .sort((a, b) => a.nearest.distanceMeters - b.nearest.distanceMeters);
+
+    const selected = [];
+    candidates.forEach(candidate => {
+      if (selected.length >= 2) return;
+      const distinct = selected.every(prev => headingDifference(prev.heading, candidate.heading) > 35);
+      if (distinct) selected.push(candidate);
+    });
+    if (selected.length === 0 && candidates[0]) selected.push(candidates[0]);
+
+    return selected.flatMap((item, idx) => {
+      const clipped = clipRouteAroundProgress(item.points, item.nearest.progress, 260, lat);
+      return [
+        makeRoute(clipped, idx % 2, idx * 2, lon, lat),
+        makeRoute([...clipped].reverse(), idx % 2, idx * 2 + 1, lon, lat),
+      ];
+    });
+  }
+
+  function buildCrossroadFallbackRoutes(crossroad, lon, lat) {
+    const nearby = crossroads
+      .filter(cr => cr.intNo !== crossroad.intNo)
+      .map(cr => ({ ...cr, lon: toCoord(cr.xCoord), lat: toCoord(cr.yCoord) }))
+      .filter(cr => cr.lon && cr.lat)
+      .map(cr => ({
+        ...cr,
+        dist: Math.hypot(cr.lon - lon, cr.lat - lat),
+        angle: Math.atan2(cr.lat - lat, cr.lon - lon),
+      }))
+      .filter(cr => cr.dist > 0.00008 && cr.dist < 0.012)
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 18);
+
+    const pairs = [];
+    for (let i = 0; i < nearby.length; i++) {
+      for (let j = i + 1; j < nearby.length; j++) {
+        const angleDiff = Math.abs(Math.atan2(
+          Math.sin(nearby[i].angle - nearby[j].angle),
+          Math.cos(nearby[i].angle - nearby[j].angle)
+        ));
+        const oppositeScore = Math.abs(Math.PI - angleDiff);
+        pairs.push({ a: nearby[i], b: nearby[j], score: oppositeScore + (nearby[i].dist + nearby[j].dist) * 80 });
+      }
+    }
+
+    const selectedPairs = pairs.sort((a, b) => a.score - b.score).slice(0, 2);
+    if (selectedPairs.length > 0) {
+      return selectedPairs.flatMap((pair, idx) => {
+        const forward = [[pair.a.lon, pair.a.lat], [lon, lat], [pair.b.lon, pair.b.lat]];
+        return [makeRoute(forward, idx, idx * 2, lon, lat), makeRoute([...forward].reverse(), idx, idx * 2 + 1, lon, lat)];
+      });
+    }
+
+    return SIM_DIRECTIONS.map((dir, idx) => makeRoute([
+      [lon + dir.start[0], lat + dir.start[1]],
+      [lon, lat],
+      [lon + dir.end[0], lat + dir.end[1]],
+    ], idx % 2, idx, lon, lat));
+  }
+
+  //순/역방향 상관없이 진행 방향 기준 우측 통행으로 통일
+  function makeRoute(points, groupIdx, routeIdx, centerLon, centerLat) {
+    const nearest = nearestProgressOnPolyline(points, centerLon, centerLat);
+    const first = points[0];
+    const last = points[points.length - 1];
+    return {
+      points,
+      groupIdx,
+      stopProgress: Math.max(0.18, Math.min(0.82, nearest.progress)),
+      heading: bearingDeg(first[0], first[1], last[0], last[1]),
+      laneSign: 1, // 무조건 진행 방향의 우측 차선으로 배치하도록 1로 고정: 상행/하행
+      originLat: centerLat,
+    };
+  }
+
+  function pointOnRoute(route, progress, queueIdx) {
+    const points = route.points;
+    const p = Math.max(0, Math.min(1, progress));
+    const segCount = Math.max(points.length - 1, 1);
+    const raw = p * segCount;
+    const segIdx = Math.min(Math.floor(raw), segCount - 1);
+    const local = raw - segIdx;
+    const a = points[segIdx];
+    const b = points[segIdx + 1];
+    const lon = a[0] + (b[0] - a[0]) * local;
+    const lat = a[1] + (b[1] - a[1]) * local;
+
+    const [ax, ay] = lonLatToMeters(a[0], a[1], route.originLat);
+    const [bx, by] = lonLatToMeters(b[0], b[1], route.originLat);
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy) || 1;
+    const laneMeters = (8 + (queueIdx % 2) * 2.2) * route.laneSign;
+    const offsetX = (-dy / len) * laneMeters;
+    const offsetY = (dx / len) * laneMeters;
+    const [x, y] = lonLatToMeters(lon, lat, route.originLat);
+    return metersToLonLat(x + offsetX, y + offsetY, route.originLat);
+  }
+
+  function nearestProgressOnPolyline(points, lon, lat) {
+    const originLat = lat;
+    const [px, py] = lonLatToMeters(lon, lat, originLat);
+    let total = 0;
+    const segLengths = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const [ax, ay] = lonLatToMeters(points[i][0], points[i][1], originLat);
+      const [bx, by] = lonLatToMeters(points[i + 1][0], points[i + 1][1], originLat);
+      const len = Math.hypot(bx - ax, by - ay);
+      segLengths.push(len);
+      total += len;
+    }
+
+    let best = { distanceMeters: Infinity, progress: 0 };
+    let before = 0;
+    for (let i = 0; i < points.length - 1; i++) {
+      const [ax, ay] = lonLatToMeters(points[i][0], points[i][1], originLat);
+      const [bx, by] = lonLatToMeters(points[i + 1][0], points[i + 1][1], originLat);
+      const dx = bx - ax;
+      const dy = by - ay;
+      const lenSq = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+      const qx = ax + dx * t;
+      const qy = ay + dy * t;
+      const distanceMeters = Math.hypot(px - qx, py - qy);
+      const progress = total > 0 ? (before + segLengths[i] * t) / total : 0;
+      if (distanceMeters < best.distanceMeters) best = { distanceMeters, progress };
+      before += segLengths[i];
+    }
+    return best;
+  }
+
+  function clipRouteAroundProgress(points, progress, metersEachSide, originLat) {
+    const total = polylineLengthMeters(points, originLat);
+    if (total <= metersEachSide * 2) return points;
+    const center = total * progress;
+    const start = Math.max(0, center - metersEachSide);
+    const end = Math.min(total, center + metersEachSide);
+    return samplePolylineBetween(points, start, end, originLat);
+  }
+
+  function samplePolylineBetween(points, startMeters, endMeters, originLat) {
+    const samples = [];
+    let traveled = 0;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      const len = distanceMeters(a, b, originLat);
+      const segStart = traveled;
+      const segEnd = traveled + len;
+      if (segEnd >= startMeters && segStart <= endMeters) {
+        const t0 = Math.max(0, (startMeters - segStart) / len);
+        const t1 = Math.min(1, (endMeters - segStart) / len);
+        if (samples.length === 0) samples.push(interpolateLonLat(a, b, t0));
+        samples.push(interpolateLonLat(a, b, t1));
+      }
+      traveled = segEnd;
+    }
+    return samples.length >= 2 ? samples : points;
+  }
+
+  function polylineLengthMeters(points, originLat) {
+    let total = 0;
+    for (let i = 0; i < points.length - 1; i++) total += distanceMeters(points[i], points[i + 1], originLat);
+    return total;
+  }
+
+  function distanceMeters(a, b, originLat) {
+    const [ax, ay] = lonLatToMeters(a[0], a[1], originLat);
+    const [bx, by] = lonLatToMeters(b[0], b[1], originLat);
+    return Math.hypot(bx - ax, by - ay);
+  }
+
+  function interpolateLonLat(a, b, t) {
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  }
+
+  function lonLatToMeters(lon, lat, originLat) {
+    const metersPerDegLat = 111320;
+    const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180);
+    return [lon * metersPerDegLon, lat * metersPerDegLat];
+  }
+
+  function metersToLonLat(x, y, originLat) {
+    const metersPerDegLat = 111320;
+    const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180);
+    return [x / metersPerDegLon, y / metersPerDegLat];
+  }
+
+  function headingDifference(a, b) {
+    const diff = Math.abs(((a - b + 540) % 360) - 180);
+    return Math.min(diff, 180 - diff);
+  }
+
+  function bearingDeg(lon1, lat1, lon2, lat2) {
+    const rad = Math.atan2(lon2 - lon1, lat2 - lat1);
+    return (rad * 180 / Math.PI + 360) % 360;
   }
 
   function toggleGlobe() {
@@ -387,4 +649,58 @@ function createMarkerCanvas(color, radius) {
   ctx.lineWidth = 2;
   ctx.stroke();
   return canvas.toDataURL();
+}
+
+function createCarCanvas(heading, dirIdx) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 68;
+  canvas.height = 40;
+  const ctx = canvas.getContext("2d");
+  const colors = ["#22c55e", "#f59e0b", "#38bdf8", "#f43f5e"];
+
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(((heading - 90) * Math.PI) / 180);
+  ctx.shadowColor = "rgba(0,0,0,0.65)";
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 2;
+
+  ctx.fillStyle = colors[dirIdx % colors.length];
+  roundRect(ctx, -23, -10, 46, 20, 6);
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(255,255,255,0.82)";
+  roundRect(ctx, -8, -7, 14, 14, 4);
+  ctx.fill();
+
+  ctx.fillStyle = "#0f172a";
+  ctx.beginPath();
+  ctx.arc(-15, -10, 4, 0, Math.PI * 2);
+  ctx.arc(15, -10, 4, 0, Math.PI * 2);
+  ctx.arc(-15, 10, 4, 0, Math.PI * 2);
+  ctx.arc(15, 10, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(26, 0);
+  ctx.lineTo(17, -6);
+  ctx.lineTo(17, 6);
+  ctx.closePath();
+  ctx.fill();
+
+  return canvas.toDataURL();
+}
+
+function roundRect(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
 }
