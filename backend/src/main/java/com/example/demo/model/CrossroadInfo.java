@@ -9,4 +9,5 @@ CrossroadInfo {
     private String crsrdNm;
     private double lat;
     private double lon;
+    private String guName;
 }

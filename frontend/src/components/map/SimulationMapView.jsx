@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 const VWORLD_KEY = import.meta.env.VITE_VWORLD_API_KEY || "";
 
 // 좌표 변환: 1270647846 → 127.0647846

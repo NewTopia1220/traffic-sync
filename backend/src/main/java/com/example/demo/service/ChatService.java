@@ -1,6 +1,5 @@
 package com.example.demo.service;
 
-import com.example.demo.model.TrafficContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -24,12 +23,12 @@ public class ChatService {
     private String agentUrl;
 
     // 자유 챗봇 — 지도 페이지 (교차로 선택 여부 무관)
-    public String ask(TrafficContext ctx, String question) {
+    public String ask(String crsrdId, String question) {
         try {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("question", question);
-            if (ctx != null && ctx.getCrsrdId() != null) {
-                body.put("crsrdId", ctx.getCrsrdId());
+            if (crsrdId != null && !crsrdId.isBlank()) {
+                body.put("crsrdId", crsrdId);
             }
 
             String response = webClient.post()
