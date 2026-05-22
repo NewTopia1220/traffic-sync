@@ -41,9 +41,22 @@ async def list_tools() -> list[Tool]:
     return [
         # ── 도구 1: 특정 교차로 상세 조회 ───────────────────────────────────────
         Tool(
-            name="get_traffic_data",            # LLM이 호출할 때 쓰는 이름
-            description="특정 교차로의 실시간 교통 데이터(신호 상태, 속도, 날씨, 위험도)를 조회합니다.",
-            # description이 중요: LLM이 이 설명을 읽고 "이 상황엔 이 도구를 써야겠다" 판단함
+            name="get_traffic_data",
+            description=(
+                "특정 교차로의 실시간 교통 데이터를 조회합니다.\n"
+                "반환 구조:\n"
+                "- signals: 방향별 신호 맵. 키=nt(북직진)/et(동직진)/st(남직진)/wt(서직진)/ne/se/sw/nw(대각).\n"
+                "  각 방향 안에 stsg(직진)·ltsg(좌회전)·pdsg(보행) 신호가 있으며,\n"
+                "  status='stop-And-Remain'이면 적색, 'protected-Movement-Allowed'이면 녹색.\n"
+                "  rmndCs=잔여시간(1/10초 단위, 초 변환 시 ÷10).\n"
+                "- speedKph: 실측 구간 속도(km/h). null이면 미수집.\n"
+                "- congestion: 원활/서행/혼잡/알 수 없음.\n"
+                "- avgWaitSec: 전방향 평균 대기시간(초). 단순 요약용 — 신호 최적화 분석 시에는 "
+                "이 값 대신 반드시 방향별 stsg.status와 stsg.rmndCs를 직접 비교해 "
+                "적색 잔여시간이 긴 방향을 파악하고 신호 조정을 권고해야 합니다.\n"
+                "- riskIndex/riskGrade: 도로 위험 지수·등급.\n"
+                "- weather: 기온(temperatureC)·강수량(precipitationMm)·습도·풍속."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -207,20 +220,37 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
         r = await client.get(f"{SPRING_BASE}/api/signals")  # 전체 캐시 조회
         signals = r.json()                      # List[TrafficStatus]
         if isinstance(signals, list):
-            # 속도 추출 헬퍼 함수 (speed 필드가 dict일 수도 있어서 안전하게 꺼냄)
             def spd(x):
-                sp = x.get("speed", {})
-                # speed가 {"current": 35} 형태이면 current 꺼내고, 아니면 999 (데이터 없음)
-                return sp.get("current", 999) if isinstance(sp, dict) else 999
+                v = x.get("speedKph")           # TrafficStatus.speedKph (flat double)
+                return v if isinstance(v, (int, float)) and v > 0 else None
 
-            # 속도 0 이하는 데이터 없는 교차로 → 제외하고 속도 낮은 순 정렬
-            valid = [s for s in signals if spd(s) > 0]
-            valid.sort(key=spd)                 # 속도 낮은 순 (가장 막히는 곳이 앞)
-            # 상위 10개만 이름+속도 요약해서 반환 (전체 데이터 넘기면 LLM 컨텍스트 폭발)
-            top10 = [{"name": s.get("crsrdNm",""), "speed_kmh": spd(s)} for s in valid[:10]]
+            valid = [s for s in signals if spd(s) is not None]
+            valid.sort(key=spd)
+            top10 = [
+                {
+                    "name": s.get("crsrdNm", ""),
+                    "speed_kmh": spd(s),
+                    "risk_grade": s.get("riskGrade"),    # 위험도 등급 (예: "위험", "보통", "안전")
+                    "risk_index": s.get("riskIndex"),    # 위험 지수 (수치)
+                    "congestion": s.get("congestion"),
+                }
+                for s in valid[:10]
+            ]
+            risk_summary = {}
+            for s in (signals if isinstance(signals, list) else []):
+                grade = s.get("riskGrade") or "미수집"
+                risk_summary[grade] = risk_summary.get(grade, 0) + 1
         else:
             top10 = []
-        return {"top10_bottlenecks": top10, "total_count": len(signals) if isinstance(signals, list) else 0}
+            risk_summary = {}
+        # 날씨는 전역 스냅샷 — 어느 교차로든 동일하므로 첫 항목에서 꺼냄
+        weather = signals[0].get("weather") if isinstance(signals, list) and signals else None
+        return {
+            "top10_bottlenecks": top10,
+            "total_count": len(signals) if isinstance(signals, list) else 0,
+            "risk_summary": risk_summary,
+            "weather": weather,
+        }
 
     # ── search_crossroad_by_name ────────────────────────────────────────────────
     elif name == "search_crossroad_by_name":
@@ -242,32 +272,46 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
         district = args["district_name"]        # 예: "강남구"
         r = await client.get(f"{SPRING_BASE}/api/signals")
         signals = r.json() if r.status_code == 200 else []
-        # 교차로 이름에 구 이름이 포함된 것만 필터 (예: "강남역사거리"에 "강남" 포함)
-        # "구" 글자를 제거하는 이유: "강남구"→"강남"으로 검색해야 교차로 이름과 매칭됨
+        # guName 필드로 정확히 필터 (교차로 이름에 구 이름이 들어있지 않을 수 있음)
         district_signals = [
             s for s in (signals if isinstance(signals, list) else [])
-            if district.replace("구", "") in s.get("crsrdNm", "")
+            if s.get("guName") == district
         ]
 
-        # 속도 추출 헬퍼 (speed 필드 구조가 다를 수 있어서 안전하게)
+        # 속도 추출 헬퍼: TrafficStatus.speedKph (flat double)
         def speed_of(s):
-            sp = s.get("speed", {})
-            return sp.get("current", 0) if isinstance(sp, dict) else 0
+            v = s.get("speedKph")
+            return v if isinstance(v, (int, float)) and v > 0 else 0
 
-        # 속도 > 0인 것만 평균 계산 (0은 데이터 없음)
         speeds = [speed_of(s) for s in district_signals if speed_of(s) > 0]
         avg_speed = round(sum(speeds) / len(speeds), 1) if speeds else 0
 
-        # 속도 낮은 순 정렬 → 상위 3개가 가장 막히는 교차로
         sorted_by_speed = sorted(district_signals, key=speed_of)
-        top3 = [{"name": s.get("crsrdNm", ""), "speed_kmh": speed_of(s)} for s in sorted_by_speed[:3]]
+        top3 = [
+            {
+                "name": s.get("crsrdNm", ""),
+                "speed_kmh": speed_of(s),
+                "risk_grade": s.get("riskGrade"),
+                "risk_index": s.get("riskIndex"),
+                "congestion": s.get("congestion"),
+            }
+            for s in sorted_by_speed[:3]
+        ]
 
-        # 전체 raw 데이터 대신 요약만 반환 → LLM 컨텍스트 절약
+        # 위험도 등급별 교차로 수 집계
+        risk_summary = {}
+        for s in district_signals:
+            grade = s.get("riskGrade") or "미수집"
+            risk_summary[grade] = risk_summary.get(grade, 0) + 1
+
+        weather = district_signals[0].get("weather") if district_signals else None
         return {
             "district": district,
             "total_crossroads": len(district_signals),
             "avg_speed_kmh": avg_speed,
             "top3_congested": top3,
+            "risk_summary": risk_summary,
+            "weather": weather,
         }
 
     # ── set_signal_timing ───────────────────────────────────────────────────────
