@@ -17,11 +17,15 @@ export default function BottleneckList({ bottlenecks, selected, onSelect, crossr
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: congColor(cr.congestion), flexShrink: 0 }} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#e7ecf5" }}>{cr.crsrdNm}</div>
-                <div style={{ fontSize: 11, color: "#7a7a7a", marginTop: 1 }}>위험도 {cr.riskScore}점</div>
+                <div style={{ fontSize: 11, color: "#7a7a7a", marginTop: 1 }}>
+                  {Number.isFinite(cr.riskScore) ? `위험도 ${cr.riskScore}점` : "위험도 수집 대기"}
+                </div>
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: congColor(cr.congestion), fontFamily: "monospace" }}>{cr.speed}km/h</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: congColor(cr.congestion), fontFamily: "monospace" }}>
+                {Number.isFinite(cr.speed) ? `${cr.speed}km/h` : "수집 대기"}
+              </div>
               <div style={{ fontSize: 11, color: "#7a7a7a" }}>{cr.congestion}</div>
             </div>
           </div>

@@ -8,3 +8,6 @@ src/main/resources/application-secret.properties
 
 # Oracle Wallet (보안 파일 - 절대 커밋 금지)
 src/main/resources/wallet/
+
+# Temporary Office lock files created while the workbook is open.
+src/main/resources/data/~$*.xlsx
