@@ -18,11 +18,8 @@ db_config = {
      "user": "ADMIN",
      "password": "Heeyoun1220!",
      "dsn": "koreapoint_medium",
-<<<<<<< HEAD
      "wallet_location": "C:/Final!!!!!!!/traffic-sync/backend/src/main/resources/wallet"
-=======
-     "wallet_location": "/Users/parkheeyoun/traffic-sync-git/backend/src/main/resources/wallet"
->>>>>>> develop
+
 }
 
 # 3. 모델 입력 컬럼 순서 (학습 시와 동일해야 함)
