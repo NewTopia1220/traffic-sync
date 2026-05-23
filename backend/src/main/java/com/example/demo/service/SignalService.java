@@ -108,6 +108,7 @@ public class SignalService {
         result.put("intNo", crossroad.getIntNo());
         result.put("intNm", crossroad.getIntNm());
         result.put("cycleVal", cycleVal);
+        result.put("planStartSec", planStartSec);
         result.put("currentPhaseNo", currentPhaseNo);
 
         List<Map<String, Object>> phaseList = new ArrayList<>();
@@ -200,6 +201,10 @@ public class SignalService {
     private List<String> buildDirStrings(String aCode, String bCode) {
         if (aCode == null && bCode == null) return List.of("전적색");
 
+        boolean aIsPed = aCode != null && !aCode.isBlank() && aCode.charAt(0) == 'P';
+        boolean bIsPed = bCode != null && !bCode.isBlank() && bCode.charAt(0) == 'P';
+        if (aIsPed || bIsPed) return List.of("보행");
+
         String[] a = parseDirParts(aCode);  // ["직진","남동","북서"]
         String[] b = parseDirParts(bCode);  // ["직진","북서","남동"]
 
@@ -213,13 +218,19 @@ public class SignalService {
 
         List<String> result = new ArrayList<>();
         if (a != null) result.add(a[1] + "→" + a[2] + " " + a[0]);
-        if (b != null) result.add(b[1] + "→" + b[2] + " " + b[0]);
+        if (b != null) {
+            String bStr = b[1] + "→" + b[2] + " " + b[0];
+            if (!result.contains(bStr)) result.add(bStr);
+        }
+        if (result.isEmpty()) return List.of("전적색");
         return result;
     }
 
     // 코드 파싱 → [type, from, to] 배열 반환 (null이면 null)
     private String[] parseDirParts(String code) {
-        if (code == null || code.length() < 7) return null;
+        if (code == null || code.isBlank()) return null;
+        if (code.charAt(0) == 'P') return new String[]{"보행", "", ""};  // 보행자 코드
+        if (code.length() < 7) return null;
         return new String[]{
             parseSignalType(code.charAt(0)),
             angleToCompass(code.substring(1, 4)),

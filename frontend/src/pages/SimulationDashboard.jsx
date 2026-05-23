@@ -146,7 +146,7 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
 }
 
 // ── 시뮬레이션 슬라이더 패널 ───────────────────────────────────────────────────
-function SimSliderPanel({ intNo, intNm, onSave, onCycleVal, onAutoAsk }) {
+function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
   const [phases,    setPhases]    = useState([]);
   const [cycleVal,  setCycleVal]  = useState(null);
   const [sliders,   setSliders]   = useState({});
@@ -160,13 +160,7 @@ function SimSliderPanel({ intNo, intNm, onSave, onCycleVal, onAutoAsk }) {
     setLoading(true);
     fetch(`${API_BASE}/api/signal/simulation/context/${intNo}`)
       .then(r => r.json())
-      .then(d => {
-        setPhases(d.phases || []);
-        const cv = d.cycleVal ?? null;
-        setCycleVal(cv);
-        onCycleVal?.(cv);
-        setLoading(false);
-      })
+      .then(d => { setPhases(d.phases || []); setCycleVal(d.cycleVal ?? null); setLoading(false); })
       .catch(() => setLoading(false));
   }, [intNo]);
 
@@ -264,23 +258,11 @@ function SimSliderPanel({ intNo, intNm, onSave, onCycleVal, onAutoAsk }) {
 
 // ── 메인 대시보드 ─────────────────────────────────────────────────────────────
 export default function SimulationDashboard({ onGoMain, onGoMap }) {
-  const [selected,       setSelected]       = useState(null);
-  const [time,           setTime]           = useState(new Date());
-  const [phaseIdx,       setPhaseIdx]       = useState(null);
-  const [simPhases,      setSimPhases]      = useState(null);
-  const [serverCycleVal, setServerCycleVal] = useState(null);
-  const [autoTrigger,    setAutoTrigger]    = useState(null);
-  // ↓ 누락되어 있던 state 선언
-  const [aiOptResult,    setAiOptResult]    = useState(null);
-
-  // isAfterMode: AI 최적화 결과가 있을 때 After 모드
-  const isAfterMode = !!aiOptResult && aiOptResult.status === "optimized";
-
-  // handleSelect: 교차로 선택 시 AI 결과 초기화
-  const handleSelect = (cr) => {
-    setSelected(cr);
-    setAiOptResult(null);
-  };
+  const [selected,    setSelected]    = useState(null);
+  const [time,        setTime]        = useState(new Date());
+  const [phaseIdx,    setPhaseIdx]    = useState(null);
+  const [simPhases,   setSimPhases]   = useState(null);
+  const [autoTrigger, setAutoTrigger] = useState(null);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -289,7 +271,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
 
   useEffect(() => {
     setSimPhases(null);
-    setServerCycleVal(null);
   }, [selected?.intNo]);
 
   return (
@@ -355,8 +336,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
                 intNo={selected.intNo}
                 intNm={selected.intNm}
                 onPhaseChange={setPhaseIdx}
-                serverCycleVal={serverCycleVal}
-                onOptimized={setAiOptResult}
               />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 160, gap: 12, color: "#475569" }}>
@@ -375,7 +354,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
                 intNo={selected.intNo}
                 intNm={selected.intNm}
                 onSave={setSimPhases}
-                onCycleVal={setServerCycleVal}
                 onAutoAsk={setAutoTrigger}
               />
             </div>
