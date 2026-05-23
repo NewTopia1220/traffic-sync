@@ -51,9 +51,17 @@ async def list_tools() -> list[Tool]:
                 "  rmndCs=잔여시간(1/10초 단위, 초 변환 시 ÷10).\n"
                 "- speedKph: 실측 구간 속도(km/h). null이면 미수집.\n"
                 "- congestion: 원활/서행/혼잡/알 수 없음.\n"
-                "- avgWaitSec: 전방향 평균 대기시간(초). 단순 요약용 — 신호 최적화 분석 시에는 "
-                "이 값 대신 반드시 방향별 stsg.status와 stsg.rmndCs를 직접 비교해 "
-                "적색 잔여시간이 긴 방향을 파악하고 신호 조정을 권고해야 합니다.\n"
+                "- avgWaitSec: 전방향 평균 대기시간(초). 단순 요약용.\n"
+                "★ 신호 최적화 판단 규칙 (반드시 준수):\n"
+                "  rmndCs는 현재 상태의 잔여시간(스냅샷)이며 사이클 전체 시간이 아님.\n"
+                "  [적색(stop-And-Remain) + rmndCs 높음] → 이 방향은 오래 기다려야 함 "
+                "→ 이 방향의 적색을 단축(= set_signal_timing delay 음수)하거나 "
+                "대향 방향 녹색을 단축해 순서를 앞당기도록 권고.\n"
+                "  [녹색(protected-Movement-Allowed) + rmndCs 낮음] → 곧 적색 전환 "
+                "→ 혼잡하면 녹색 연장(delay 양수) 고려.\n"
+                "  set_signal_timing의 delay는 녹색 지속시간 조정값(양수=연장, 음수=단축)임.\n"
+                "  단, rmndCs는 스냅샷이라 전체 사이클 길이를 알 수 없으므로 "
+                "Webster 공식 적용 시 이 한계를 명시하고 권고 근거를 보수적으로 서술할 것.\n"
                 "- riskIndex/riskGrade: 도로 위험 지수·등급.\n"
                 "- weather: 기온(temperatureC)·강수량(precipitationMm)·습도·풍속."
             ),
@@ -159,7 +167,38 @@ async def list_tools() -> list[Tool]:
             }
         ),
 
-        # ── 도구 8: 프로젝트 문서 RAG 검색 ──────────────────────────────────────
+        # ── 도구 8: 시뮬레이션 페이지 신호계획 조회 ─────────────────────────────
+        Tool(
+            name="get_simulation_context",
+            description=(
+                "시뮬레이션 페이지에서 교차로를 클릭했을 때 신호계획 데이터를 조회합니다.\n"
+                "반환 구조:\n"
+                "- cycleVal: 전체 사이클(초). 이 값이 한 바퀴 도는 총 시간.\n"
+                "- currentPhaseNo: 지금 켜져 있는 현시 번호 (1-based).\n"
+                "- elapsed: 현재 사이클에서 경과한 시간(초).\n"
+                "- phases[]: 현시 목록. 각 항목:\n"
+                "  - phaseNo: 현시 번호\n"
+                "  - seconds: 이 현시의 녹색 지속시간(초)\n"
+                "  - isActive: 현재 이 현시가 켜져 있는지 여부\n"
+                "  - directions[]: 이 현시에서 통행 허용 방향 목록\n"
+                "    - ring: A 또는 B (동시에 켜지는 쌍)\n"
+                "    - type: 직진/좌회전/보행/유턴/버스\n"
+                "    - from: 출발 방위 (북/동/남/서/북동/남동/남서/북서)\n"
+                "    - to: 도착 방위\n"
+                "★ 신호 최적화 판단 규칙:\n"
+                "  isActive=true 현시가 현재 켜진 방향. seconds가 작을수록 해당 방향 대기 시간이 짧아짐.\n"
+                "  혼잡한 방향의 현시 seconds를 늘리거나, 비어있는 방향 seconds를 줄이도록 권고."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "int_no": {"type": "string", "description": "신호 교차로 ID (예: 2904). 시뮬레이션 페이지에서 클릭한 교차로."}
+                },
+                "required": ["int_no"]
+            }
+        ),
+
+        # ── 도구 9: 프로젝트 문서 RAG 검색 ──────────────────────────────────────
         Tool(
             name="search_project_docs",
             description=(
@@ -333,6 +372,14 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
         # flush=True: 버퍼 즉시 출력 (stdout이 stdio transport로 쓰이므로 버퍼 비워야 함)
         print(f"[ALERT] {message}", flush=True)
         return {"success": True, "message": message, "channel": "console"}
+
+    # ── get_simulation_context ──────────────────────────────────────────────────
+    elif name == "get_simulation_context":
+        int_no = args["int_no"]
+        r = await client.get(f"{SPRING_BASE}/api/signal/simulation/context/{int_no}")
+        if r.status_code == 404:
+            return {"error": f"교차로 intNo {int_no} 신호계획을 찾을 수 없습니다."}
+        return r.json()
 
     # ── search_project_docs ─────────────────────────────────────────────────────
     elif name == "search_project_docs":

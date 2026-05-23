@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Slf4j
-// WebSocket 연결 관리 및 신호 데이터 브로드캐스트 핸들러
+// WebSocket 연결 관리 및 신호 데이터 브로드캐스트 핸들
 //빈으로 등록함
 @Component
 public class TrafficWebSocketHandler extends TextWebSocketHandler {

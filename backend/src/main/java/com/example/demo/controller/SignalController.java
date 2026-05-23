@@ -29,4 +29,12 @@ public class SignalController {
         if (data.containsKey("error")) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(data);
     }
+
+    // 시뮬레이션 페이지 AI 챗봇용 — 현재 시각 기준 활성 현시 + 방향 파싱 포함
+    @GetMapping("/simulation/context/{intNo}")
+    public ResponseEntity<Map<String, Object>> getSimulationContext(@PathVariable String intNo) {
+        Map<String, Object> data = signalService.getSimulationContext(intNo);
+        if (data.containsKey("error")) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(data);
+    }
 }
