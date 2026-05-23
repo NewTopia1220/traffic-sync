@@ -5,6 +5,7 @@ import com.example.demo.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
@@ -66,6 +67,200 @@ public class SignalService {
         result.put("plans", planList);
 
         return result;
+    }
+
+    public Map<String, Object> getSimulationContext(String intNo) {
+        SignalCrossroadEntity crossroad = crossroadRepo.findById(intNo).orElse(null);
+        if (crossroad == null) return Map.of("error", "교차로 없음: " + intNo);
+
+        LocalDateTime now = LocalDateTime.now();
+        int nowSec = now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond();
+
+        List<SignalPlanEntity> allPlans = planRepo.findByIdIntNo(intNo);
+        if (allPlans.isEmpty()) return Map.of("error", "신호계획 없음: " + intNo);
+
+        SignalPlanEntity activePlan = selectActivePlan(allPlans, now.getHour(), now.getMinute());
+
+        List<SignalPhaseEntity> phases = phaseRepo.findByIdIntNo(intNo);
+        SignalPhaseEntity phase = phases.isEmpty() ? null : phases.get(0);
+
+        List<Integer> planSeconds = getPlanARingSeconds(activePlan);
+        boolean hasValidPlan = planSeconds.stream().anyMatch(s -> s != null && s > 0);
+        if (!hasValidPlan) {
+            return Map.of(
+                "intNo", crossroad.getIntNo(),
+                "intNm", crossroad.getIntNm(),
+                "warning", "신호계획 데이터가 비어 있습니다 (aRing 모두 null). DB에 유효한 계획이 없는 교차로입니다.",
+                "phases", Collections.emptyList()
+            );
+        }
+
+        List<String> phaseACodes = phase != null ? getPhaseACodes(phase) : Collections.emptyList();
+        List<String> phaseBCodes = phase != null ? getPhaseBCodes(phase) : Collections.emptyList();
+
+        int planStartSec = parseOperTimeSec(activePlan.getOperPlanHh(), activePlan.getOperPlanMi());
+        int cycleVal = (activePlan.getCycleVal() != null && activePlan.getCycleVal() > 0)
+                       ? activePlan.getCycleVal() : 120;
+        int elapsed = ((nowSec - planStartSec) % cycleVal + cycleVal) % cycleVal;
+        int currentPhaseNo = calcPhaseNo(planSeconds, elapsed);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("intNo", crossroad.getIntNo());
+        result.put("intNm", crossroad.getIntNm());
+        result.put("cycleVal", cycleVal);
+        result.put("currentPhaseNo", currentPhaseNo);
+
+        List<Map<String, Object>> phaseList = new ArrayList<>();
+        for (int i = 0; i < planSeconds.size(); i++) {
+            Integer sec = planSeconds.get(i);
+            if (sec == null || sec == 0) break;
+
+            String aCode = i < phaseACodes.size() ? phaseACodes.get(i) : null;
+            String bCode = i < phaseBCodes.size() ? phaseBCodes.get(i) : null;
+            List<String> dirs = buildDirStrings(aCode, bCode);
+
+            Map<String, Object> p = new LinkedHashMap<>();
+            p.put("no", i + 1);
+            p.put("sec", sec);
+            p.put("dirs", dirs);
+            phaseList.add(p);
+        }
+        result.put("phases", phaseList);
+        return result;
+    }
+
+    private SignalPlanEntity selectActivePlan(List<SignalPlanEntity> plans, int hour, int minute) {
+        int nowMin = hour * 60 + minute;
+        // cycleVal > 0 이고 aRing 값이 하나라도 있는 행만 후보로
+        List<SignalPlanEntity> valid = plans.stream()
+            .filter(p -> p.getOperPlanHh() != null && p.getOperPlanMi() != null)
+            .filter(p -> p.getCycleVal() != null && p.getCycleVal() > 0)
+            .filter(p -> getPlanARingSeconds(p).stream().anyMatch(s -> s != null && s > 0))
+            .toList();
+
+        if (valid.isEmpty()) return plans.get(0); // 유효한 행 없으면 첫 행 반환 (hasValidPlan 체크로 걸러짐)
+
+        SignalPlanEntity best = null;
+        int bestMin = -1;
+        for (SignalPlanEntity p : valid) {
+            try {
+                int planMin = Integer.parseInt(p.getOperPlanHh()) * 60
+                            + Integer.parseInt(p.getOperPlanMi());
+                if (planMin <= nowMin && planMin > bestMin) {
+                    bestMin = planMin;
+                    best = p;
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+        if (best == null) {
+            // 현재 시각보다 이른 플랜 없으면 가장 마지막 플랜 사용 (자정 이후 첫 운행)
+            best = valid.stream()
+                .max(Comparator.comparingInt(p -> {
+                    try { return Integer.parseInt(p.getOperPlanHh()) * 60 + Integer.parseInt(p.getOperPlanMi()); }
+                    catch (NumberFormatException e) { return -1; }
+                }))
+                .orElse(valid.get(0));
+        }
+        return best;
+    }
+
+    private List<Integer> getPlanARingSeconds(SignalPlanEntity p) {
+        return Arrays.asList(p.getARing1(), p.getARing2(), p.getARing3(), p.getARing4(),
+                             p.getARing5(), p.getARing6(), p.getARing7(), p.getARing8());
+    }
+
+    private List<String> getPhaseACodes(SignalPhaseEntity p) {
+        return Arrays.asList(p.getARing1(), p.getARing2(), p.getARing3(), p.getARing4(),
+                             p.getARing5(), p.getARing6(), p.getARing7(), p.getARing8());
+    }
+
+    private List<String> getPhaseBCodes(SignalPhaseEntity p) {
+        return Arrays.asList(p.getBRing1(), p.getBRing2(), p.getBRing3(), p.getBRing4(),
+                             p.getBRing5(), p.getBRing6(), p.getBRing7(), p.getBRing8());
+    }
+
+    private int parseOperTimeSec(String hh, String mi) {
+        try { return Integer.parseInt(hh) * 3600 + Integer.parseInt(mi) * 60; }
+        catch (NumberFormatException e) { return 0; }
+    }
+
+    private int calcPhaseNo(List<Integer> seconds, int elapsed) {
+        int acc = 0;
+        for (int i = 0; i < seconds.size(); i++) {
+            Integer sec = seconds.get(i);
+            if (sec == null || sec == 0) break;
+            acc += sec;
+            if (elapsed < acc) return i + 1;
+        }
+        return 1;
+    }
+
+    // A링 + B링 코드를 압축 문자열 리스트로 변환
+    // 양방향 대칭이면 "남동↔북서 직진" 한 줄, 아니면 각각 두 줄
+    private List<String> buildDirStrings(String aCode, String bCode) {
+        if (aCode == null && bCode == null) return List.of("전적색");
+
+        String[] a = parseDirParts(aCode);  // ["직진","남동","북서"]
+        String[] b = parseDirParts(bCode);  // ["직진","북서","남동"]
+
+        // 둘 다 같은 타입이고 from/to가 서로 반대면 ↔ 로 합침
+        if (a != null && b != null
+                && a[0].equals(b[0])       // 같은 신호 타입 (직진/좌회전)
+                && a[1].equals(b[2])       // A의 from == B의 to
+                && a[2].equals(b[1])) {    // A의 to   == B의 from
+            return List.of(a[1] + "↔" + a[2] + " " + a[0]);
+        }
+
+        List<String> result = new ArrayList<>();
+        if (a != null) result.add(a[1] + "→" + a[2] + " " + a[0]);
+        if (b != null) result.add(b[1] + "→" + b[2] + " " + b[0]);
+        return result;
+    }
+
+    // 코드 파싱 → [type, from, to] 배열 반환 (null이면 null)
+    private String[] parseDirParts(String code) {
+        if (code == null || code.length() < 7) return null;
+        return new String[]{
+            parseSignalType(code.charAt(0)),
+            angleToCompass(code.substring(1, 4)),
+            angleToCompass(code.substring(4, 7))
+        };
+    }
+
+    private Map<String, Object> parseDirectionCode(String ring, String code) {
+        Map<String, Object> d = new LinkedHashMap<>();
+        d.put("ring", ring);
+        d.put("code", code);
+        if (code == null || code.length() < 7) return d;
+        d.put("type", parseSignalType(code.charAt(0)));
+        d.put("from", angleToCompass(code.substring(1, 4)));
+        d.put("to",   angleToCompass(code.substring(4, 7)));
+        return d;
+    }
+
+    private String parseSignalType(char c) {
+        return switch (c) {
+            case 'S' -> "직진";
+            case 'L' -> "좌회전";
+            case 'P' -> "보행";
+            case 'U' -> "유턴";
+            case 'B' -> "버스";
+            default  -> String.valueOf(c);
+        };
+    }
+
+    private String angleToCompass(String angleStr) {
+        try {
+            int a = Integer.parseInt(angleStr);
+            if (a < 23 || a >= 338) return "북";
+            if (a < 68)  return "북동";
+            if (a < 113) return "동";
+            if (a < 158) return "남동";
+            if (a < 203) return "남";
+            if (a < 248) return "남서";
+            if (a < 293) return "서";
+            return "북서";
+        } catch (NumberFormatException e) { return angleStr; }
     }
 
     public List<Map<String, Object>> getAllCrossroads() {

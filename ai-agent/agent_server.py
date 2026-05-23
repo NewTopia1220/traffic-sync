@@ -77,6 +77,11 @@ class ChatRequest(BaseModel):
     question: str
     crsrdId: str | None = None   # 선택된 교차로 ID (없으면 에이전트가 검색)
 
+class SimulationChatRequest(BaseModel):
+    question: str
+    context: dict | None = None       # Spring이 조립한 신호계획 컨텍스트
+    simulation: list | None = None    # 관제사 조정값 [{ no, sec, dirs }]
+
 class DistrictRequest(BaseModel):
     district: str                # 예: "강남구"
 
@@ -142,6 +147,36 @@ async def free_chat(req: ChatRequest):
             f"필요하면 MCP 도구로 데이터를 조회해서 답해줘.\n"
             f"질문: {req.question}"
         )
+
+    result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
+    return ChatResponse(answer=extract_answer(result))
+
+
+@app.post("/api/agent/simulation-chat", response_model=ChatResponse)
+async def simulation_chat(req: SimulationChatRequest):
+    """시뮬레이션 페이지 챗봇 — Spring이 조립한 컨텍스트를 프롬프트에 직접 삽입"""
+    import json
+
+    ctx_block = ""
+    if req.context:
+        ctx_block = f"\n\n[신호계획 컨텍스트]\n{json.dumps(req.context, ensure_ascii=False, indent=2)}"
+
+    sim_block = ""
+    if req.simulation:
+        sim_block = (
+            f"\n\n[관제사 조정값]\n"
+            f"{json.dumps(req.simulation, ensure_ascii=False, indent=2)}\n"
+            f"위 조정값은 관제사가 슬라이더로 변경한 현시별 초(sec)야. "
+            f"원래 신호계획과 비교해서 어떤 현시가 얼마나 바뀌었는지도 분석해줘."
+        )
+
+    prompt = (
+        f"/no_think\n"
+        f"서울 신호 시뮬레이션 시스템이야. 반드시 한국어로 간결하게 답해줘."
+        f"{ctx_block}"
+        f"{sim_block}\n\n"
+        f"질문: {req.question}"
+    )
 
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
     return ChatResponse(answer=extract_answer(result))
