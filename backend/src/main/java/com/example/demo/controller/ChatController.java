@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -36,6 +37,20 @@ public class ChatController {
             return ResponseEntity.badRequest().build();
         }
         String answer = chatService.ask(crsrdId, question);
+        return ResponseEntity.ok(Map.of("answer", answer));
+    }
+
+    // 시뮬레이션 페이지 챗봇 — 관제사 조정값 포함 AI 분석
+    @PostMapping("/simulation-chat")
+    public ResponseEntity<Map<String, String>> simulationChat(@RequestBody Map<String, Object> body) {
+        String intNo = (String) body.get("intNo");
+        String question = (String) body.get("question");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> simulation = (List<Map<String, Object>>) body.get("simulation");
+        if (question == null || question.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        String answer = chatService.simulationChat(intNo, question, simulation);
         return ResponseEntity.ok(Map.of("answer", answer));
     }
 }
