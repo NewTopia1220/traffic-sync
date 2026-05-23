@@ -119,6 +119,10 @@ public class SignalService {
             String aCode = i < phaseACodes.size() ? phaseACodes.get(i) : null;
             String bCode = i < phaseBCodes.size() ? phaseBCodes.get(i) : null;
             List<String> dirs = buildDirStrings(aCode, bCode);
+            // 방향코드 없는데 시간이 긴 경우 → clearance(전적색)가 아닌 미확인 현시
+            if (dirs.equals(List.of("전적색")) && sec > 6) {
+                dirs = List.of("미확인");
+            }
 
             Map<String, Object> p = new LinkedHashMap<>();
             p.put("no", i + 1);
