@@ -41,9 +41,30 @@ async def list_tools() -> list[Tool]:
     return [
         # ── 도구 1: 특정 교차로 상세 조회 ───────────────────────────────────────
         Tool(
-            name="get_traffic_data",            # LLM이 호출할 때 쓰는 이름
-            description="특정 교차로의 실시간 교통 데이터(신호 상태, 속도, 날씨, 위험도)를 조회합니다.",
-            # description이 중요: LLM이 이 설명을 읽고 "이 상황엔 이 도구를 써야겠다" 판단함
+            name="get_traffic_data",
+            description=(
+                "특정 교차로의 실시간 교통 데이터를 조회합니다.\n"
+                "반환 구조:\n"
+                "- signals: 방향별 신호 맵. 키=nt(북직진)/et(동직진)/st(남직진)/wt(서직진)/ne/se/sw/nw(대각).\n"
+                "  각 방향 안에 stsg(직진)·ltsg(좌회전)·pdsg(보행) 신호가 있으며,\n"
+                "  status='stop-And-Remain'이면 적색, 'protected-Movement-Allowed'이면 녹색.\n"
+                "  rmndCs=잔여시간(1/10초 단위, 초 변환 시 ÷10).\n"
+                "- speedKph: 실측 구간 속도(km/h). null이면 미수집.\n"
+                "- congestion: 원활/서행/혼잡/알 수 없음.\n"
+                "- avgWaitSec: 전방향 평균 대기시간(초). 단순 요약용.\n"
+                "★ 신호 최적화 판단 규칙 (반드시 준수):\n"
+                "  rmndCs는 현재 상태의 잔여시간(스냅샷)이며 사이클 전체 시간이 아님.\n"
+                "  [적색(stop-And-Remain) + rmndCs 높음] → 이 방향은 오래 기다려야 함 "
+                "→ 이 방향의 적색을 단축(= set_signal_timing delay 음수)하거나 "
+                "대향 방향 녹색을 단축해 순서를 앞당기도록 권고.\n"
+                "  [녹색(protected-Movement-Allowed) + rmndCs 낮음] → 곧 적색 전환 "
+                "→ 혼잡하면 녹색 연장(delay 양수) 고려.\n"
+                "  set_signal_timing의 delay는 녹색 지속시간 조정값(양수=연장, 음수=단축)임.\n"
+                "  단, rmndCs는 스냅샷이라 전체 사이클 길이를 알 수 없으므로 "
+                "Webster 공식 적용 시 이 한계를 명시하고 권고 근거를 보수적으로 서술할 것.\n"
+                "- riskIndex/riskGrade: 도로 위험 지수·등급.\n"
+                "- weather: 기온(temperatureC)·강수량(precipitationMm)·습도·풍속."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -146,7 +167,38 @@ async def list_tools() -> list[Tool]:
             }
         ),
 
-        # ── 도구 8: 프로젝트 문서 RAG 검색 ──────────────────────────────────────
+        # ── 도구 8: 시뮬레이션 페이지 신호계획 조회 ─────────────────────────────
+        Tool(
+            name="get_simulation_context",
+            description=(
+                "시뮬레이션 페이지에서 교차로를 클릭했을 때 신호계획 데이터를 조회합니다.\n"
+                "반환 구조:\n"
+                "- cycleVal: 전체 사이클(초). 이 값이 한 바퀴 도는 총 시간.\n"
+                "- currentPhaseNo: 지금 켜져 있는 현시 번호 (1-based).\n"
+                "- elapsed: 현재 사이클에서 경과한 시간(초).\n"
+                "- phases[]: 현시 목록. 각 항목:\n"
+                "  - phaseNo: 현시 번호\n"
+                "  - seconds: 이 현시의 녹색 지속시간(초)\n"
+                "  - isActive: 현재 이 현시가 켜져 있는지 여부\n"
+                "  - directions[]: 이 현시에서 통행 허용 방향 목록\n"
+                "    - ring: A 또는 B (동시에 켜지는 쌍)\n"
+                "    - type: 직진/좌회전/보행/유턴/버스\n"
+                "    - from: 출발 방위 (북/동/남/서/북동/남동/남서/북서)\n"
+                "    - to: 도착 방위\n"
+                "★ 신호 최적화 판단 규칙:\n"
+                "  isActive=true 현시가 현재 켜진 방향. seconds가 작을수록 해당 방향 대기 시간이 짧아짐.\n"
+                "  혼잡한 방향의 현시 seconds를 늘리거나, 비어있는 방향 seconds를 줄이도록 권고."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "int_no": {"type": "string", "description": "신호 교차로 ID (예: 2904). 시뮬레이션 페이지에서 클릭한 교차로."}
+                },
+                "required": ["int_no"]
+            }
+        ),
+
+        # ── 도구 9: 프로젝트 문서 RAG 검색 ──────────────────────────────────────
         Tool(
             name="search_project_docs",
             description=(
@@ -207,20 +259,37 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
         r = await client.get(f"{SPRING_BASE}/api/signals")  # 전체 캐시 조회
         signals = r.json()                      # List[TrafficStatus]
         if isinstance(signals, list):
-            # 속도 추출 헬퍼 함수 (speed 필드가 dict일 수도 있어서 안전하게 꺼냄)
             def spd(x):
-                sp = x.get("speed", {})
-                # speed가 {"current": 35} 형태이면 current 꺼내고, 아니면 999 (데이터 없음)
-                return sp.get("current", 999) if isinstance(sp, dict) else 999
+                v = x.get("speedKph")           # TrafficStatus.speedKph (flat double)
+                return v if isinstance(v, (int, float)) and v > 0 else None
 
-            # 속도 0 이하는 데이터 없는 교차로 → 제외하고 속도 낮은 순 정렬
-            valid = [s for s in signals if spd(s) > 0]
-            valid.sort(key=spd)                 # 속도 낮은 순 (가장 막히는 곳이 앞)
-            # 상위 10개만 이름+속도 요약해서 반환 (전체 데이터 넘기면 LLM 컨텍스트 폭발)
-            top10 = [{"name": s.get("crsrdNm",""), "speed_kmh": spd(s)} for s in valid[:10]]
+            valid = [s for s in signals if spd(s) is not None]
+            valid.sort(key=spd)
+            top10 = [
+                {
+                    "name": s.get("crsrdNm", ""),
+                    "speed_kmh": spd(s),
+                    "risk_grade": s.get("riskGrade"),    # 위험도 등급 (예: "위험", "보통", "안전")
+                    "risk_index": s.get("riskIndex"),    # 위험 지수 (수치)
+                    "congestion": s.get("congestion"),
+                }
+                for s in valid[:10]
+            ]
+            risk_summary = {}
+            for s in (signals if isinstance(signals, list) else []):
+                grade = s.get("riskGrade") or "미수집"
+                risk_summary[grade] = risk_summary.get(grade, 0) + 1
         else:
             top10 = []
-        return {"top10_bottlenecks": top10, "total_count": len(signals) if isinstance(signals, list) else 0}
+            risk_summary = {}
+        # 날씨는 전역 스냅샷 — 어느 교차로든 동일하므로 첫 항목에서 꺼냄
+        weather = signals[0].get("weather") if isinstance(signals, list) and signals else None
+        return {
+            "top10_bottlenecks": top10,
+            "total_count": len(signals) if isinstance(signals, list) else 0,
+            "risk_summary": risk_summary,
+            "weather": weather,
+        }
 
     # ── search_crossroad_by_name ────────────────────────────────────────────────
     elif name == "search_crossroad_by_name":
@@ -242,32 +311,46 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
         district = args["district_name"]        # 예: "강남구"
         r = await client.get(f"{SPRING_BASE}/api/signals")
         signals = r.json() if r.status_code == 200 else []
-        # 교차로 이름에 구 이름이 포함된 것만 필터 (예: "강남역사거리"에 "강남" 포함)
-        # "구" 글자를 제거하는 이유: "강남구"→"강남"으로 검색해야 교차로 이름과 매칭됨
+        # guName 필드로 정확히 필터 (교차로 이름에 구 이름이 들어있지 않을 수 있음)
         district_signals = [
             s for s in (signals if isinstance(signals, list) else [])
-            if district.replace("구", "") in s.get("crsrdNm", "")
+            if s.get("guName") == district
         ]
 
-        # 속도 추출 헬퍼 (speed 필드 구조가 다를 수 있어서 안전하게)
+        # 속도 추출 헬퍼: TrafficStatus.speedKph (flat double)
         def speed_of(s):
-            sp = s.get("speed", {})
-            return sp.get("current", 0) if isinstance(sp, dict) else 0
+            v = s.get("speedKph")
+            return v if isinstance(v, (int, float)) and v > 0 else 0
 
-        # 속도 > 0인 것만 평균 계산 (0은 데이터 없음)
         speeds = [speed_of(s) for s in district_signals if speed_of(s) > 0]
         avg_speed = round(sum(speeds) / len(speeds), 1) if speeds else 0
 
-        # 속도 낮은 순 정렬 → 상위 3개가 가장 막히는 교차로
         sorted_by_speed = sorted(district_signals, key=speed_of)
-        top3 = [{"name": s.get("crsrdNm", ""), "speed_kmh": speed_of(s)} for s in sorted_by_speed[:3]]
+        top3 = [
+            {
+                "name": s.get("crsrdNm", ""),
+                "speed_kmh": speed_of(s),
+                "risk_grade": s.get("riskGrade"),
+                "risk_index": s.get("riskIndex"),
+                "congestion": s.get("congestion"),
+            }
+            for s in sorted_by_speed[:3]
+        ]
 
-        # 전체 raw 데이터 대신 요약만 반환 → LLM 컨텍스트 절약
+        # 위험도 등급별 교차로 수 집계
+        risk_summary = {}
+        for s in district_signals:
+            grade = s.get("riskGrade") or "미수집"
+            risk_summary[grade] = risk_summary.get(grade, 0) + 1
+
+        weather = district_signals[0].get("weather") if district_signals else None
         return {
             "district": district,
             "total_crossroads": len(district_signals),
             "avg_speed_kmh": avg_speed,
             "top3_congested": top3,
+            "risk_summary": risk_summary,
+            "weather": weather,
         }
 
     # ── set_signal_timing ───────────────────────────────────────────────────────
@@ -289,6 +372,14 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
         # flush=True: 버퍼 즉시 출력 (stdout이 stdio transport로 쓰이므로 버퍼 비워야 함)
         print(f"[ALERT] {message}", flush=True)
         return {"success": True, "message": message, "channel": "console"}
+
+    # ── get_simulation_context ──────────────────────────────────────────────────
+    elif name == "get_simulation_context":
+        int_no = args["int_no"]
+        r = await client.get(f"{SPRING_BASE}/api/signal/simulation/context/{int_no}")
+        if r.status_code == 404:
+            return {"error": f"교차로 intNo {int_no} 신호계획을 찾을 수 없습니다."}
+        return r.json()
 
     # ── search_project_docs ─────────────────────────────────────────────────────
     elif name == "search_project_docs":

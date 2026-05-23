@@ -62,8 +62,9 @@ public class MapController {
     @GetMapping("/api/signals")
     @ResponseBody
     public Collection<TrafficStatus> getSignals() {
-        cacheService.getAllSignals().values().forEach(supplementalDataCacheService::enrichTrafficStatus);
-        return cacheService.getAllSignals().values();
+        Collection<TrafficStatus> signals = cacheService.getAllSignals().values();
+        signals.forEach(supplementalDataCacheService::enrichTrafficStatus);
+        return signals;
     }
 
     @PostMapping("/api/fetch-area")
