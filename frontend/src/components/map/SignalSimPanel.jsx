@@ -86,11 +86,15 @@ function TrafficLight({ color, label }) {
   );
 }
 
-export default function SignalSimPanel({ intNo, intNm, onPhaseChange, serverCycleVal }) {
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [now,     setNow]     = useState(new Date());
-  const [phaseIdx, setPhaseIdx] = useState(null);
+export default function SignalSimPanel({ intNo, intNm, onPhaseChange, serverCycleVal, onOptimized }) {
+  const [data,      setData]      = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [now,       setNow]       = useState(new Date());
+  const [phaseIdx,  setPhaseIdx]  = useState(null);
+  // ↓ 누락되어 있던 state 선언 3개
+  const [aiResult,  setAiResult]  = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [mode,      setMode]      = useState("before"); // "before" | "after"
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -121,12 +125,10 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange, serverCycl
     setAiLoading(true);
     setAiResult(null);
 
-    // 현재 신호 정보 구성
     const phase = data.phases?.find(p => p.mapNo === "0") || data.phases?.[0];
     const validPlans = data.plans?.filter(p => p.cycleVal > 0) || [];
     const cycleLen = validPlans[0]?.cycleVal || 0;
 
-    // ringKey에서 방향별 시간 추출
     const ringKeys = ["aRing1","aRing2","aRing3","aRing4","aRing5","aRing6","aRing7","aRing8"];
     const aKeys = ["aRing1","aRing2","aRing3","aRing4","aRing5","aRing6","aRing7","aRing8"];
     const bKeys = ["bRing1","bRing2","bRing3","bRing4","bRing5","bRing6","bRing7","bRing8"];
@@ -150,7 +152,6 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange, serverCycl
       });
     }
 
-    // Groq에 보낼 질문 구성
     const question = `교차로 "${intNm}" (ID: ${intNo}) 신호 최적화 분석:
 현재 사이클: ${cycleLen}초
 방향별 신호 배분:
@@ -166,7 +167,7 @@ JSON 형식으로만 응답:
 }`;
 
     try {
-      const res  = await fetch(`${API_BASE}/api/chat`, {
+      const res   = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ crsrdId: null, question }),
@@ -174,11 +175,9 @@ JSON 형식으로만 응답:
       const data2 = await res.json();
       const text  = data2.answer || "";
 
-      // JSON 파싱 시도
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
-        // before 값 주입 (현재 데이터 기반)
         if (parsed.phases) {
           parsed.phases = parsed.phases.map(p => {
             const found = directions.find(d => d.direction === p.direction);
@@ -187,9 +186,15 @@ JSON 형식으로만 응답:
         }
         setAiResult(parsed);
         setMode("after");
-        onOptimized?.(parsed); // 부모(SimulationDashboard)로 전달
+        onOptimized?.(parsed);
       } else {
-        setAiResult({ status: "optimized", summary: text, phases: directions.map(d => ({ direction: d.direction, before: d.seconds, after: Math.round(d.seconds * (Math.random() * 0.4 + 0.8)) })), effect: [{ label: "AI 분석 완료", value: "✓" }] });
+        const fallback = {
+          status: "optimized",
+          summary: text,
+          phases: directions.map(d => ({ direction: d.direction, before: d.seconds, after: Math.round(d.seconds * (Math.random() * 0.4 + 0.8)) })),
+          effect: [{ label: "AI 분석 완료", value: "✓" }],
+        };
+        setAiResult(fallback);
         setMode("after");
         onOptimized?.({ status: "optimized" });
       }

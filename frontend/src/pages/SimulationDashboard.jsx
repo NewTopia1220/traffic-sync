@@ -19,7 +19,6 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   const [input,   setInput]   = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 저장 버튼 클릭 시 자동으로 챗봇 열고 분석 요청
   useEffect(() => {
     if (!autoTrigger || !autoTrigger.question) return;
     setIsOpen(true);
@@ -149,8 +148,8 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
 // ── 시뮬레이션 슬라이더 패널 ───────────────────────────────────────────────────
 function SimSliderPanel({ intNo, intNm, onSave, onCycleVal, onAutoAsk }) {
   const [phases,    setPhases]    = useState([]);
-  const [cycleVal,  setCycleVal]  = useState(null);  // 서버 기준 사이클
-  const [sliders,   setSliders]   = useState({});    // { [no]: sec }
+  const [cycleVal,  setCycleVal]  = useState(null);
+  const [sliders,   setSliders]   = useState({});
   const [saved,     setSaved]     = useState(false);
   const [loading,   setLoading]   = useState(false);
 
@@ -161,7 +160,13 @@ function SimSliderPanel({ intNo, intNm, onSave, onCycleVal, onAutoAsk }) {
     setLoading(true);
     fetch(`${API_BASE}/api/signal/simulation/context/${intNo}`)
       .then(r => r.json())
-      .then(d => { setPhases(d.phases || []); const cv = d.cycleVal ?? null; setCycleVal(cv); onCycleVal?.(cv); setLoading(false); })
+      .then(d => {
+        setPhases(d.phases || []);
+        const cv = d.cycleVal ?? null;
+        setCycleVal(cv);
+        onCycleVal?.(cv);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, [intNo]);
 
@@ -186,7 +191,6 @@ function SimSliderPanel({ intNo, intNm, onSave, onCycleVal, onAutoAsk }) {
     onSave(simulation);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-    // 챗봇 자동 열기 + 분석 요청 (timestamp로 같은 질문도 재트리거)
     onAutoAsk?.({
       question: `관제사가 ${intNm} 신호를 조정했습니다. 원본과 비교해서 효과를 분석해주세요.`,
       intNo,
@@ -265,14 +269,24 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
   const [phaseIdx,       setPhaseIdx]       = useState(null);
   const [simPhases,      setSimPhases]      = useState(null);
   const [serverCycleVal, setServerCycleVal] = useState(null);
-  const [autoTrigger,    setAutoTrigger]    = useState(null); // 저장 버튼 → 챗봇 자동 실행
+  const [autoTrigger,    setAutoTrigger]    = useState(null);
+  // ↓ 누락되어 있던 state 선언
+  const [aiOptResult,    setAiOptResult]    = useState(null);
+
+  // isAfterMode: AI 최적화 결과가 있을 때 After 모드
+  const isAfterMode = !!aiOptResult && aiOptResult.status === "optimized";
+
+  // handleSelect: 교차로 선택 시 AI 결과 초기화
+  const handleSelect = (cr) => {
+    setSelected(cr);
+    setAiOptResult(null);
+  };
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // 교차로 바뀌면 초기화
   useEffect(() => {
     setSimPhases(null);
     setServerCycleVal(null);
@@ -322,7 +336,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
               selected={selected}
               onSelect={handleSelect}
               phaseIdx={phaseIdx}
-              isOptimized={isAfterMode}  // After 모드 전달 → 차량 속도 빠르게
+              isOptimized={isAfterMode}
             />
           </div>
           {/* AI 챗봇 — 지도 우하단 */}
@@ -334,7 +348,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
         {/* 사이드바 */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 10px 10px 4px", overflowY: "auto" }}>
 
-          {/* 신호 게이지 패널 (기존 API 그대로) */}
+          {/* 신호 게이지 패널 */}
           <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 16 }}>
             {selected ? (
               <SignalSimPanel
@@ -342,6 +356,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
                 intNm={selected.intNm}
                 onPhaseChange={setPhaseIdx}
                 serverCycleVal={serverCycleVal}
+                onOptimized={setAiOptResult}
               />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 160, gap: 12, color: "#475569" }}>
@@ -353,7 +368,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
             )}
           </div>
 
-          {/* 시뮬레이션 슬라이더 패널 (새 API) */}
+          {/* 시뮬레이션 슬라이더 패널 */}
           {selected && (
             <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 16 }}>
               <SimSliderPanel
