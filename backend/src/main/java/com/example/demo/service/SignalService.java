@@ -218,7 +218,10 @@ public class SignalService {
 
         List<String> result = new ArrayList<>();
         if (a != null) result.add(a[1] + "→" + a[2] + " " + a[0]);
-        if (b != null) result.add(b[1] + "→" + b[2] + " " + b[0]);
+        if (b != null) {
+            String bStr = b[1] + "→" + b[2] + " " + b[0];
+            if (!result.contains(bStr)) result.add(bStr);
+        }
         if (result.isEmpty()) return List.of("전적색");
         return result;
     }
