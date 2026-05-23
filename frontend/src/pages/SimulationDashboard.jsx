@@ -147,7 +147,7 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
 }
 
 // ── 시뮬레이션 슬라이더 패널 ───────────────────────────────────────────────────
-function SimSliderPanel({ intNo, intNm, onSave, onCycleVal, onAutoAsk }) {
+function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
   const [phases,    setPhases]    = useState([]);
   const [cycleVal,  setCycleVal]  = useState(null);  // 서버 기준 사이클
   const [sliders,   setSliders]   = useState({});    // { [no]: sec }
@@ -161,7 +161,7 @@ function SimSliderPanel({ intNo, intNm, onSave, onCycleVal, onAutoAsk }) {
     setLoading(true);
     fetch(`${API_BASE}/api/signal/simulation/context/${intNo}`)
       .then(r => r.json())
-      .then(d => { setPhases(d.phases || []); const cv = d.cycleVal ?? null; setCycleVal(cv); onCycleVal?.(cv); setLoading(false); })
+      .then(d => { setPhases(d.phases || []); setCycleVal(d.cycleVal ?? null); setLoading(false); })
       .catch(() => setLoading(false));
   }, [intNo]);
 
@@ -260,22 +260,19 @@ function SimSliderPanel({ intNo, intNm, onSave, onCycleVal, onAutoAsk }) {
 
 // ── 메인 대시보드 ─────────────────────────────────────────────────────────────
 export default function SimulationDashboard({ onGoMain, onGoMap }) {
-  const [selected,       setSelected]       = useState(null);
-  const [time,           setTime]           = useState(new Date());
-  const [phaseIdx,       setPhaseIdx]       = useState(null);
-  const [simPhases,      setSimPhases]      = useState(null);
-  const [serverCycleVal, setServerCycleVal] = useState(null);
-  const [autoTrigger,    setAutoTrigger]    = useState(null); // 저장 버튼 → 챗봇 자동 실행
+  const [selected,    setSelected]    = useState(null);
+  const [time,        setTime]        = useState(new Date());
+  const [phaseIdx,    setPhaseIdx]    = useState(null);
+  const [simPhases,   setSimPhases]   = useState(null);
+  const [autoTrigger, setAutoTrigger] = useState(null);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // 교차로 바뀌면 초기화
   useEffect(() => {
     setSimPhases(null);
-    setServerCycleVal(null);
   }, [selected?.intNo]);
 
   return (
@@ -323,7 +320,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
                 intNo={selected.intNo}
                 intNm={selected.intNm}
                 onPhaseChange={setPhaseIdx}
-                serverCycleVal={serverCycleVal}
               />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 160, gap: 12, color: "#475569" }}>
@@ -342,7 +338,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
                 intNo={selected.intNo}
                 intNm={selected.intNm}
                 onSave={setSimPhases}
-                onCycleVal={setServerCycleVal}
                 onAutoAsk={setAutoTrigger}
               />
             </div>
