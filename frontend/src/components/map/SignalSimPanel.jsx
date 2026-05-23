@@ -24,9 +24,9 @@ function TrafficLight({ active }) {
 }
 
 export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
-  const [ctx,     setCtx]     = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [now,     setNow]     = useState(new Date());
+  const [ctx,         setCtx]         = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [now,         setNow]         = useState(new Date());
   const [livePhaseNo, setLivePhaseNo] = useState(null);
 
   useEffect(() => {
@@ -60,7 +60,6 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
     onPhaseChange?.(phaseNo);
   }, [ctx, now]);
 
-  // 현재 현시와 같은 방향을 가진 현시는 모두 active 처리
   const getActivePhaseDirs = () => {
     const activePhase = ctx?.phases?.find(p => p.no === livePhaseNo);
     return new Set((activePhase?.dirs || []).filter(d => d !== "전적색"));
@@ -72,11 +71,11 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
     return phase.dirs?.some(d => d !== "전적색" && activeDirs.has(d));
   };
 
-  // ── AI 신호 최적화 호출 ─────────────────────────────────────────────
-  const handleAiOptimize = async () => {
-    if (!data || aiLoading) return;
-    setAiLoading(true);
-    setAiResult(null);
+  if (loading) return (
+    <div style={{ padding: 20, color: "#94a3b8", fontSize: 13, textAlign: "center" }}>
+      신호 데이터 로딩 중...
+    </div>
+  );
 
   if (!ctx || ctx.error) return (
     <div style={{ padding: 20, color: "#64748b", fontSize: 13, textAlign: "center" }}>
@@ -96,19 +95,14 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
   const elapsed      = ((nowSec - planStartSec) % cycleVal + cycleVal) % cycleVal;
   const remaining    = cycleVal - elapsed;
 
-  // 현재 현시 방향들
-  const activePhase = ctx.phases.find(p => p.no === livePhaseNo);
-
   return (
     <div style={{ fontSize: 13, color: "#e2e8f0", height: "100%", overflowY: "auto" }}>
 
-      {/* 헤더 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: "#60a5fa" }}>🚦 {intNm}</div>
         <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace" }}>{now.toLocaleTimeString("ko-KR")}</div>
       </div>
 
-      {/* 사이클 진행 바 */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#64748b", marginBottom: 4 }}>
           <span>사이클 진행</span>
@@ -124,7 +118,6 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
         </div>
       </div>
 
-      {/* 현시 목록 */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
         {ctx.phases.map(p => {
           const isActive = isPhaseActive(p);
@@ -161,5 +154,4 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
       </div>
     </div>
   );
-}
 }

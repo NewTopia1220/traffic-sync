@@ -10,7 +10,6 @@ const SIM_PRESETS = [
   { label: "사이클 분석", q: "현시 구성이랑 사이클 시간 설명해줘" },
 ];
 
-// ── AI 챗봇 ──────────────────────────────────────────────────────────────────
 function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   const [isOpen, setIsOpen]     = useState(false);
   const [messages, setMessages] = useState([
@@ -92,7 +91,6 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
               </span>
             )}
           </div>
-
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
             {SIM_PRESETS.map(({ label, q }) => (
               <button key={label} onClick={() => send(q)} disabled={loading} style={btn({
@@ -102,7 +100,6 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
               })}>{label}</button>
             ))}
           </div>
-
           <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
             {messages.map((m, i) => (
               <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
@@ -123,7 +120,6 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
               </div>
             )}
           </div>
-
           <div style={{ display: "flex", gap: 8 }}>
             <input value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && !loading && send()}
@@ -145,13 +141,12 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   );
 }
 
-// ── 시뮬레이션 슬라이더 패널 ───────────────────────────────────────────────────
 function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
-  const [phases,    setPhases]    = useState([]);
-  const [cycleVal,  setCycleVal]  = useState(null);
-  const [sliders,   setSliders]   = useState({});
-  const [saved,     setSaved]     = useState(false);
-  const [loading,   setLoading]   = useState(false);
+  const [phases,   setPhases]  = useState([]);
+  const [cycleVal, setCycleVal] = useState(null);
+  const [sliders,  setSliders]  = useState({});
+  const [saved,    setSaved]    = useState(false);
+  const [loading,  setLoading]  = useState(false);
 
   useEffect(() => {
     if (!intNo) return;
@@ -172,8 +167,8 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
   );
   if (!phases.length) return null;
 
-  const totalSec = phases.reduce((s, p) => s + (sliders[p.no] ?? p.sec), 0);
-  const target = cycleVal ?? phases.reduce((s, p) => s + p.sec, 0);
+  const totalSec  = phases.reduce((s, p) => s + (sliders[p.no] ?? p.sec), 0);
+  const target    = cycleVal ?? phases.reduce((s, p) => s + p.sec, 0);
   const overTarget = totalSec > target;
 
   const handleSave = () => {
@@ -198,9 +193,8 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
       <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 2 }}>
         🎚 신호 시뮬레이션 조정
       </div>
-
       {phases.map(p => {
-        const sec = sliders[p.no] ?? p.sec;
+        const sec     = sliders[p.no] ?? p.sec;
         const changed = sliders[p.no] != null && sliders[p.no] !== p.sec;
         return (
           <div key={p.no} style={{
@@ -231,7 +225,6 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
           </div>
         );
       })}
-
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 11, color: "#64748b" }}>
           합계: <span style={{ color: overTarget ? "#ef4444" : totalSec < target ? "#f59e0b" : "#22c55e", fontWeight: 600 }}>
@@ -239,16 +232,12 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
           </span>
           <span style={{ color: "#475569" }}> / 목표 {target}s</span>
         </span>
-        <button
-          onClick={handleSave}
-          style={{
-            marginLeft: "auto", padding: "6px 14px", borderRadius: 4,
-            border: "none", cursor: "pointer", fontFamily: "inherit",
-            background: saved ? "#22c55e" : "#3b82f6",
-            color: "#fff", fontSize: 12, fontWeight: 700,
-            transition: "background 0.3s"
-          }}
-        >
+        <button onClick={handleSave} style={{
+          marginLeft: "auto", padding: "6px 14px", borderRadius: 4,
+          border: "none", cursor: "pointer", fontFamily: "inherit",
+          background: saved ? "#22c55e" : "#3b82f6",
+          color: "#fff", fontSize: 12, fontWeight: 700, transition: "background 0.3s"
+        }}>
           {saved ? "✓ 저장됨" : "저장 & AI 분석"}
         </button>
       </div>
@@ -263,6 +252,17 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
   const [phaseIdx,    setPhaseIdx]    = useState(null);
   const [simPhases,   setSimPhases]   = useState(null);
   const [autoTrigger, setAutoTrigger] = useState(null);
+  // ↓ 누락되어 있던 state 선언
+  const [aiOptResult, setAiOptResult] = useState(null);
+
+  // isAfterMode: AI 최적화 결과가 있을 때 After 모드
+  const isAfterMode = !!aiOptResult && aiOptResult.status === "optimized";
+
+  // handleSelect: 교차로 선택 시 AI 결과 초기화
+  const handleSelect = (cr) => {
+    setSelected(cr);
+    setAiOptResult(null);
+  };
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -286,11 +286,9 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
           <div style={{ fontSize: 11, color: "#475569" }}>교차로 클릭 → 실시간 신호 + 3D 차량 확인</div>
         </div>
 
-        {/* Before / After 모드 배지 */}
         {selected && (
           <div style={{
-            marginLeft: 16,
-            display: "flex", alignItems: "center", gap: 6,
+            marginLeft: 16, display: "flex", alignItems: "center", gap: 6,
             padding: "4px 14px", borderRadius: 20,
             background: isAfterMode ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.08)",
             border: `1px solid ${isAfterMode ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.2)"}`,
@@ -320,7 +318,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
               isOptimized={isAfterMode}
             />
           </div>
-          {/* AI 챗봇 — 지도 우하단 */}
           <div style={{ position: "absolute", bottom: 24, right: 20, zIndex: 10 }}>
             <SimulationChatBot intNo={selected?.intNo} intNm={selected?.intNm} simulation={simPhases} autoTrigger={autoTrigger} />
           </div>
@@ -329,7 +326,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
         {/* 사이드바 */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 10px 10px 4px", overflowY: "auto" }}>
 
-          {/* 신호 게이지 패널 */}
           <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 16 }}>
             {selected ? (
               <SignalSimPanel
@@ -347,7 +343,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
             )}
           </div>
 
-          {/* 시뮬레이션 슬라이더 패널 */}
           {selected && (
             <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 16 }}>
               <SimSliderPanel
@@ -359,7 +354,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
             </div>
           )}
 
-          {/* 안내 */}
           <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 14, flexShrink: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", marginBottom: 8 }}>📖 사용 방법</div>
             {[
