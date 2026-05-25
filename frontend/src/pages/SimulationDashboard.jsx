@@ -260,17 +260,19 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
   // isAfterMode: AI 최적화 결과가 있을 때 After 모드
   const isAfterMode = !!aiOptResult && aiOptResult.status === "optimized";
 
-  // handleSelect: 교차로 선택 시 AI 결과 초기화
+  // handleSelect: 첫 클릭 → selected 설정, 두 번째 클릭 → linkedTarget 설정
   const handleSelect = (cr) => {
-    if (selected && selected.intNo !== cr.intNo) {
-      setLinkedTarget(cr);
+    // 아직 아무것도 선택 안 됐거나, 같은 마커 다시 클릭 → 첫 번째 마커로 설정
+    if (!selected || selected.intNo === cr.intNo) {
+      setSelected(cr);
+      setLinkedTarget(null);
+      setAiOptResult(null);
+      setSimContext(null);
       return;
     }
-
-    setSelected(cr);
-    setLinkedTarget(null);
-    setAiOptResult(null);
-    setSimContext(null);
+    // 이미 선택된 상태에서 다른 마커 클릭 → 연결 대상으로 설정
+    // selected는 그대로 유지, linkedTarget만 바꿈
+    setLinkedTarget(cr);
   };
 
   const handleSimulationSave = (simulation) => {
@@ -328,6 +330,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
             <SimulationMapView
               selected={selected}
               linkedTarget={linkedTarget}
+              link={selected && linkedTarget ? { from: selected, to: linkedTarget } : null}
               onSelect={handleSelect}
               phaseIdx={phaseIdx}
               isOptimized={isAfterMode}

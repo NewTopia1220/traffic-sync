@@ -38,7 +38,7 @@ const ROAD_WAYPOINTS = {
   ],
 };
 
-export default function SimulationMapView({ selected, linkedTarget, onSelect, phaseIdx, isOptimized, trafficContext }) {
+export default function SimulationMapView({ selected, linkedTarget, link, onSelect, phaseIdx, isOptimized, trafficContext }) {
   const containerRef   = useRef(null);
   const viewerRef      = useRef(null);
   const entityMapRef   = useRef({});
@@ -51,6 +51,7 @@ export default function SimulationMapView({ selected, linkedTarget, onSelect, ph
   const phaseIdxRef    = useRef(phaseIdx);
   const isOptimizedRef = useRef(isOptimized);
   const trafficContextRef = useRef(trafficContext);
+  const linkedOverlayRef  = useRef([]);
   const [crossroads,   setCrossroads]  = useState([]);
   const [cesiumReady,  setCesiumReady] = useState(false);
   const [status,       setStatus]      = useState("VWorld 3D 지도 로딩 중...");
@@ -183,46 +184,76 @@ export default function SimulationMapView({ selected, linkedTarget, onSelect, ph
     }
   }, [crossroads, selected, linkedTarget, cesiumReady]);
 
-  // 선택된 교차로로 카메라 이동
+  // ── 첫 번째 마커 선택: 단독 교차로 표시 ────────────────────────────────────
   useEffect(() => {
-    if (!viewerRef.current || !selected) return;
+    if (!cesiumReady || !viewerRef.current || !selected) return;
     const Cesium = window.Cesium;
-
-    // 명세서: xCoord "126976922" ÷1e7 = 126.976922 (경도)
-    //         yCoord "37564022"  ÷1e7 = 37.564022  (위도)
     const lon = toCoord(selected.xCoord);
     const lat = toCoord(selected.yCoord);
     if (!lon || !lat) return;
 
-    const targetLon = toCoord(linkedTarget?.xCoord);
-    const targetLat = toCoord(linkedTarget?.yCoord);
-    if (targetLon && targetLat && linkedTarget?.intNo !== selected.intNo) {
-      const centerLon = (lon + targetLon) / 2;
-      const centerLat = (lat + targetLat) / 2;
-      const distance = distanceMeters([lon, lat], [targetLon, targetLat]);
-      viewerRef.current.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(centerLon, centerLat, Math.max(700, distance * 2.4)),
-        orientation: {
-          heading: Cesium.Math.toRadians(0),
-          pitch:   Cesium.Math.toRadians(-42),
-          roll:    0,
-        },
-        duration: 1.1,
-      });
-    } else {
-      viewerRef.current.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(lon, lat, 600),
-        orientation: {
-          heading: Cesium.Math.toRadians(0),
-          pitch:   Cesium.Math.toRadians(-40),
-          roll:    0,
-        },
-        duration: 1.5,
-      });
-    }
+    viewerRef.current.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(lon, lat, 600),
+      orientation: {
+        heading: Cesium.Math.toRadians(0),
+        pitch:   Cesium.Math.toRadians(-40),
+        roll:    0,
+      },
+      duration: 1.5,
+    });
 
-    spawnCars(selected, phaseIdx, linkedTarget);
-  }, [selected?.intNo, linkedTarget?.intNo]);
+    // 단독 모드: linkedTarget 없이 차량 생성
+    spawnCars(selected, phaseIdx, null);
+  }, [selected?.intNo, cesiumReady]);
+
+  // ── 두 번째 마커 선택: link prop으로 연결선만 추가 (첫 마커 차량/선 유지) ───
+  useEffect(() => {
+    if (!cesiumReady || !viewerRef.current) return;
+
+    // 이전 연결선 항상 먼저 제거
+    linkedOverlayRef.current.forEach(e => viewerRef.current.entities.remove(e));
+    linkedOverlayRef.current = [];
+    if (!link) return;
+
+    const Cesium = window.Cesium;
+    const { from, to } = link;
+    const aLon = toCoord(from.xCoord), aLat = toCoord(from.yCoord);
+    const bLon = toCoord(to.xCoord),   bLat = toCoord(to.yCoord);
+    if (!aLon || !aLat || !bLon || !bLat) return;
+
+    // 두 교차로가 모두 보이도록 카메라 이동
+    const dist = distanceMeters([aLon, aLat], [bLon, bLat]);
+    viewerRef.current.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees((aLon+bLon)/2, (aLat+bLat)/2, Math.max(700, dist * 2.4)),
+      orientation: { heading: Cesium.Math.toRadians(0), pitch: Cesium.Math.toRadians(-42), roll: 0 },
+      duration: 1.1,
+    });
+
+    // 연결선 추가 - 첫 마커 차량/선은 절대 건드리지 않음
+    const line = viewerRef.current.entities.add({
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([aLon, aLat, bLon, bLat]),
+        width: 5, clampToGround: true,
+        material: new Cesium.PolylineGlowMaterialProperty({
+          glowPower: 0.25, taperPower: 0.6,
+          color: Cesium.Color.fromCssColorString("#60a5fa").withAlpha(0.9),
+        }),
+      },
+    });
+    const label = viewerRef.current.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(bLon, bLat, 20),
+      label: {
+        text: to.intNm, font: "bold 13px Malgun Gothic",
+        fillColor: Cesium.Color.fromCssColorString("#f59e0b"),
+        outlineColor: Cesium.Color.BLACK, outlineWidth: 3,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: new Cesium.Cartesian2(0, -30),
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    });
+    linkedOverlayRef.current.push(line, label);
+  }, [link, cesiumReady]);
 
   // 신호 현시 변경
   useEffect(() => {
@@ -449,43 +480,8 @@ export default function SimulationMapView({ selected, linkedTarget, onSelect, ph
       ));
     }
 
-    const nearby = crossroads
-      .filter(cr => cr.intNo !== crossroad.intNo)
-      .map(cr => ({ ...cr, lon: toCoord(cr.xCoord), lat: toCoord(cr.yCoord) }))
-      .filter(cr => cr.lon && cr.lat)
-      .map(cr => ({
-        ...cr,
-        dist: Math.hypot(cr.lon - lon, cr.lat - lat),
-        angle: Math.atan2(cr.lat - lat, cr.lon - lon),
-      }))
-      .filter(cr => cr.dist > 0.00008 && cr.dist < 0.012)
-      .sort((a, b) => a.dist - b.dist)
-      .slice(0, 18);
-
-    const pairs = [];
-    for (let i = 0; i < nearby.length; i++) {
-      for (let j = i + 1; j < nearby.length; j++) {
-        const angleDiff = Math.abs(Math.atan2(
-          Math.sin(nearby[i].angle - nearby[j].angle),
-          Math.cos(nearby[i].angle - nearby[j].angle)
-        ));
-        pairs.push({
-          a: nearby[i],
-          b: nearby[j],
-          score: Math.abs(Math.PI - angleDiff) + (nearby[i].dist + nearby[j].dist) * 80,
-        });
-      }
-    }
-
-    const selectedPairs = selectDiverseRoadPairs(pairs);
-    if (selectedPairs.length > 0) {
-      return selectedPairs.flatMap((pair, pairIdx) => {
-        const angle = Math.atan2(pair.b.lat - pair.a.lat, pair.b.lon - pair.a.lon);
-        return makeLocalAxisRoutes(lon, lat, angle, pairIdx);
-      });
-    }
-
-    // fallback: 4방향
+    // 단독 클릭: 교차로 중심 기준 4방향 짧은 경로만 표시
+    // (인근 교차로 자동 탐색 없음 — 두 번째 마커 클릭 시 buildLinkedCrossroadRoutes 사용)
     return SIM_DIRECTIONS.map((dir, idx) => makeRoute([
       [lon + dir.start[0], lat + dir.start[1]],
       [lon, lat],
@@ -754,6 +750,31 @@ export default function SimulationMapView({ selected, linkedTarget, onSelect, ph
       <div style={{ position: "absolute", top: 14, left: 14, background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "4px 12px", fontSize: 12, color: "#aab4c8", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
         🚦 서울시 신호 교차로 {crossroads.length}개
       </div>
+
+      {/* 첫 번째 마커 선택 후 두 번째 클릭 유도 배지 */}
+      {selected && !linkedTarget && (
+        <div style={{
+          position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.5)",
+          borderRadius: 20, padding: "6px 18px", fontSize: 12, color: "#f59e0b",
+          fontWeight: 700, zIndex: 10, pointerEvents: "none",
+          boxShadow: "0 0 12px rgba(245,158,11,0.2)",
+        }}>
+          🟠 인근 교차로를 클릭하면 구간이 연결됩니다
+        </div>
+      )}
+
+      {/* 구간 연결 중 배지 */}
+      {selected && linkedTarget && (
+        <div style={{
+          position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.5)",
+          borderRadius: 20, padding: "6px 18px", fontSize: 12, color: "#22c55e",
+          fontWeight: 700, zIndex: 10, pointerEvents: "none",
+        }}>
+          🔗 {selected.intNm} ↔ {linkedTarget.intNm} 구간 연결 중
+        </div>
+      )}
 
       {selected && !ROAD_WAYPOINTS[selected.intNo] && (
         <div style={{ position: "absolute", bottom: 14, left: 14, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.3)", borderRadius: 4, padding: "6px 12px", fontSize: 11, color: "#eab308", zIndex: 10, pointerEvents: "none" }}>
