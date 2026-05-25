@@ -248,9 +248,11 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
 // ── 메인 대시보드 ─────────────────────────────────────────────────────────────
 export default function SimulationDashboard({ onGoMain, onGoMap }) {
   const [selected,    setSelected]    = useState(null);
+  const [linkedTarget, setLinkedTarget] = useState(null);
   const [time,        setTime]        = useState(new Date());
   const [phaseIdx,    setPhaseIdx]    = useState(null);
   const [simPhases,   setSimPhases]   = useState(null);
+  const [simContext,  setSimContext]  = useState(null);
   const [autoTrigger, setAutoTrigger] = useState(null);
   // ↓ 누락되어 있던 state 선언
   const [aiOptResult, setAiOptResult] = useState(null);
@@ -260,8 +262,20 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
 
   // handleSelect: 교차로 선택 시 AI 결과 초기화
   const handleSelect = (cr) => {
+    if (selected && selected.intNo !== cr.intNo) {
+      setLinkedTarget(cr);
+      return;
+    }
+
     setSelected(cr);
+    setLinkedTarget(null);
     setAiOptResult(null);
+    setSimContext(null);
+  };
+
+  const handleSimulationSave = (simulation) => {
+    setSimPhases(simulation);
+    setAiOptResult({ status: "optimized", source: "manual-simulation", appliedAt: Date.now() });
   };
 
   useEffect(() => {
@@ -313,9 +327,11 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
           <div style={{ height: "100%", borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
             <SimulationMapView
               selected={selected}
+              linkedTarget={linkedTarget}
               onSelect={handleSelect}
               phaseIdx={phaseIdx}
               isOptimized={isAfterMode}
+              trafficContext={simContext?.traffic}
             />
           </div>
           <div style={{ position: "absolute", bottom: 24, right: 20, zIndex: 10 }}>
@@ -332,6 +348,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
                 intNo={selected.intNo}
                 intNm={selected.intNm}
                 onPhaseChange={setPhaseIdx}
+                phaseOverride={simPhases}
+                onContextChange={setSimContext}
               />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 160, gap: 12, color: "#475569" }}>
@@ -348,7 +366,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
               <SimSliderPanel
                 intNo={selected.intNo}
                 intNm={selected.intNm}
-                onSave={setSimPhases}
+                onSave={handleSimulationSave}
                 onAutoAsk={setAutoTrigger}
               />
             </div>

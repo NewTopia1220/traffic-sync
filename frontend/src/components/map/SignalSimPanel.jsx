@@ -23,7 +23,7 @@ function TrafficLight({ active }) {
   );
 }
 
-export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
+export default function SignalSimPanel({ intNo, intNm, onPhaseChange, phaseOverride, onContextChange }) {
   const [ctx,         setCtx]         = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [now,         setNow]         = useState(new Date());
@@ -36,32 +36,56 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
 
   useEffect(() => {
     if (!intNo) return;
-    setLoading(true);
-    fetch(`${API_BASE}/api/signal/simulation/context/${intNo}`)
-      .then(r => r.json())
-      .then(d => { setCtx(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [intNo]);
+    let alive = true;
+
+    const loadContext = (showLoading = false) => {
+      if (showLoading) setLoading(true);
+      fetch(`${API_BASE}/api/signal/simulation/context/${intNo}`)
+        .then(r => r.json())
+        .then(d => {
+          if (!alive) return;
+          setCtx(d);
+          onContextChange?.(d);
+          setLoading(false);
+        })
+        .catch(() => {
+          if (!alive) return;
+          onContextChange?.(null);
+          setLoading(false);
+        });
+    };
+
+    loadContext(true);
+    const id = setInterval(() => loadContext(false), 10000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [intNo, onContextChange]);
 
   // 1초마다 현재 현시 재계산
   useEffect(() => {
-    if (!ctx?.phases?.length) return;
+    const phases = phaseOverride?.length ? phaseOverride : ctx?.phases;
+    if (!phases?.length) return;
     const nowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-    const cycleVal = ctx.cycleVal || 120;
+    const cycleVal = phaseOverride?.length
+      ? phaseOverride.reduce((sum, p) => sum + Number(p.sec || 0), 0)
+      : ctx.cycleVal || 120;
     const planStartSec = ctx.planStartSec ?? 0;
     const elapsed = ((nowSec - planStartSec) % cycleVal + cycleVal) % cycleVal;
     let acc = 0;
-    let phaseNo = ctx.phases[0].no;
-    for (const p of ctx.phases) {
+    let phaseNo = phases[0].no;
+    for (const p of phases) {
       acc += p.sec;
       if (elapsed < acc) { phaseNo = p.no; break; }
     }
     setLivePhaseNo(phaseNo);
     onPhaseChange?.(phaseNo);
-  }, [ctx, now]);
+  }, [ctx, now, phaseOverride, onPhaseChange]);
 
   const getActivePhaseDirs = () => {
-    const activePhase = ctx?.phases?.find(p => p.no === livePhaseNo);
+    const phases = phaseOverride?.length ? phaseOverride : ctx?.phases;
+    const activePhase = phases?.find(p => p.no === livePhaseNo);
     return new Set((activePhase?.dirs || []).filter(d => d !== "전적색"));
   };
 
@@ -89,7 +113,10 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
     </div>
   );
 
-  const cycleVal     = ctx.cycleVal || 120;
+  const displayPhases = phaseOverride?.length ? phaseOverride : ctx.phases;
+  const cycleVal     = phaseOverride?.length
+    ? phaseOverride.reduce((sum, p) => sum + Number(p.sec || 0), 0)
+    : ctx.cycleVal || 120;
   const planStartSec = ctx.planStartSec ?? 0;
   const nowSec       = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
   const elapsed      = ((nowSec - planStartSec) % cycleVal + cycleVal) % cycleVal;
@@ -119,7 +146,7 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-        {ctx.phases.map(p => {
+        {displayPhases.map(p => {
           const isActive = isPhaseActive(p);
           return (
             <div key={p.no} style={{
@@ -150,7 +177,12 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange }) {
       </div>
 
       <div style={{ fontSize: 11, color: "#475569", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 8 }}>
-        INT_NO: {intNo} · 현시수: {ctx.phases.length}
+        INT_NO: {intNo} · 현시수: {displayPhases.length}
+        {ctx.traffic?.speedKph != null && (
+          <span style={{ marginLeft: 8, color: ctx.traffic.realTime ? "#22c55e" : "#f59e0b" }}>
+            · 실시간 {Math.round(ctx.traffic.speedKph)}km/h
+          </span>
+        )}
       </div>
     </div>
   );
