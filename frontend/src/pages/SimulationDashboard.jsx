@@ -247,32 +247,41 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
 
 // ── 메인 대시보드 ─────────────────────────────────────────────────────────────
 export default function SimulationDashboard({ onGoMain, onGoMap }) {
-  const [selected,    setSelected]    = useState(null);
-  const [linkedTarget, setLinkedTarget] = useState(null);
-  const [time,        setTime]        = useState(new Date());
-  const [phaseIdx,    setPhaseIdx]    = useState(null);
-  const [simPhases,   setSimPhases]   = useState(null);
-  const [simContext,  setSimContext]  = useState(null);
-  const [autoTrigger, setAutoTrigger] = useState(null);
-  // ↓ 누락되어 있던 state 선언
-  const [aiOptResult, setAiOptResult] = useState(null);
+  // selectedList: 클릭한 교차로 순서대로 쌓이는 배열
+  // [0]=첫 번째 마커, [1]=두 번째 마커, ...
+  const [selectedList, setSelectedList] = useState([]);
+  const [time,         setTime]         = useState(new Date());
+  const [phaseIdx,     setPhaseIdx]     = useState(null);
+  const [simPhases,    setSimPhases]    = useState(null);
+  const [simContext,   setSimContext]   = useState(null);
+  const [autoTrigger,  setAutoTrigger]  = useState(null);
+  const [aiOptResult,  setAiOptResult]  = useState(null);
+
+  // 편의 변수: 첫 번째 선택 교차로 (사이드바 패널용)
+  const selected = selectedList[0] ?? null;
 
   // isAfterMode: AI 최적화 결과가 있을 때 After 모드
   const isAfterMode = !!aiOptResult && aiOptResult.status === "optimized";
 
-  // handleSelect: 첫 클릭 → selected 설정, 두 번째 클릭 → linkedTarget 설정
+  // handleSelect: 마커 클릭마다 selectedList에 추가
+  //   - 이미 리스트에 있는 교차로 클릭 → 해당 교차로 이후 제거 (재선택)
+  //   - 새 교차로 클릭 → 배열 끝에 추가
+  //   - 첫 번째 마커 다시 클릭 → 초기화
   const handleSelect = (cr) => {
-    // 아직 아무것도 선택 안 됐거나, 같은 마커 다시 클릭 → 첫 번째 마커로 설정
-    if (!selected || selected.intNo === cr.intNo) {
-      setSelected(cr);
-      setLinkedTarget(null);
-      setAiOptResult(null);
-      setSimContext(null);
-      return;
-    }
-    // 이미 선택된 상태에서 다른 마커 클릭 → 연결 대상으로 설정
-    // selected는 그대로 유지, linkedTarget만 바꿈
-    setLinkedTarget(cr);
+    setSelectedList(prev => {
+      // 이미 선택된 마커를 다시 클릭 → 해당 마커 취소(제거)
+      const existIdx = prev.findIndex(item => item.intNo === cr.intNo);
+      if (existIdx !== -1) {
+        const next = prev.filter(item => item.intNo !== cr.intNo);
+        if (next.length === 0) {
+          setAiOptResult(null);
+          setSimContext(null);
+        }
+        return next;
+      }
+      // 새 교차로 추가
+      return [...prev, cr];
+    });
   };
 
   const handleSimulationSave = (simulation) => {
@@ -287,7 +296,11 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
 
   useEffect(() => {
     setSimPhases(null);
-  }, [selected?.intNo]);
+    if (selectedList.length === 0) {
+      setAiOptResult(null);
+      setSimContext(null);
+    }
+  }, [selectedList]);
 
   return (
     <div style={{ fontFamily: "'Noto Sans KR','Malgun Gothic',sans-serif", background: "#12100a", color: "#e2e8f0", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -302,7 +315,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
           <div style={{ fontSize: 11, color: "#475569" }}>교차로 클릭 → 실시간 신호 + 3D 차량 확인</div>
         </div>
 
-        {selected && (
+        {selectedList.length > 0 && (
           <div style={{
             marginLeft: 16, display: "flex", alignItems: "center", gap: 6,
             padding: "4px 14px", borderRadius: 20,
@@ -328,9 +341,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
         <div style={{ padding: "10px 6px 10px 10px", minHeight: 0, position: "relative" }}>
           <div style={{ height: "100%", borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
             <SimulationMapView
-              selected={selected}
-              linkedTarget={linkedTarget}
-              link={selected && linkedTarget ? { from: selected, to: linkedTarget } : null}
+              selectedList={selectedList}
               onSelect={handleSelect}
               phaseIdx={phaseIdx}
               isOptimized={isAfterMode}
@@ -346,7 +357,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 10px 10px 4px", overflowY: "auto" }}>
 
           <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 16 }}>
-            {selected ? (
+            {selected ? (  /* selected = selectedList[0] */
               <SignalSimPanel
                 intNo={selected.intNo}
                 intNm={selected.intNm}
@@ -364,7 +375,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
             )}
           </div>
 
-          {selected && (
+          {selectedList.length > 0 && (
             <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 16 }}>
               <SimSliderPanel
                 intNo={selected.intNo}
