@@ -21,18 +21,22 @@ public class ChatService {
 
     private final WebClient webClient;
     private final SignalService signalService;
+    private final EmailService emailService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${agent.api.url:http://localhost:8001}")
     private String agentUrl;
 
     // 자유 챗봇 — 지도 페이지 (교차로 선택 여부 무관)
-    public String ask(String crsrdId, String question) {
+    public String ask(String crsrdId, String question, String userEmail) {
         try {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("question", question);
             if (crsrdId != null && !crsrdId.isBlank()) {
                 body.put("crsrdId", crsrdId);
+            }
+            if (userEmail != null && !userEmail.isBlank()) {
+                body.put("userEmail", userEmail);
             }
 
             String response = webClient.post()
@@ -56,7 +60,7 @@ public class ChatService {
     }
 
     // 시뮬레이션 페이지 챗봇 — 신호계획 내부 조립 후 AI 분석
-    public String simulationChat(String intNo, String question, List<Map<String, Object>> simulation) {
+    public String simulationChat(String intNo, String question, List<Map<String, Object>> simulation, String userEmail) {
         try {
             // Spring 내부에서 신호계획 컨텍스트 조립 (LLM이 MCP 도구 호출 불필요)
             Map<String, Object> context = (intNo != null && !intNo.isBlank())
@@ -68,6 +72,9 @@ public class ChatService {
             body.set("context", objectMapper.valueToTree(context));
             if (simulation != null && !simulation.isEmpty()) {
                 body.set("simulation", objectMapper.valueToTree(simulation));
+            }
+            if (userEmail != null && !userEmail.isBlank()) {
+                body.put("userEmail", userEmail);
             }
 
             String response = webClient.post()
@@ -90,14 +97,18 @@ public class ChatService {
         }
     }
 
-    // 병목 이메일 — 10km/h 이하만 필터링해서 메일 발송
-    public String bottleneckEmail(String districtName) {
+    // 병목 이메일 — Python은 리포트 텍스트만 생성, Spring이 직접 발송
+    public String bottleneckEmail(String districtName, String userEmail) {
+        if (userEmail == null || userEmail.isBlank()) {
+            return "수신자 이메일이 없습니다. 로그인 후 다시 시도해주세요.";
+        }
         try {
+            // 1. Python 에이전트에서 리포트 텍스트만 받아옴
             ObjectNode body = objectMapper.createObjectNode();
             body.put("district", districtName);
 
             String response = webClient.post()
-                    .uri(agentUrl + "/api/agent/bottleneck-email")
+                    .uri(agentUrl + "/api/agent/district-report")
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body)
                     .retrieve()
@@ -105,7 +116,15 @@ public class ChatService {
                     .block();
 
             JsonNode root = objectMapper.readTree(response);
-            return root.path("answer").asText("메일 전송 완료");
+            String report = root.path("report").asText("");
+
+            // 2. Spring JavaMailSender로 직접 발송
+            emailService.send(
+                userEmail,
+                "[병목 경보] 서울 " + districtName,
+                report
+            );
+            return report + "\n\n[발송 완료] " + userEmail;
         } catch (Exception e) {
             log.error("병목 메일 전송 실패: {}", e.getMessage());
             return "메일 전송 중 오류가 발생했습니다.";
