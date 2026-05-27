@@ -82,6 +82,7 @@ public class MapController {
             // 선택된 구 좌표 캐시에 저장 → 스케줄러가 이 좌표로 폴링
             cacheService.setCenter(lat, lon, radius);
 
+
             // DB에서 해당 좌표 반경 교차로 조회
             List<CrossroadEntity> entities = crossroadRepository.findWithinRadius(lat, lon, radius);
             String normalizedGuName = normalizeGuName(guName);
