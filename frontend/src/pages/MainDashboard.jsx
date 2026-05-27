@@ -15,6 +15,41 @@ const V = {
   sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
 };
 
+// ── BottleneckEmailBtn ──────────────────────────────────────────────────────
+function BottleneckEmailBtn({ district, apiBase }) {
+  const [status, setStatus] = useState("idle"); // idle | loading | done | error
+
+  const handleClick = async () => {
+    setStatus("loading");
+    try {
+      await fetch(`${apiBase}/api/bottleneck-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ district }),
+      });
+      setStatus("done");
+      setTimeout(() => setStatus("idle"), 3000);
+    } catch {
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 3000);
+    }
+  };
+
+  const label = status === "loading" ? "전송 중..." : status === "done" ? "✓ 메일 전송됨" : status === "error" ? "전송 실패" : "📧 병목 메일";
+  const color = status === "done" ? "#2ee07a" : status === "error" ? "#ff5566" : "#4ea6ff";
+
+  return (
+    <button onClick={handleClick} disabled={status === "loading"} style={{
+      fontSize: 11, padding: "4px 10px", borderRadius: 2,
+      border: `1px solid ${color}`, background: "transparent",
+      color, cursor: status === "loading" ? "wait" : "pointer",
+      fontFamily: "'IBM Plex Mono',monospace", transition: "all 0.2s"
+    }}>
+      {label}
+    </button>
+  );
+}
+
 // ── makeSpark ───────────────────────────────────────────────────────────────
 /**
  * 실시간 속도 히스토리 초기 배열 생성
@@ -532,7 +567,7 @@ const CARD_COLORS = [V.red, V.org, V.grn];
  *   wsData    - App에서 관리하는 WebSocket 교차로 신호 데이터 배열
  */
 
-export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, wsData, stations=[], setStations }) {
+export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations }) {
   const [time, setTime] = useState(new Date());
   // 기본 선택 구: 송파구 (잠실 V2X 데이터가 있는 지역)
   const [selectedGu, setSelectedGu] = useState(GU_LIST.find(g => g.name === "송파구"));
@@ -854,12 +889,15 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             {selectedGu.name} 선택됨
           </div>
         )}
+        {selectedGu && (
+          <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
+        )}
         {/* 데이터 수집 결과 메시지 (3초 표시) */}
         {fetchMsg && (
           <div style={{ fontSize: 12, color: V.grn, padding: "3px 10px", borderRadius: 2, border: "1px solid #1a3a24", background: "#0c1a12", fontFamily: V.mono }}>✓ {fetchMsg}</div>
         )}
 
-        {/* 우측: LIVE 뱃지 + 날짜/시계 */}
+        {/* 우측: LIVE 뱃지 + 날짜/시계 + 마이페이지 + 로그아웃 */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
           {isLive && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", border: `1px solid ${V.line}`, background: V.bg0, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink1 }}>
@@ -871,6 +909,12 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             <span style={{ color: V.ink2, marginRight: 6 }}>{time.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}</span>
             {time.toLocaleTimeString("ko-KR")}
           </span>
+          <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, padding: "5px 12px", color: V.ink2, fontSize: 12, cursor: "pointer", fontFamily: V.mono, letterSpacing: ".3px" }}>
+            👤 마이페이지
+          </button>
+          <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: `1px solid #3a1820`, borderRadius: 2, padding: "5px 12px", color: "#ff5566", fontSize: 12, cursor: "pointer", fontFamily: V.mono, letterSpacing: ".3px" }}>
+            로그아웃
+          </button>
         </div>
       </div>
 

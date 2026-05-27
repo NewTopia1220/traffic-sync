@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import LoginPage from './pages/LoginPage'
+import MyPage from './pages/mypage/MyPage'
 import MainDashboard from './pages/MainDashboard'
 import MapDashboard from './pages/MapDashboard'
 import CctvDashboard from './pages/CctvDashboard'
@@ -19,9 +21,10 @@ import { useWebSocket } from './hooks/useWebSocket'
  */
 export default function App() {
 
-  // 현재 표시할 페이지 ('main' | 'map' | 'cctv')
-  // 기본값은 'main' (통합 대시보드)
-  const [page, setPage] = useState('main')
+  // localStorage에 로그인 정보 있으면 바로 메인, 없으면 로그인 페이지
+  const [page, setPage] = useState(() =>
+    localStorage.getItem("ts_user") ? 'main' : 'login'
+  )
 
   // WebSocket으로 받은 교차로 신호 데이터 배열
   // MainDashboard와 MapDashboard가 같은 데이터를 공유해야 하므로
@@ -49,8 +52,18 @@ export default function App() {
   const [stations, setStations] = useState([]);
 
   // ── 페이지 조건부 렌더링 ──────────────────────────────
-  // if문을 순서대로 평가 → 해당하는 페이지 컴포넌트만 렌더링
-  // (나머지 컴포넌트는 언마운트되어 메모리에서 제거됨)
+
+  // 로그인 페이지
+  if (page === 'login') return (
+    <LoginPage onLoginSuccess={(data) => {
+      setPage(data.isTempPw ? 'mypage' : 'main')
+    }} />
+  )
+
+  // 마이페이지
+  if (page === 'mypage') return (
+    <MyPage onBack={() => setPage('main')} />
+  )
 
   // 뉴스 감성 분석 페이지
   if (page === 'news') return (
@@ -99,6 +112,8 @@ export default function App() {
       onGoCctv={() => setPage('cctv')}          // CCTV 관제 페이지로 이동
       onGoNews={() => setPage('news')}          // 뉴스 감성 분석 페이지로 이동
       onGoSimulation={() => setPage('simulation')} // 신호 시뮬레이션 페이지로 이동
+      onGoMyPage={() => setPage('mypage')}      // 마이페이지로 이동
+      onLogout={() => setPage('login')}         // 로그아웃
       wsData={wsData}                           // 교차로 신호 데이터 (읽기)
       setWsData={setWsData}                     // 데이터 업데이트 (쓰기) — 현재는 미사용
       stations={stations}

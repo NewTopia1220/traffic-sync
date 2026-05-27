@@ -311,11 +311,8 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
         district = args["district_name"]        # 예: "강남구"
         r = await client.get(f"{SPRING_BASE}/api/signals")
         signals = r.json() if r.status_code == 200 else []
-        # guName 필드로 정확히 필터 (교차로 이름에 구 이름이 들어있지 않을 수 있음)
-        district_signals = [
-            s for s in (signals if isinstance(signals, list) else [])
-            if s.get("guName") == district
-        ]
+        # 캐시는 이미 선택된 구의 교차로만 포함 → 전체 사용
+        district_signals = signals if isinstance(signals, list) else []
 
         # 속도 추출 헬퍼: TrafficStatus.speedKph (flat double)
         def speed_of(s):
@@ -326,30 +323,23 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
         avg_speed = round(sum(speeds) / len(speeds), 1) if speeds else 0
 
         sorted_by_speed = sorted(district_signals, key=speed_of)
-        top3 = [
+
+        # 15km/h 이하 병목 교차로만 필터링
+        bottleneck_under_15 = [
             {
                 "name": s.get("crsrdNm", ""),
                 "speed_kmh": speed_of(s),
                 "risk_grade": s.get("riskGrade"),
-                "risk_index": s.get("riskIndex"),
-                "congestion": s.get("congestion"),
             }
-            for s in sorted_by_speed[:3]
+            for s in sorted_by_speed
+            if 0 < speed_of(s) <= 15
         ]
-
-        # 위험도 등급별 교차로 수 집계
-        risk_summary = {}
-        for s in district_signals:
-            grade = s.get("riskGrade") or "미수집"
-            risk_summary[grade] = risk_summary.get(grade, 0) + 1
 
         weather = district_signals[0].get("weather") if district_signals else None
         return {
             "district": district,
             "total_crossroads": len(district_signals),
-            "avg_speed_kmh": avg_speed,
-            "top3_congested": top3,
-            "risk_summary": risk_summary,
+            "bottleneck_under_15": bottleneck_under_15,
             "weather": weather,
         }
 
