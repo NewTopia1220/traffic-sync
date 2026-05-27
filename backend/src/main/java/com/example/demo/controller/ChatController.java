@@ -40,6 +40,15 @@ public class ChatController {
         return ResponseEntity.ok(Map.of("answer", answer));
     }
 
+    // 병목 이메일 전송 — 10km/h 이하 교차로만 필터링해서 메일 발송
+    @PostMapping("/bottleneck-email")
+    public ResponseEntity<Map<String, String>> bottleneckEmail(@RequestBody Map<String, String> body) {
+        String district = body.get("district");
+        if (district == null || district.isBlank()) return ResponseEntity.badRequest().build();
+        String result = chatService.bottleneckEmail(district);
+        return ResponseEntity.ok(Map.of("result", result));
+    }
+
     // 시뮬레이션 페이지 챗봇 — 관제사 조정값 포함 AI 분석
     @PostMapping("/simulation-chat")
     public ResponseEntity<Map<String, String>> simulationChat(@RequestBody Map<String, Object> body) {
