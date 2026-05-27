@@ -10,7 +10,6 @@ const SIM_PRESETS = [
   { label: "사이클 분석", q: "현시 구성이랑 사이클 시간 설명해줘" },
 ];
 
-// ── AI 챗봇 ──────────────────────────────────────────────────────────────────
 function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   const [isOpen, setIsOpen]     = useState(false);
   const [messages, setMessages] = useState([
@@ -19,7 +18,6 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   const [input,   setInput]   = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 저장 버튼 클릭 시 자동으로 챗봇 열고 분석 요청
   useEffect(() => {
     if (!autoTrigger || !autoTrigger.question) return;
     setIsOpen(true);
@@ -93,7 +91,6 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
               </span>
             )}
           </div>
-
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
             {SIM_PRESETS.map(({ label, q }) => (
               <button key={label} onClick={() => send(q)} disabled={loading} style={btn({
@@ -103,7 +100,6 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
               })}>{label}</button>
             ))}
           </div>
-
           <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
             {messages.map((m, i) => (
               <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
@@ -124,7 +120,6 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
               </div>
             )}
           </div>
-
           <div style={{ display: "flex", gap: 8 }}>
             <input value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && !loading && send()}
@@ -146,13 +141,12 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   );
 }
 
-// ── 시뮬레이션 슬라이더 패널 ───────────────────────────────────────────────────
 function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
-  const [phases,    setPhases]    = useState([]);
-  const [cycleVal,  setCycleVal]  = useState(null);  // 서버 기준 사이클
-  const [sliders,   setSliders]   = useState({});    // { [no]: sec }
-  const [saved,     setSaved]     = useState(false);
-  const [loading,   setLoading]   = useState(false);
+  const [phases,   setPhases]  = useState([]);
+  const [cycleVal, setCycleVal] = useState(null);
+  const [sliders,  setSliders]  = useState({});
+  const [saved,    setSaved]    = useState(false);
+  const [loading,  setLoading]  = useState(false);
 
   useEffect(() => {
     if (!intNo) return;
@@ -173,8 +167,8 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
   );
   if (!phases.length) return null;
 
-  const totalSec = phases.reduce((s, p) => s + (sliders[p.no] ?? p.sec), 0);
-  const target = cycleVal ?? phases.reduce((s, p) => s + p.sec, 0);
+  const totalSec  = phases.reduce((s, p) => s + (sliders[p.no] ?? p.sec), 0);
+  const target    = cycleVal ?? phases.reduce((s, p) => s + p.sec, 0);
   const overTarget = totalSec > target;
 
   const handleSave = () => {
@@ -186,7 +180,6 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
     onSave(simulation);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-    // 챗봇 자동 열기 + 분석 요청 (timestamp로 같은 질문도 재트리거)
     onAutoAsk?.({
       question: `관제사가 ${intNm} 신호를 조정했습니다. 원본과 비교해서 효과를 분석해주세요.`,
       intNo,
@@ -200,9 +193,8 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
       <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 2 }}>
         🎚 신호 시뮬레이션 조정
       </div>
-
       {phases.map(p => {
-        const sec = sliders[p.no] ?? p.sec;
+        const sec     = sliders[p.no] ?? p.sec;
         const changed = sliders[p.no] != null && sliders[p.no] !== p.sec;
         return (
           <div key={p.no} style={{
@@ -233,7 +225,6 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
           </div>
         );
       })}
-
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 11, color: "#64748b" }}>
           합계: <span style={{ color: overTarget ? "#ef4444" : totalSec < target ? "#f59e0b" : "#22c55e", fontWeight: 600 }}>
@@ -241,16 +232,12 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
           </span>
           <span style={{ color: "#475569" }}> / 목표 {target}s</span>
         </span>
-        <button
-          onClick={handleSave}
-          style={{
-            marginLeft: "auto", padding: "6px 14px", borderRadius: 4,
-            border: "none", cursor: "pointer", fontFamily: "inherit",
-            background: saved ? "#22c55e" : "#3b82f6",
-            color: "#fff", fontSize: 12, fontWeight: 700,
-            transition: "background 0.3s"
-          }}
-        >
+        <button onClick={handleSave} style={{
+          marginLeft: "auto", padding: "6px 14px", borderRadius: 4,
+          border: "none", cursor: "pointer", fontFamily: "inherit",
+          background: saved ? "#22c55e" : "#3b82f6",
+          color: "#fff", fontSize: 12, fontWeight: 700, transition: "background 0.3s"
+        }}>
           {saved ? "✓ 저장됨" : "저장 & AI 분석"}
         </button>
       </div>
@@ -260,38 +247,60 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk }) {
 
 // ── 메인 대시보드 ─────────────────────────────────────────────────────────────
 export default function SimulationDashboard({ onGoMain, onGoMap }) {
-  const [selected,    setSelected]    = useState(null);
-  const [time,        setTime]        = useState(new Date());
-  const [phaseIdx,    setPhaseIdx]    = useState(null);
-  // AI 최적화 결과 (null=before, object=after)
-  const [aiOptResult, setAiOptResult] = useState(null);
-  const [simPhases,   setSimPhases]   = useState(null);
-  const [autoTrigger, setAutoTrigger] = useState(null);
+  // selectedList: 클릭한 교차로 순서대로 쌓이는 배열
+  // [0]=첫 번째 마커, [1]=두 번째 마커, ...
+  const [selectedList, setSelectedList] = useState([]);
+  const [time,         setTime]         = useState(new Date());
+  const [phaseIdx,     setPhaseIdx]     = useState(null);
+  const [simPhases,    setSimPhases]    = useState(null);
+  const [simContext,   setSimContext]   = useState(null);
+  const [autoTrigger,  setAutoTrigger]  = useState(null);
+  const [aiOptResult,  setAiOptResult]  = useState(null);
 
+  // 편의 변수: 첫 번째 선택 교차로 (사이드바 패널용)
+  const selected = selectedList[0] ?? null;
+
+  // isAfterMode: AI 최적화 결과가 있을 때 After 모드
+  const isAfterMode = !!aiOptResult && aiOptResult.status === "optimized";
+
+  // handleSelect: 마커 클릭마다 selectedList에 추가
+  //   - 이미 리스트에 있는 교차로 클릭 → 해당 교차로 이후 제거 (재선택)
+  //   - 새 교차로 클릭 → 배열 끝에 추가
+  //   - 첫 번째 마커 다시 클릭 → 초기화
+  const handleSelect = (cr) => {
+    setSelectedList(prev => {
+      // 이미 선택된 마커를 다시 클릭 → 해당 마커 취소(제거)
+      const existIdx = prev.findIndex(item => item.intNo === cr.intNo);
+      if (existIdx !== -1) {
+        const next = prev.filter(item => item.intNo !== cr.intNo);
+        if (next.length === 0) {
+          setAiOptResult(null);
+          setSimContext(null);
+        }
+        return next;
+      }
+      // 새 교차로 추가
+      return [...prev, cr];
+    });
+  };
+
+  const handleSimulationSave = (simulation) => {
+    setSimPhases(simulation);
+    setAiOptResult({ status: "optimized", source: "manual-simulation", appliedAt: Date.now() });
+  };
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-
-  // 교차로 바뀌면 AI 결과 초기화
-  const handleSelect = (cr) => {
-    setSelected(cr);
-    setAiOptResult(null);
-  };
-
-  // AI 최적화 결과 수신 → SimulationMapView에 전달
-  const handleOptimized = (result) => {
-    setAiOptResult(result);
-  };
-
-  const isAfterMode = !!aiOptResult && aiOptResult.status === "optimized";
-
   useEffect(() => {
     setSimPhases(null);
-  }, [selected?.intNo]);
-
+    if (selectedList.length === 0) {
+      setAiOptResult(null);
+      setSimContext(null);
+    }
+  }, [selectedList]);
 
   return (
     <div style={{ fontFamily: "'Noto Sans KR','Malgun Gothic',sans-serif", background: "#12100a", color: "#e2e8f0", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -306,11 +315,9 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
           <div style={{ fontSize: 11, color: "#475569" }}>교차로 클릭 → 실시간 신호 + 3D 차량 확인</div>
         </div>
 
-        {/* Before / After 모드 배지 */}
-        {selected && (
+        {selectedList.length > 0 && (
           <div style={{
-            marginLeft: 16,
-            display: "flex", alignItems: "center", gap: 6,
+            marginLeft: 16, display: "flex", alignItems: "center", gap: 6,
             padding: "4px 14px", borderRadius: 20,
             background: isAfterMode ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.08)",
             border: `1px solid ${isAfterMode ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.2)"}`,
@@ -331,26 +338,16 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 400px", minHeight: 0 }}>
 
         {/* 3D 지도 */}
-{/*  HEAD */}
-//         <div style={{ padding: "10px 6px 10px 10px", minHeight: 0 }}>
-//           <div style={{
-//             height: "100%", borderRadius: 11, overflow: "hidden",
-//             border: `1px solid ${isAfterMode ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.08)"}`,
-//             boxShadow: isAfterMode ? "0 0 20px rgba(34,197,94,0.1)" : "none",
-//             transition: "border-color 0.5s, box-shadow 0.5s",
-//           }}>
-
         <div style={{ padding: "10px 6px 10px 10px", minHeight: 0, position: "relative" }}>
-          <div style={{ height: "100%", borderRadius: 11, overflow: "hidden",
-              border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div style={{ height: "100%", borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
             <SimulationMapView
-              selected={selected}
+              selectedList={selectedList}
               onSelect={handleSelect}
               phaseIdx={phaseIdx}
-              isOptimized={isAfterMode}  // After 모드 전달 → 차량 속도 빠르게
+              isOptimized={isAfterMode}
+              trafficContext={simContext?.traffic}
             />
           </div>
-          {/* AI 챗봇 — 지도 우하단 */}
           <div style={{ position: "absolute", bottom: 24, right: 20, zIndex: 10 }}>
             <SimulationChatBot intNo={selected?.intNo} intNm={selected?.intNm} simulation={simPhases} autoTrigger={autoTrigger} />
           </div>
@@ -359,15 +356,14 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
         {/* 사이드바 */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 10px 10px 4px", overflowY: "auto" }}>
 
-
-          {/* 신호 게이지 패널 (기존 API 그대로) */}
           <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 16 }}>
-            {selected ? (
+            {selected ? (  /* selected = selectedList[0] */
               <SignalSimPanel
                 intNo={selected.intNo}
                 intNm={selected.intNm}
                 onPhaseChange={setPhaseIdx}
-                onOptimized={handleOptimized}
+                phaseOverride={simPhases}
+                onContextChange={setSimContext}
               />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 160, gap: 12, color: "#475569" }}>
@@ -379,25 +375,22 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
             )}
           </div>
 
-          {/* 시뮬레이션 슬라이더 패널 (새 API) */}
-          {selected && (
+          {selectedList.length > 0 && (
             <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 16 }}>
               <SimSliderPanel
                 intNo={selected.intNo}
                 intNm={selected.intNm}
-                onSave={setSimPhases}
+                onSave={handleSimulationSave}
                 onAutoAsk={setAutoTrigger}
               />
             </div>
           )}
 
-          {/* 안내 */}
           <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 6, padding: 14, flexShrink: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", marginBottom: 8 }}>📖 사용 방법</div>
             {[
               "지도에서 🔵 파란 마커 클릭",
               "현재 시각 기준 신호 현시 자동 계산",
-
               "슬라이더로 현시별 시간 조정",
               "저장 & AI 분석 → 챗봇에 자동 반영",
             ].map((t, i) => (
