@@ -75,15 +75,18 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     question: str
-    crsrdId: str | None = None   # 선택된 교차로 ID (없으면 에이전트가 검색)
+    crsrdId: str | None = None       # 선택된 교차로 ID (없으면 에이전트가 검색)
+    userEmail: str | None = None     # 요청한 유저 이메일 (메일 발송 시 사용)
 
 class SimulationChatRequest(BaseModel):
     question: str
     context: dict | None = None       # Spring이 조립한 신호계획 컨텍스트
     simulation: list | None = None    # 관제사 조정값 [{ no, sec, dirs }]
+    userEmail: str | None = None      # 요청한 유저 이메일 (메일 발송 시 사용)
 
 class DistrictRequest(BaseModel):
-    district: str                # 예: "강남구"
+    district: str
+    userEmail: str | None = None  # 로그인한 유저 이메일 (없으면 발송 안 함)
 
 class ChatResponse(BaseModel):
     answer: str
@@ -134,18 +137,25 @@ async def health():
 async def free_chat(req: ChatRequest):
     """지도 페이지 자유 챗봇 — 에이전트가 교차로 검색 후 분석"""
 
+    email_ctx = (
+        f"\n[요청 유저 이메일: {req.userEmail}]"
+        f"\n메일 발송 요청이 있으면 send_email_report 도구를 호출하고 to 필드에 위 이메일을 반드시 사용할 것."
+    ) if req.userEmail else ""
+
     if req.crsrdId:
         prompt = (
             f"/no_think\n"
             f"교차로 ID {req.crsrdId}의 실시간 교통 데이터를 조회하고, "
-            f"다음 질문에 한국어로 간결하게 답해줘: {req.question}"
+            f"다음 질문에 한국어로 답해줘: {req.question}"
+            f"{email_ctx}"
         )
     else:
         prompt = (
             f"/no_think\n"
-            f"서울 교통 관제 시스템이야. 반드시 한국어로 간결하게 답해줘.\n"
+            f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
             f"필요하면 MCP 도구로 데이터를 조회해서 답해줘.\n"
             f"질문: {req.question}"
+            f"{email_ctx}"
         )
 
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
@@ -170,12 +180,18 @@ async def simulation_chat(req: SimulationChatRequest):
             f"원래 신호계획과 비교해서 어떤 현시가 얼마나 바뀌었는지도 분석해줘."
         )
 
+    email_ctx = (
+        f"\n[요청 유저 이메일: {req.userEmail}]"
+        f"\n메일 발송 요청이 있으면 send_email_report 도구를 호출하고 to 필드에 위 이메일을 반드시 사용할 것."
+    ) if req.userEmail else ""
+
     prompt = (
         f"/no_think\n"
-        f"서울 신호 시뮬레이션 시스템이야. 반드시 한국어로 간결하게 답해줘."
+        f"서울 신호 시뮬레이션 시스템이야. 반드시 한국어로 답해줘."
         f"{ctx_block}"
         f"{sim_block}\n\n"
         f"질문: {req.question}"
+        f"{email_ctx}"
     )
 
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
@@ -184,91 +200,35 @@ async def simulation_chat(req: SimulationChatRequest):
 
 @app.post("/api/agent/bottleneck-email", response_model=ChatResponse)
 async def bottleneck_email(req: DistrictRequest):
-    """15km/h 이하 병목 교차로만 필터링해서 DB 등록 이메일로 직접 전송"""
-    import httpx, smtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-
-    GMAIL_SENDER  = "juya0947@gmail.com"
-    GMAIL_APP_PWD = "hgma peeg rfbm sboq"
-
-    # 1. LLM에게 리포트 텍스트만 생성 요청 (메일 전송은 직접 처리)
+    """병목 리포트 텍스트만 생성 — 메일 발송은 Spring이 담당"""
     prompt = (
         f"/no_think\n"
         f"get_district_traffic 도구로 서울 {req.district} 교통 데이터를 조회해줘.\n"
-        f"조회 결과를 바탕으로 아래 형식의 한국어 리포트 텍스트만 작성해줘. 다른 말은 하지 말고 리포트 본문만 출력해줘:\n\n"
-        f"[병목 경보] 서울 {req.district} 교통 현황\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"■ 수집 교차로: N개\n\n"
-        f"■ 15km/h 이하 병목 구간 (N개)\n"
-        f"  순위·교차로명·속도·위험등급 표 형식으로 작성\n\n"
-        f"■ 총평 및 조치 권고\n"
-        f"  혼잡 원인 추정과 신호 조정 권고를 2~3문장으로 작성\n\n"
-        f"병목 교차로가 없으면 '현재 {req.district} 내 15km/h 이하 구간 없음'으로만 작성해줘."
+        f"조회 결과를 바탕으로 아래 형식을 그대로 지켜서 리포트 본문만 출력해줘. 다른 말은 절대 하지 말고 양식 그대로만 출력.\n\n"
+        f"교통관제 자동화 시스템입니다.\n"
+        f"{req.district} 내 15km/h 이하 구간이 감지되어 경보를 발송합니다.\n"
+        f"관제사께서는 아래 내용을 확인하시고 필요한 조치를 취해주시기 바랍니다.\n\n"
+        f"[병목 구간 현황]\n"
+        f"기준: 15km/h 이하 구간\n"
+        f"수집 교차로: {{total_crossroads}}개\n\n"
+        f"순위 | 교차로명                | 현재속도    | 위험등급\n"
+        f"-----|------------------------|------------|-------\n"
+        f"(병목 교차로를 위 표 형식으로 순위별로 작성. 없으면 '해당 없음' 한 줄)\n\n"
+        f"[날씨 현황]\n"
+        f"기온 {{temperatureC}}°C / 강수량 {{precipitationMm}}mm / 풍속 {{windSpeedMs}}m/s\n\n"
+        f"[시스템 분석 및 조치 권고]\n"
+        f"(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장)\n\n"
+        f"---\n"
+        f"TrafficSync 자동 발송 | 조치 후 관제 시스템에서 확인 바랍니다.\n\n"
+        f"병목 교차로가 없으면 아래 양식만 출력:\n"
+        f"교통관제 자동화 시스템입니다.\n"
+        f"현재 {req.district} 내 15km/h 이하 구간이 감지되지 않았습니다.\n"
+        f"수집 교차로: {{total_crossroads}}개 / 현재 교통 상황 양호\n\n"
+        f"---\n"
+        f"TrafficSync 자동 발송"
     )
-    result  = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
-    report  = extract_answer(result)
-    subject = f"[병목 경보] 서울 {req.district}"
-
-    # 2. DB에서 알림 수신 동의 이메일 목록 조회
-    recipients = []
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get("http://localhost:8080/api/auth/alert-emails")
-            if resp.status_code == 200:
-                recipients = resp.json()
-    except Exception:
-        pass
-
-    to_list = recipients if recipients else [GMAIL_SENDER]
-
-    # 3. 직접 SMTP 발송 (LLM 의존 없음)
-    sent, failed = 0, 0
-    for to_addr in to_list:
-        try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"]    = GMAIL_SENDER
-            msg["To"]      = to_addr
-            msg.attach(MIMEText(report, "plain", "utf-8"))
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-                smtp.login(GMAIL_SENDER, GMAIL_APP_PWD)
-                smtp.send_message(msg)
-            sent += 1
-        except Exception:
-            failed += 1
-
-    return ChatResponse(answer=f"{report}\n\n[발송 결과] {sent}명 성공, {failed}명 실패")
-
-
-class SimpleMailRequest(BaseModel):
-    to: str
-    subject: str
-    body: str
-
-@app.post("/api/agent/send-simple-mail")
-async def send_simple_mail(req: SimpleMailRequest):
-    """임시 비밀번호 등 단순 메일 직접 발송 (LLM 없이)"""
-    import smtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-
-    GMAIL_SENDER  = "juya0947@gmail.com"
-    GMAIL_APP_PWD = "hgma peeg rfbm sboq"
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = req.subject
-    msg["From"]    = GMAIL_SENDER
-    msg["To"]      = req.to
-    msg.attach(MIMEText(req.body, "plain", "utf-8"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-            smtp.login(GMAIL_SENDER, GMAIL_APP_PWD)
-            smtp.send_message(msg)
-        return {"success": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
+    return ChatResponse(answer=extract_answer(result))
 
 
 @app.post("/api/agent/district-report", response_model=ReportResponse)

@@ -44,6 +44,7 @@ export default function AIChatBot({ selected }) {
         body: JSON.stringify({
           question: q,
           crsrdId: selected?.crsrdId ?? null,
+          userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

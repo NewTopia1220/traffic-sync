@@ -21,11 +21,12 @@ function BottleneckEmailBtn({ district, apiBase }) {
 
   const handleClick = async () => {
     setStatus("loading");
+    const userEmail = JSON.parse(localStorage.getItem("ts_user") || "{}").email || null;
     try {
       await fetch(`${apiBase}/api/bottleneck-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ district }),
+        body: JSON.stringify({ district, userEmail }),
       });
       setStatus("done");
       setTimeout(() => setStatus("idle"), 3000);

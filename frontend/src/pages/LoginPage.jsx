@@ -103,7 +103,7 @@ function ScreenLogin({ onSuccess, onGo }) {
       });
       const data = await res.json();
       if (data.success) {
-        localStorage.setItem("ts_user", JSON.stringify({ userId: data.userId, name: data.name, role: data.role, isTempPw: data.isTempPw }));
+        localStorage.setItem("ts_user", JSON.stringify({ userId: data.userId, name: data.name, role: data.role, isTempPw: data.isTempPw, email: data.email || "" }));
         onSuccess(data);
       } else {
         setErr(data.message);

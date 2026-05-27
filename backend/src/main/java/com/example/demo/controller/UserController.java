@@ -1,6 +1,7 @@
 package com.example.demo.controller;
 
 import com.example.demo.entity.UserEntity;
+import com.example.demo.service.EmailService;
 import com.example.demo.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +16,7 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
+    private final EmailService emailService;
 
     // 로그인
     @PostMapping("/login")
@@ -49,19 +51,15 @@ public class UserController {
         Map<String, Object> result = userService.findPw(userId, email);
         if (!(Boolean) result.get("success")) return ResponseEntity.ok(result);
 
-        // Python MCP 서버로 임시 비밀번호 메일 발송
+        // Spring JavaMailSender로 직접 발송
         try {
             String tempPw = (String) result.get("tempPw");
             String name   = (String) result.get("name");
-            String subject = "[TrafficSync] 임시 비밀번호 안내";
-            String content = name + "님, 임시 비밀번호는 " + tempPw + " 입니다.\n로그인 후 반드시 비밀번호를 변경해주세요.";
-
-            org.springframework.web.reactive.function.client.WebClient
-                .create("http://localhost:8001")
-                .post().uri("/api/agent/send-simple-mail")
-                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("to", email, "subject", subject, "body", content))
-                .retrieve().bodyToMono(String.class).block();
+            emailService.send(
+                email,
+                "[TrafficSync] 임시 비밀번호 안내",
+                name + "님, 임시 비밀번호는 " + tempPw + " 입니다.\n로그인 후 반드시 비밀번호를 변경해주세요."
+            );
         } catch (Exception ignored) {}
 
         return ResponseEntity.ok(Map.of("success", true, "message", "임시 비밀번호가 이메일로 발송되었습니다."));

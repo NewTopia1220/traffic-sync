@@ -26,7 +26,7 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
     const { question, intNo: aIntNo, simulation: aSim } = autoTrigger;
     setMessages(prev => [...prev, { role: "user", text: question }]);
     setLoading(true);
-    const body = { question, intNo: aIntNo ?? null };
+    const body = { question, intNo: aIntNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
     if (aSim && aSim.length > 0) body.simulation = aSim;
     fetch(`${API_BASE}/api/simulation-chat`, {
       method: "POST",
@@ -46,7 +46,7 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
     setInput("");
     setLoading(true);
     try {
-      const body = { question: q, intNo: intNo ?? null };
+      const body = { question: q, intNo: intNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
       if (simulation && simulation.length > 0) body.simulation = simulation;
       const res = await fetch(`${API_BASE}/api/simulation-chat`, {
         method: "POST",

@@ -48,7 +48,7 @@ async def list_tools() -> list[Tool]:
                 "- signals: 방향별 신호 맵. 키=nt(북직진)/et(동직진)/st(남직진)/wt(서직진)/ne/se/sw/nw(대각).\n"
                 "  각 방향 안에 stsg(직진)·ltsg(좌회전)·pdsg(보행) 신호가 있으며,\n"
                 "  status='stop-And-Remain'이면 적색, 'protected-Movement-Allowed'이면 녹색.\n"
-                "  rmndCs=잔여시간(1/10초 단위, 초 변환 시 ÷10).\n"
+                "  rmndCs=잔여시간(초 단위).\n"
                 "- speedKph: 실측 구간 속도(km/h). null이면 미수집.\n"
                 "- congestion: 원활/서행/혼잡/알 수 없음.\n"
                 "- avgWaitSec: 전방향 평균 대기시간(초). 단순 요약용.\n"
@@ -152,18 +152,18 @@ async def list_tools() -> list[Tool]:
             name="send_email_report",
             description=(
                 "교통 리포트를 이메일로 전송합니다. "
-                "특정 교차로 상세 리포트, 병목 현황 top3/top5/top10, 신호 조정 권고 등 "
-                "어떤 교통 리포트든 내용을 작성한 뒤 이 도구로 전송하세요. "
-                "수신자를 따로 말하지 않으면 기본 수신자에게 전송합니다."
+                "특정 교차로 상세 리포트, 병목 현황, 신호 최적화 권고 등 "
+                "사용자가 '메일로 보내줘', '이메일로 알려줘' 등을 요청하면 반드시 이 도구를 호출하세요. "
+                "to 필드에는 프롬프트에서 제공된 [요청 유저 이메일] 주소를 반드시 사용하세요."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "subject": {"type": "string", "description": "이메일 제목 (예: '강남구 교통 현황 리포트')"},
-                    "body":    {"type": "string", "description": "리포트 본문 (마크다운 형식 가능)"},
-                    "to":      {"type": "string", "description": "수신자 이메일 주소. 생략 시 기본 수신자로 전송."}
+                    "subject": {"type": "string", "description": "이메일 제목"},
+                    "body":    {"type": "string", "description": "리포트 본문"},
+                    "to":      {"type": "string", "description": "수신자 이메일 주소. 반드시 프롬프트의 [요청 유저 이메일] 값을 사용할 것."}
                 },
-                "required": ["subject", "body"]
+                "required": ["subject", "body", "to"]
             }
         ),
 
@@ -248,11 +248,20 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
 
     # ── get_traffic_data ────────────────────────────────────────────────────────
     if name == "get_traffic_data":
-        cid = args["crossroad_id"]              # LLM이 넘긴 교차로 ID
-        r = await client.get(f"{SPRING_BASE}/api/context/{cid}")  # Spring에 GET 요청
+        cid = args["crossroad_id"]
+        r = await client.get(f"{SPRING_BASE}/api/context/{cid}")
         if r.status_code == 404:
             return {"error": f"교차로 ID {cid} 를 찾을 수 없습니다."}
-        return r.json()                         # Spring이 반환한 TrafficContext JSON 그대로 반환
+        data = r.json()
+        # rmndCs는 V2X 원본이 1/10초 단위 → 초 단위로 변환해서 LLM에게 전달
+        signals = data.get("signals") or {}
+        for direction in signals.values():
+            if not isinstance(direction, dict):
+                continue
+            for sg in direction.values():
+                if isinstance(sg, dict) and "rmndCs" in sg:
+                    sg["rmndCs"] = round(sg["rmndCs"] / 10, 1)
+        return data
 
     # ── get_bottleneck_list ─────────────────────────────────────────────────────
     elif name == "get_bottleneck_list":
@@ -403,28 +412,25 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
 
     # ── send_email_report ───────────────────────────────────────────────────────
     elif name == "send_email_report":
-        to      = args.get("to", GMAIL_DEFAULT_TO)  # 수신자 미지정 시 기본값 사용
+        # LLM이 넘기는 to 파라미터는 무시 — 프롬프트에 주입된 userEmail만 사용
+        to      = args.get("to") or None
         subject = args["subject"]
         body    = args["body"]
 
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = GMAIL_SENDER
-        msg["To"]      = to
+        if not to:
+            return {"error": "수신자 이메일이 없습니다. 로그인 후 다시 시도해주세요."}
 
-        # 마크다운을 그대로 plain text로 전송 (HTML 변환 없이)
-        msg.attach(MIMEText(body, "plain", "utf-8"))
-
+        # SMTP 직접 호출 대신 Spring EmailService로 위임
         try:
-            # SSL로 Gmail SMTP 연결 → 로그인 → 전송 → 자동 종료
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-                smtp.login(GMAIL_SENDER, GMAIL_APP_PWD)
-                smtp.send_message(msg)
-            return {"success": True, "to": to, "subject": subject}
-        except smtplib.SMTPAuthenticationError:
-            return {"error": "Gmail 인증 실패. GMAIL_SENDER와 GMAIL_APP_PWD를 확인하세요."}
+            r = await client.post(
+                f"{SPRING_BASE}/api/email/send",
+                json={"to": to, "subject": subject, "body": body},
+            )
+            if r.status_code == 200:
+                return {"success": True, "to": to, "subject": subject}
+            return {"error": f"메일 발송 실패: HTTP {r.status_code}"}
         except Exception as e:
-            return {"error": f"이메일 전송 실패: {str(e)}"}
+            return {"error": f"메일 발송 실패: {str(e)}"}
 
     # ── 알 수 없는 도구 ─────────────────────────────────────────────────────────
     else:
