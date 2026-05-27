@@ -71,6 +71,7 @@ public class SignalService {
 
     public Map<String, Object> getSimulationContext(String intNo) {
         SignalCrossroadEntity crossroad = crossroadRepo.findById(intNo).orElse(null);
+        System.out.println(crossroad);
         if (crossroad == null) return Map.of("error", "교차로 없음: " + intNo);
 
         LocalDateTime now = LocalDateTime.now();

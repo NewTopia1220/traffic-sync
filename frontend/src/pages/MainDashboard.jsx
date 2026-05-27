@@ -158,9 +158,8 @@ function riskLevel(score, grade) {
 }
 
 function riskRank(item) {
-  const grade = riskGradeValue(item?.riskGrade ?? item?.grade);
   const score = hasRiskScore(item?.riskScore ?? item?.score) ? (item.riskScore ?? item.score) : -1;
-  return grade == null ? -1 : grade * 100000 + score;
+  return score;
 }
 
 // ── LivCard ──────────────────────────────────────────────────────────────────
@@ -551,6 +550,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
   const [watchList, setWatchList] = useState([]);
   // 위험도 패널에서 현재 선택된 슬롯 인덱스
   const [riskIdx, setRiskIdx] = useState(0);
+  // 기본 선택 구는 페이지 진입 시 한 번만 자동 수집한다.
+  const didAutoFetchDefaultGuRef = useRef(false);
 
   
   // 1. 지점 목록과 선택된 ID 관리
@@ -626,6 +627,13 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
       setTimeout(() => setFetchMsg(null), 3000);
     }
   }, []);
+
+  useEffect(() => {
+    if (!selectedGu || didAutoFetchDefaultGuRef.current) return;
+
+    didAutoFetchDefaultGuRef.current = true;
+    handleSelectGu(selectedGu);
+  }, [selectedGu, handleSelectGu]);
 
   // ── 활성 데이터 계산 ────────────────────────────────────────────────────────
   // 선택된 구 반경 2.5km 내 교차로만 필터한다. 결과가 없을 때 이전 구역 전체 데이터로 대체하면 화면이 섞여 보인다.
