@@ -23,7 +23,7 @@ public class ChatService {
     private final SignalService signalService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Value("${agent.api.url:http://localhost:8000}")
+    @Value("${agent.api.url:http://localhost:8001}")
     private String agentUrl;
 
     // 자유 챗봇 — 지도 페이지 (교차로 선택 여부 무관)
@@ -87,6 +87,28 @@ public class ChatService {
         } catch (Exception e) {
             log.error("시뮬레이션 에이전트 호출 실패: {}", e.getMessage());
             return "AI 분석 중 오류가 발생했습니다.";
+        }
+    }
+
+    // 병목 이메일 — 10km/h 이하만 필터링해서 메일 발송
+    public String bottleneckEmail(String districtName) {
+        try {
+            ObjectNode body = objectMapper.createObjectNode();
+            body.put("district", districtName);
+
+            String response = webClient.post()
+                    .uri(agentUrl + "/api/agent/bottleneck-email")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            JsonNode root = objectMapper.readTree(response);
+            return root.path("answer").asText("메일 전송 완료");
+        } catch (Exception e) {
+            log.error("병목 메일 전송 실패: {}", e.getMessage());
+            return "메일 전송 중 오류가 발생했습니다.";
         }
     }
 

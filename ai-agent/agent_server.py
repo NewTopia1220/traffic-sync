@@ -182,6 +182,95 @@ async def simulation_chat(req: SimulationChatRequest):
     return ChatResponse(answer=extract_answer(result))
 
 
+@app.post("/api/agent/bottleneck-email", response_model=ChatResponse)
+async def bottleneck_email(req: DistrictRequest):
+    """15km/h 이하 병목 교차로만 필터링해서 DB 등록 이메일로 직접 전송"""
+    import httpx, smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    GMAIL_SENDER  = "juya0947@gmail.com"
+    GMAIL_APP_PWD = "hgma peeg rfbm sboq"
+
+    # 1. LLM에게 리포트 텍스트만 생성 요청 (메일 전송은 직접 처리)
+    prompt = (
+        f"/no_think\n"
+        f"get_district_traffic 도구로 서울 {req.district} 교통 데이터를 조회해줘.\n"
+        f"조회 결과를 바탕으로 아래 형식의 한국어 리포트 텍스트만 작성해줘. 다른 말은 하지 말고 리포트 본문만 출력해줘:\n\n"
+        f"[병목 경보] 서울 {req.district} 교통 현황\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"■ 수집 교차로: N개\n\n"
+        f"■ 15km/h 이하 병목 구간 (N개)\n"
+        f"  순위·교차로명·속도·위험등급 표 형식으로 작성\n\n"
+        f"■ 총평 및 조치 권고\n"
+        f"  혼잡 원인 추정과 신호 조정 권고를 2~3문장으로 작성\n\n"
+        f"병목 교차로가 없으면 '현재 {req.district} 내 15km/h 이하 구간 없음'으로만 작성해줘."
+    )
+    result  = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
+    report  = extract_answer(result)
+    subject = f"[병목 경보] 서울 {req.district}"
+
+    # 2. DB에서 알림 수신 동의 이메일 목록 조회
+    recipients = []
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get("http://localhost:8080/api/auth/alert-emails")
+            if resp.status_code == 200:
+                recipients = resp.json()
+    except Exception:
+        pass
+
+    to_list = recipients if recipients else [GMAIL_SENDER]
+
+    # 3. 직접 SMTP 발송 (LLM 의존 없음)
+    sent, failed = 0, 0
+    for to_addr in to_list:
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"]    = GMAIL_SENDER
+            msg["To"]      = to_addr
+            msg.attach(MIMEText(report, "plain", "utf-8"))
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+                smtp.login(GMAIL_SENDER, GMAIL_APP_PWD)
+                smtp.send_message(msg)
+            sent += 1
+        except Exception:
+            failed += 1
+
+    return ChatResponse(answer=f"{report}\n\n[발송 결과] {sent}명 성공, {failed}명 실패")
+
+
+class SimpleMailRequest(BaseModel):
+    to: str
+    subject: str
+    body: str
+
+@app.post("/api/agent/send-simple-mail")
+async def send_simple_mail(req: SimpleMailRequest):
+    """임시 비밀번호 등 단순 메일 직접 발송 (LLM 없이)"""
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    GMAIL_SENDER  = "juya0947@gmail.com"
+    GMAIL_APP_PWD = "hgma peeg rfbm sboq"
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = req.subject
+    msg["From"]    = GMAIL_SENDER
+    msg["To"]      = req.to
+    msg.attach(MIMEText(req.body, "plain", "utf-8"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(GMAIL_SENDER, GMAIL_APP_PWD)
+            smtp.send_message(msg)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @app.post("/api/agent/district-report", response_model=ReportResponse)
 async def district_report(req: DistrictRequest):
     """메인 대시보드 구 단위 리포트"""
@@ -192,9 +281,9 @@ async def district_report(req: DistrictRequest):
         f"반드시 한국어로 아래 형식으로 간결하게 리포트 작성해줘:\n"
         f"## {req.district} 교통 현황\n"
         f"**수집 교차로**: N개\n"
-        f"**혼잡 TOP 3**: 교차로명\n"
         f"**평균 속도**: X km/h\n"
-        f"**신호 조정 권고**: ..."
+        f"**20km/h 이하 병목**: 교차로명 (속도 km/h, 위험등급) 목록\n"
+        f"**신호 조정 권고**: 혼잡 원인과 권고 2~3문장"
     )
 
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
