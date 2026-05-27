@@ -74,21 +74,31 @@ public class SignalService {
     }
 
     public Map<String, Object> getSimulationContext(String intNo) {
+        // SIGNAL_CROSSROAD 테이블에서 intNo로 교차로 기본정보 조회
         SignalCrossroadEntity crossroad = crossroadRepo.findById(intNo).orElse(null);
+        // 교차로 자체가 DB에 없으면 에러 반환
         if (crossroad == null) return Map.of("error", "교차로 없음: " + intNo);
 
+        // 현재 시각 — 어떤 운영계획이 활성인지 판단하고 사이클 내 경과 시간 계산에 사용
         LocalDateTime now = LocalDateTime.now();
+        // 자정 기준 초(sec)로 변환 — 운영계획 시작 시각과 같은 단위로 비교하기 위함
         int nowSec = now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond();
 
+        // SIGNAL_PLAN 테이블에서 해당 교차로의 모든 운영계획 행 조회
         List<SignalPlanEntity> allPlans = planRepo.findByIdIntNo(intNo);
+        // 운영계획이 하나도 없으면 시뮬레이션 불가
         if (allPlans.isEmpty()) return Map.of("error", "신호계획 없음: " + intNo);
 
+        // 전체 계획 중 현재 시각에 해당하는 활성 운영계획 1개 선택
         SignalPlanEntity activePlan = selectActivePlan(allPlans, now.getHour(), now.getMinute());
 
+        // SIGNAL_PHASE 테이블에서 현시 구성(방향코드) 조회 — 여러 mapNo가 있을 수 있으나 첫 번째만 사용
         List<SignalPhaseEntity> phases = phaseRepo.findByIdIntNo(intNo);
         SignalPhaseEntity phase = phases.isEmpty() ? null : phases.get(0);
 
+        // 활성 운영계획의 aRing1~8 값(현시별 초)을 리스트로 추출
         List<Integer> planSeconds = getPlanARingSeconds(activePlan);
+        // aRing 값이 전부 null 또는 0이면 유효한 신호계획이 없는 교차로
         boolean hasValidPlan = planSeconds.stream().anyMatch(s -> s != null && s > 0);
         if (!hasValidPlan) {
             return Map.of(
@@ -99,39 +109,58 @@ public class SignalService {
             );
         }
 
+        // 현시구성 A링(주 방향) 코드 리스트 — 현시 i번의 방향코드가 phaseACodes.get(i)
         List<String> phaseACodes = phase != null ? getPhaseACodes(phase) : Collections.emptyList();
+        // 현시구성 B링(대향 방향) 코드 리스트
         List<String> phaseBCodes = phase != null ? getPhaseBCodes(phase) : Collections.emptyList();
 
+        // 운영계획 시작 시각을 초 단위로 변환 (예: 07시 00분 → 25200초)
         int planStartSec = parseOperTimeSec(activePlan.getOperPlanHh(), activePlan.getOperPlanMi());
+        // 사이클 길이(초) — DB 값이 없거나 0이면 기본값 120초 사용
         int cycleVal = (activePlan.getCycleVal() != null && activePlan.getCycleVal() > 0)
                        ? activePlan.getCycleVal() : 120;
+        // 현재 사이클 내 경과 시간 — 음수 방지를 위해 이중 모듈러 연산 적용
         int elapsed = ((nowSec - planStartSec) % cycleVal + cycleVal) % cycleVal;
+        // 경과 시간 기준으로 지금 켜져 있는 현시 번호 계산
         int currentPhaseNo = calcPhaseNo(planSeconds, elapsed);
 
+        // 응답 맵 구성 — LinkedHashMap으로 삽입 순서 유지
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("intNo", crossroad.getIntNo());
         result.put("intNm", crossroad.getIntNm());
+        // 사이클 길이 — 프론트에서 진행 바 계산에 사용
         result.put("cycleVal", cycleVal);
+        // 운영계획 시작 시각(초) — 프론트에서 elapsed 재계산 시 기준값
         result.put("planStartSec", planStartSec);
+        // 현재 활성 현시 번호 — 최초 렌더링 시 하이라이트 기준
         result.put("currentPhaseNo", currentPhaseNo);
         result.put("traffic", buildRealtimeTrafficContext(crossroad));
 
         List<Map<String, Object>> phaseList = new ArrayList<>();
         for (int i = 0; i < planSeconds.size(); i++) {
             Integer sec = planSeconds.get(i);
+            // sec가 null 또는 0이면 해당 현시부터는 정의되지 않은 것이므로 순회 종료
             if (sec == null || sec == 0) break;
 
+            // i번째 현시의 A링·B링 방향코드 (인덱스 범위 초과 시 null)
             String aCode = i < phaseACodes.size() ? phaseACodes.get(i) : null;
             String bCode = i < phaseBCodes.size() ? phaseBCodes.get(i) : null;
+            // 방향코드 쌍을 "남↔북 직진" 같은 사람이 읽을 수 있는 문자열 리스트로 변환
             List<String> dirs = buildDirStrings(aCode, bCode);
+            // 방향코드 없는데 시간이 긴 경우 → clearance(전적색)가 아닌 미확인 현시
+            if (dirs.equals(List.of("전적색")) && sec > 6) {
+                dirs = List.of("미확인");
+            }
 
+            // 현시 1개를 { no, sec, dirs } 형태로 담아 리스트에 추가
             Map<String, Object> p = new LinkedHashMap<>();
-            p.put("no", i + 1);
-            p.put("sec", sec);
-            p.put("dirs", dirs);
+            p.put("no", i + 1);   // 현시 번호 (1-based)
+            p.put("sec", sec);    // 해당 현시의 녹색 시간(초)
+            p.put("dirs", dirs);  // 통행 방향 문자열 리스트
             phaseList.add(p);
         }
         result.put("phases", phaseList);
+        System.out.println("result = " + result);
         return result;
     }
 
