@@ -7,6 +7,7 @@ import CctvDashboard from './pages/CctvDashboard'
 import SimulationDashboard from './pages/SimulationDashboard'
 import NewsDashboard from './pages/NewsDashboard'
 import { useWebSocket } from './hooks/useWebSocket'
+import { GU_LIST } from './constants/seoulGeoData'
 
 /**
  * App 컴포넌트 — 애플리케이션 최상위 컴포넌트
@@ -36,6 +37,10 @@ export default function App() {
   // 지도 페이지로 이동할 때 initialCenter로 전달해 카카오맵 초기 중심을 설정
   const [mapCenter, setMapCenter] = useState(null)
 
+  // 선택된 구 — App 레벨에서 유지해야 페이지 이동 후 복귀 시 대시보드가 비지 않음
+  // 기본값: 강남구 (로그인 직후 자동 fetch-area 호출됨)
+  const [selectedGu, setSelectedGu] = useState(() => GU_LIST.find(g => g.name === "강남구"))
+
   /**
    * goMap — 지도 페이지로 이동하는 함수
    * @param {Object} center - 이동할 구의 좌표 { lat, lon, name }
@@ -47,6 +52,11 @@ export default function App() {
   const goMap = (center) => {
     if (center) setMapCenter(center)
     setPage('map')
+  }
+
+  const handleSelectGu = (gu) => {
+    setSelectedGu(gu)
+    setMapCenter(gu)
   }
 
   const [stations, setStations] = useState([]);
@@ -108,16 +118,18 @@ export default function App() {
   // 통합 대시보드 (기본 페이지 — page === 'main')
   return (
     <MainDashboard
-      onGoMap={goMap}                           // 구 클릭 시 좌표와 함께 지도 페이지로 이동
-      onGoCctv={() => setPage('cctv')}          // CCTV 관제 페이지로 이동
-      onGoNews={() => setPage('news')}          // 뉴스 감성 분석 페이지로 이동
-      onGoSimulation={() => setPage('simulation')} // 신호 시뮬레이션 페이지로 이동
-      onGoMyPage={() => setPage('mypage')}      // 마이페이지로 이동
-      onLogout={() => setPage('login')}         // 로그아웃
-      wsData={wsData}                           // 교차로 신호 데이터 (읽기)
-      setWsData={setWsData}                     // 데이터 업데이트 (쓰기) — 현재는 미사용
+      onGoMap={goMap}
+      onGoCctv={() => setPage('cctv')}
+      onGoNews={() => setPage('news')}
+      onGoSimulation={() => setPage('simulation')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      wsData={wsData}
+      setWsData={setWsData}
       stations={stations}
       setStations={setStations}
+      selectedGu={selectedGu}
+      onSelectGu={handleSelectGu}
     />
   )
   }

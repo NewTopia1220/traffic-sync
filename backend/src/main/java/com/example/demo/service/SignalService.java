@@ -95,7 +95,7 @@ public class SignalService {
         // SIGNAL_PHASE 테이블에서 현시 구성(방향코드) 조회 — 여러 mapNo가 있을 수 있으나 첫 번째만 사용
         List<SignalPhaseEntity> phases = phaseRepo.findByIdIntNo(intNo);
         SignalPhaseEntity phase = phases.isEmpty() ? null : phases.get(0);
-
+    
         // 활성 운영계획의 aRing1~8 값(현시별 초)을 리스트로 추출
         List<Integer> planSeconds = getPlanARingSeconds(activePlan);
         // aRing 값이 전부 null 또는 0이면 유효한 신호계획이 없는 교차로
