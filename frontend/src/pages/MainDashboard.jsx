@@ -986,6 +986,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
 
       </div>
 
+      
       {/* ── 3행: 위험도 패널 + 예측 차트 ── */}
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, padding: "8px 14px 24px", alignItems: "stretch" }}>
 

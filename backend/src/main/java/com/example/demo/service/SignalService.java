@@ -1,6 +1,8 @@
 package com.example.demo.service;
 
 import com.example.demo.entity.*;
+import com.example.demo.model.TrafficStatus;
+import com.example.demo.model.context.GeoPoint;
 import com.example.demo.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,8 @@ public class SignalService {
     private final SignalCrossroadRepository crossroadRepo;
     private final SignalPhaseRepository phaseRepo;
     private final SignalPlanRepository planRepo;
+    private final TrafficCacheService trafficCacheService;
+    private final SupplementalDataCacheService supplementalDataCacheService;
 
     public Map<String, Object> getSignalData(String intNo) {
         Map<String, Object> result = new LinkedHashMap<>();
@@ -130,6 +134,7 @@ public class SignalService {
         result.put("planStartSec", planStartSec);
         // 현재 활성 현시 번호 — 최초 렌더링 시 하이라이트 기준
         result.put("currentPhaseNo", currentPhaseNo);
+        result.put("traffic", buildRealtimeTrafficContext(crossroad));
 
         List<Map<String, Object>> phaseList = new ArrayList<>();
         for (int i = 0; i < planSeconds.size(); i++) {
@@ -157,6 +162,70 @@ public class SignalService {
         result.put("phases", phaseList);
         System.out.println("result = " + result);
         return result;
+    }
+
+    private Map<String, Object> buildRealtimeTrafficContext(SignalCrossroadEntity signalCrossroad) {
+        Double lon = parseCoord(signalCrossroad.getXCoord());
+        Double lat = parseCoord(signalCrossroad.getYCoord());
+        if (lon == null || lat == null) {
+            return Map.of(
+                    "source", "none",
+                    "realTime", false,
+                    "reason", "신호 교차로 좌표 없음"
+            );
+        }
+
+        TrafficStatus nearest = null;
+        double nearestDistanceMeters = Double.MAX_VALUE;
+        GeoPoint signalPoint = new GeoPoint(lat, lon);
+        for (TrafficStatus status : trafficCacheService.getAllSignals().values()) {
+            if (status == null) continue;
+            double statusLat = status.getLat();
+            double statusLon = status.getLon();
+            if (statusLat == 0.0 || statusLon == 0.0) continue;
+
+            double distance = GeoDistanceUtils.haversineMeters(
+                    signalPoint,
+                    new GeoPoint(statusLat, statusLon)
+            );
+            if (distance < nearestDistanceMeters) {
+                nearestDistanceMeters = distance;
+                nearest = status;
+            }
+        }
+
+        if (nearest == null || nearestDistanceMeters > 350.0) {
+            return Map.of(
+                    "source", "none",
+                    "realTime", false,
+                    "reason", "근처 실시간 속도 캐시 없음",
+                    "matchDistanceMeters", Math.round(nearestDistanceMeters == Double.MAX_VALUE ? -1 : nearestDistanceMeters)
+            );
+        }
+
+        supplementalDataCacheService.enrichTrafficStatus(nearest);
+        Map<String, Object> traffic = new LinkedHashMap<>();
+        traffic.put("source", "nearest-live-crossroad");
+        traffic.put("realTime", nearest.getSpeedKph() != null && !nearest.isSpeedStale());
+        traffic.put("matchedCrsrdId", nearest.getCrsrdId());
+        traffic.put("matchedCrsrdNm", nearest.getCrsrdNm());
+        traffic.put("matchDistanceMeters", Math.round(nearestDistanceMeters));
+        traffic.put("speedKph", nearest.getSpeedKph());
+        traffic.put("travelTimeSec", nearest.getTravelTimeSec());
+        traffic.put("congestion", nearest.getCongestion());
+        traffic.put("speedStale", nearest.isSpeedStale());
+        traffic.put("serverTimeMs", nearest.getServerTimeMs());
+        traffic.put("avgWaitSec", nearest.getAvgWaitSec());
+        return traffic;
+    }
+
+    private Double parseCoord(String value) {
+        try {
+            if (value == null || value.isBlank()) return null;
+            return Double.parseDouble(value) / 10_000_000.0;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private SignalPlanEntity selectActivePlan(List<SignalPlanEntity> plans, int hour, int minute) {
