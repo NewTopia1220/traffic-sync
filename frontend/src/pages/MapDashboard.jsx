@@ -24,6 +24,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
   const [showRoadView, setShowRoadView] = useState(false);
   const [selectedCctv, setSelectedCctv] = useState(null);
   const [chatOpen,     setChatOpen]     = useState(false);
+  const [signalPanelOpen, setSignalPanelOpen] = useState(true);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -32,14 +33,15 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
 
   useEffect(() => {
     setSelected(prev => {
-      if (!prev && wsData.length > 0) return wsData[0];
+      if (!prev && wsData.length > 0 && signalPanelOpen) return wsData[0];
       if (prev) return wsData.find(c => c.crsrdId === prev.crsrdId) || prev;
       return prev;
     });
-  }, [wsData]);
+  }, [wsData, signalPanelOpen]);
 
   const selectCr = useCallback(cr => {
     setSelected(cr);
+    setSignalPanelOpen(true);
     setActiveTab("map");
   }, []);
 
@@ -93,7 +95,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
 
           {activeTab === "map" && (
             <div style={{ flex: 1, position: "relative", minHeight: 0, borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} />
+              <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} selectedGu={selectedGu} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} />
 
               {wsData.length === 0 && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(7,12,23,0.75)", zIndex: 30, gap: 10 }}>
@@ -108,32 +110,48 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
                   onClick={() => setChatOpen(o => !o)}
                   title={chatOpen ? "AI 챗봇 닫기" : "AI 교통 어시스턴트 열기"}
                   style={{
-                    width: 48, height: 48,
+                    width: 54, height: 54,
                     borderRadius: "50%",
-                    background: chatOpen ? "rgba(255,255,255,0.12)" : "rgba(18,18,18,0.88)",
-                    border: `1.5px solid ${chatOpen ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.14)"}`,
+                    background: chatOpen
+                      ? "linear-gradient(135deg, rgba(96,165,250,0.95), rgba(168,85,247,0.95))"
+                      : "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(59,130,246,0.9))",
+                    border: `2px solid ${chatOpen ? "rgba(255,255,255,0.38)" : "rgba(147,197,253,0.55)"}`,
                     backdropFilter: "blur(12px)",
                     WebkitBackdropFilter: "blur(12px)",
                     cursor: "pointer",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    boxShadow: "0 2px 16px rgba(0,0,0,0.6)",
+                    boxShadow: "0 4px 18px rgba(0,0,0,0.62), 0 0 16px rgba(96,165,250,0.28)",
                     transition: "all .2s",
                   }}
                 >
                   {chatOpen
                     ? <span style={{ fontSize: 16, color: "rgba(255,255,255,0.55)" }}>✕</span>
-                    : <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.75)", fontFamily: "system-ui,sans-serif", letterSpacing: ".5px" }}>AI</span>
+                    : <span style={{ fontSize: 25, lineHeight: 1 }}>🤖</span>
                   }
                 </button>
               </div>
 
               {/* 좌측 하단: 신호 현황 오버레이 */}
-              {selected && (
-                <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 340, pointerEvents: "auto" }}>
-                  <div style={{ background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)", borderRadius: 4, padding: 14, backdropFilter: "blur(8px)" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                      <div style={{ fontSize: 13, color: "#4ea6ff", fontWeight: 700 }}>📍 {selected.crsrdNm} — 실시간 신호 현황</div>
-                      <button onClick={() => setShowRoadView(true)} style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 6, color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "3px 9px", fontFamily: "inherit" }}>🛣️ 로드뷰</button>
+              {selected && signalPanelOpen && (
+                <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 460, maxWidth: "calc(100% - 28px)", pointerEvents: "auto" }}>
+                  <div style={{ background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)", borderRadius: 10, padding: 16, backdropFilter: "blur(8px)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
+                      <div style={{ fontSize: 17, color: "#4ea6ff", fontWeight: 800, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📍 {selected.crsrdNm}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                        <button onClick={() => setShowRoadView(true)} style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 6, color: "#60a5fa", fontSize: 12, cursor: "pointer", padding: "5px 11px", fontFamily: "inherit" }}>로드뷰</button>
+                        <button
+                          onClick={() => { setSignalPanelOpen(false); setSelected(null); }}
+                          title="신호 현황 닫기"
+                          style={{
+                            width: 28, height: 28, borderRadius: 6,
+                            background: "rgba(255,255,255,0.06)",
+                            border: "1px solid rgba(255,255,255,0.14)",
+                            color: "#cbd5e1", cursor: "pointer", fontSize: 16,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontFamily: "inherit", lineHeight: 1,
+                          }}
+                        >×</button>
+                      </div>
                     </div>
                     <SignalPanel cr={selected} />
                   </div>

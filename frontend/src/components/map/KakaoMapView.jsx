@@ -7,6 +7,7 @@ const DEFAULT_LON = 127.1002;
 
 // 스프링 REST API 주소 — CCTV 목록 조회용
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
+const CLUSTER_LEVEL = 5; // 카카오맵 level 값이 클수록 줌아웃 상태
 
 /**
  * KakaoMapView 컴포넌트
@@ -20,20 +21,23 @@ const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").repla
  * @param {Object}   initialCenter - 최초 지도 중심 좌표 { lat, lon } (구 클릭 시 전달)
  * @param {Function} onCctvClick   - CCTV 마커 클릭 시 CCTV 객체 전달 콜백 → CctvModal 열기
  */
-export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter, onCctvClick, stations = [], onStationSelect }) {
+export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter, selectedGu, onCctvClick, stations = [], onStationSelect }) {
 
   // ── Ref: 재렌더링 없이 값 유지 ──────────────────────────────────────────────
   const mapRef       = useRef(null); // 카카오맵이 실제로 렌더링될 DOM div 요소
   const mapObj       = useRef(null); // kakao.maps.Map 인스턴스 (지도 객체)
   const overlays     = useRef({});   // 교차로 오버레이 맵 { crsrdId → CustomOverlay }
   const cctvOverlays = useRef([]);   // CCTV CustomOverlay 배열 (toggle 시 일괄 제거용)
-  const clusterer    = useRef(null); // MarkerClusterer 인스턴스 (줌아웃 시 마커 묶음)
+  const cctvClusterer = useRef(null);  // CCTV 줌아웃 클러스터
+  const trafficClusterer = useRef(null); // 교통량 지점 줌아웃 클러스터
+  const signalClusterer = useRef(null); // 신호등 마커 줌아웃 클러스터
 
   // ── State: 바뀌면 리렌더 트리거 ────────────────────────────────────────────
   const [ready,    setReady]    = useState(false); // SDK 로드 완료 여부 (false면 로딩 스피너)
   const [zoom,     setZoom]     = useState(4);     // 현재 줌 레벨 (마커↔클러스터 전환 기준)
   const [cctvList, setCctvList] = useState([]);    // 스프링 /api/cctv에서 받은 CCTV 목록
   const [showCctv, setShowCctv] = useState(false); // CCTV 마커 표시 여부 (토글 버튼)
+  const [showSignal, setShowSignal] = useState(true); // 신호등 마커 표시 여부 (토글 버튼)
 
   // ── 교통량 추가 ────────────────────────────────────────────
   const trafficOverlays = useRef([]); // 교통량 오버레이 관리용
@@ -96,19 +100,57 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     // MarkerClusterer: 줌 레벨 5 미만에서 가까운 마커들을 하나의 원으로 묶어 표시
     // minLevel: 5 → 줌 5 미만(더 축소된 상태)에서 클러스터 활성화
     // averageCenter: 클러스터 중심을 포함 마커들의 평균 위치로 설정
-    clusterer.current = new kakao.maps.MarkerClusterer({
+    signalClusterer.current = new kakao.maps.MarkerClusterer({
       map,
       averageCenter: true,
-      minLevel: 5,
-      // 클러스터 마커 스타일: 주황 원형 (교차로 수 표시)
+      minLevel: CLUSTER_LEVEL,
+      gridSize: 72,
+      minClusterSize: 2,
       styles: [{
-        width: "42px", height: "42px",
-        background: "rgba(18,14,10,0.9)",
+        width: "46px", height: "46px",
+        background: "rgba(30, 99, 160, 0.96)",
         borderRadius: "50%",
-        border: "2px solid rgba(255,170,51,0.7)",
-        color: "#ffaa33",
-        fontSize: "14px", fontWeight: "700",
-        lineHeight: "42px", textAlign: "center",
+        border: "2px solid rgba(147, 197, 253, 0.95)",
+        color: "#e0f2fe",
+        fontSize: "14px", fontWeight: "800",
+        lineHeight: "46px", textAlign: "center",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.45)",
+      }],
+    });
+
+    cctvClusterer.current = new kakao.maps.MarkerClusterer({
+      map,
+      averageCenter: true,
+      minLevel: CLUSTER_LEVEL,
+      gridSize: 78,
+      minClusterSize: 2,
+      styles: [{
+        width: "46px", height: "46px",
+        background: "rgba(22, 101, 52, 0.96)",
+        borderRadius: "50%",
+        border: "2px solid rgba(134, 239, 172, 0.95)",
+        color: "#dcfce7",
+        fontSize: "14px", fontWeight: "800",
+        lineHeight: "46px", textAlign: "center",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.45)",
+      }],
+    });
+
+    trafficClusterer.current = new kakao.maps.MarkerClusterer({
+      map,
+      averageCenter: true,
+      minLevel: CLUSTER_LEVEL,
+      gridSize: 78,
+      minClusterSize: 2,
+      styles: [{
+        width: "46px", height: "46px",
+        background: "rgba(120, 72, 30, 0.96)",
+        borderRadius: "50%",
+        border: "2px solid rgba(245, 214, 181, 0.95)",
+        color: "#fff7ed",
+        fontSize: "14px", fontWeight: "800",
+        lineHeight: "46px", textAlign: "center",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.45)",
       }],
     });
   }, [ready]); // ready가 true로 바뀔 때 1회 실행
@@ -120,37 +162,38 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     if (!ready || !mapObj.current) return;
     const kakao = window.kakao;
 
-    // 기존 오버레이 전부 지도에서 제거
+    // 기존 신호등 오버레이/클러스터 전부 제거
     Object.values(overlays.current).forEach(ov => ov.setMap(null));
     overlays.current = {};
+    signalClusterer.current?.clear();
 
-    if (zoom >= 5) {
-      // ── 줌 5 이상: 교차로별 개별 CustomOverlay 표시 ──
-      if (clusterer.current) clusterer.current.clear(); // 클러스터 마커 제거
+    if (!showSignal) return;
 
+    if (zoom < CLUSTER_LEVEL) {
+      // ── 줌인 상태: 교차로별 개별 CustomOverlay 표시 ──
       crossroads.forEach(cr => {
         const pos   = new kakao.maps.LatLng(cr.lat, cr.lon);
         const isSel = selected?.crsrdId === cr.crsrdId;
         // domColor: mappedSignals의 신호 상태 → 빨강/노랑/초록 색상 반환
         const color = domColor(cr.mappedSignals);
 
-        // 선택된 교차로: 큰 원형 마커 + 이름 라벨 (zIndex: 10으로 위에 표시)
-        // 미선택 교차로: 작은 점 마커 (zIndex: 3)
-        const content = isSel
-          ? `<div style="position:relative;cursor:pointer">
-               <div style="width:36px;height:36px;border-radius:50%;border:2px solid ${color};background:${color}33;display:flex;align-items:center;justify-content:center">
-                 <div style="width:13px;height:13px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}"></div>
-               </div>
-               <div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:rgba(18,14,10,0.92);border:1px solid ${color}66;border-radius:3px;padding:2px 8px;font-size:11px;color:${color};white-space:nowrap;font-weight:700;font-family:Malgun Gothic,sans-serif">${cr.crsrdNm}</div>
-             </div>`
-          : `<div style="width:12px;height:12px;border-radius:50%;border:2px solid rgba(255,255,255,0.35);background:${color};box-shadow:0 0 5px ${color}88;cursor:pointer"></div>`;
+        // 신호등 마커: 이름 라벨 없이 파란 핀만 표시
+        const el = document.createElement("div");
+        el.style.cssText = "cursor:pointer;display:flex;align-items:center;justify-content:center;";
+        el.title = cr.crsrdNm;
+        el.innerHTML = `
+          <svg width="${isSel ? 38 : 32}" height="${isSel ? 50 : 42}" viewBox="0 0 34 46" xmlns="http://www.w3.org/2000/svg" style="display:block;">
+            <path d="M17 44 C17 44 4 28 4 17 A13 13 0 1 1 30 17 C30 28 17 44 17 44Z" fill="#2b7fc3" stroke="#0f3d66" stroke-width="3"/>
+            <circle cx="17" cy="17" r="6" fill="#0b1726" stroke="#a7d8ff" stroke-width="2"/>
+          </svg>
+        `;
 
         const ov = new kakao.maps.CustomOverlay({
           position: pos,
-          content,
+          content: el,
           zIndex: isSel ? 10 : 3,
-          xAnchor: 0.5, // 마커 중앙이 좌표에 정렬
-          yAnchor: 0.5,
+          xAnchor: 0.5,
+          yAnchor: 1.0,
         });
         ov.setMap(mapObj.current);
         ov.__cr = cr; // 클릭 이벤트 핸들러에서 교차로 데이터 접근용 (비표준 속성)
@@ -158,19 +201,19 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       });
 
     } else {
-      // ── 줌 5 미만: MarkerClusterer에 기본 마커 추가 ──
+      // ── 줌아웃 상태: MarkerClusterer에 기본 마커 추가 ──
       // CustomOverlay는 클러스터러가 지원하지 않아 기본 Marker 사용
       // 클릭 이벤트는 kakao.maps.event.addListener로 직접 등록
-      if (clusterer.current) {
+      if (signalClusterer.current) {
         const markers = crossroads.map(cr => {
           const m = new kakao.maps.Marker({ position: new kakao.maps.LatLng(cr.lat, cr.lon) });
           kakao.maps.event.addListener(m, "click", () => onSelect(cr));
           return m;
         });
-        clusterer.current.addMarkers(markers);
+        signalClusterer.current.addMarkers(markers);
       }
     }
-  }, [ready, crossroads, selected, zoom]);
+  }, [ready, crossroads, selected, zoom, showSignal, onSelect]);
 
   // ── useEffect 4: 선택된 교차로로 지도 이동 ─────────────────────────────────
   // selected.crsrdId 기준으로 실행 (같은 교차로의 신호 데이터만 갱신되면 이동 안 함)
@@ -191,22 +234,34 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
   }, []);
 
   // ── useEffect 6: CCTV 마커 토글 ────────────────────────────────────────────
-  // showCctv 또는 cctvList 변경 시 실행
+  // showCctv 또는 cctvList, zoom 변경 시 실행
   useEffect(() => {
     if (!ready || !mapObj.current) return;
     const kakao = window.kakao;
 
-    // 기존 CCTV 오버레이 전부 제거 (showCctv false면 여기서 종료)
+    // 기존 CCTV 오버레이/클러스터 전부 제거
     cctvOverlays.current.forEach(ov => ov.setMap(null));
     cctvOverlays.current = [];
+    cctvClusterer.current?.clear();
     if (!showCctv) return;
+
+    if (zoom >= CLUSTER_LEVEL) {
+      // 줌아웃 상태: CCTV를 클러스터로 묶어서 표시
+      const markers = cctvList.map(cctv => {
+        const marker = new kakao.maps.Marker({
+          position: new kakao.maps.LatLng(cctv.lat, cctv.lon),
+        });
+        kakao.maps.event.addListener(marker, "click", () => onCctvClick?.(cctv));
+        return marker;
+      });
+      cctvClusterer.current?.addMarkers(markers);
+      return;
+    }
 
     cctvList.forEach(cctv => {
       const pos = new kakao.maps.LatLng(cctv.lat, cctv.lon);
 
       // CCTV 마커: DOM 요소 직접 생성 (innerHTML로 SVG + 텍스트 삽입)
-      // 흰 배경 카드 + 카메라 SVG + 이름 6자 축약 + 핀 막대 + 하단 원
-      // streamId 있으면 초록 테두리(스트림 연결됨), 없으면 회색
       const el = document.createElement("div");
       el.style.cssText = "cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.8))";
       el.title = cctv.cctvNm;
@@ -228,21 +283,19 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         <div style="width:2px;height:6px;background:#fff;opacity:0.9"></div>
         <div style="width:6px;height:6px;border-radius:50%;background:#fff;opacity:0.9"></div>`;
 
-      // e.stopPropagation(): 지도 클릭 이벤트(교차로 선택)로 버블링 방지
-      // onCctvClick?: optional chaining으로 prop 없어도 에러 안 남
       el.addEventListener("click", e => { e.stopPropagation(); onCctvClick?.(cctv); });
 
       const ov = new kakao.maps.CustomOverlay({
         position: pos,
         content: el,
-        zIndex: 5,    // 교차로 마커(3)보다 위, 선택 교차로(10)보다 아래
+        zIndex: 5,
         xAnchor: 0.5,
-        yAnchor: 1.0, // 마커 하단(핀 끝)이 좌표에 정렬
+        yAnchor: 1.0,
       });
       ov.setMap(mapObj.current);
       cctvOverlays.current.push(ov);
     });
-  }, [ready, showCctv, cctvList, onCctvClick]);
+  }, [ready, showCctv, cctvList, onCctvClick, zoom]);
 
   
   // ── useEffect 7: 교통량 지점(AI Station) 마커 표시 ─────────────────────────────
@@ -250,36 +303,66 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     if (!ready || !mapObj.current) return;
     const kakao = window.kakao;
 
-    // 기존 교통량 오버레이 제거
+    // 기존 교통량 오버레이/클러스터 제거
     trafficOverlays.current.forEach(ov => ov.setMap(null));
     trafficOverlays.current = [];
+    trafficClusterer.current?.clear();
 
-    if (!showTraffic) return; 
+    if (!showTraffic) return;
+
+    const makeTrafficMarkerImage = () => {
+      const svg = `
+        <svg width="34" height="46" viewBox="0 0 34 46" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17 44 C17 44 4 28 4 17 A13 13 0 1 1 30 17 C30 28 17 44 17 44Z" fill="#8b5a2b" stroke="#2f1b0c" stroke-width="3"/>
+          <circle cx="17" cy="17" r="6" fill="#111827" stroke="#e8d2bd" stroke-width="2"/>
+        </svg>`;
+      const url = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
+      return new kakao.maps.MarkerImage(url, new kakao.maps.Size(34, 46), {
+        offset: new kakao.maps.Point(17, 44),
+      });
+    };
+
+    if (zoom >= CLUSTER_LEVEL) {
+      // 줌아웃 상태: 교통량 지점을 클러스터로 묶어서 표시
+      const image = makeTrafficMarkerImage();
+      const markers = stations.map(st => {
+        const marker = new kakao.maps.Marker({
+          position: new kakao.maps.LatLng(st.latitude, st.longitude),
+          image,
+        });
+        kakao.maps.event.addListener(marker, "click", () => {
+          setActiveStation(st.stationId);
+          onStationSelect?.(st.stationId);
+        });
+        return marker;
+      });
+      trafficClusterer.current?.addMarkers(markers);
+      return;
+    }
 
     stations.forEach(st => {
       const pos = new kakao.maps.LatLng(st.latitude, st.longitude);
-      // const MARKER_COLOR = "#ffca28";
 
-      // 마커 디자인 (다이아몬드)
+      // 마커 디자인: 파란 교차로 마커와 같은 핀 형태, 색상만 갈색으로 표시
       const el = document.createElement("div");
-      el.style.cssText = "cursor:pointer; display:flex; flex-direction:column; align-items:center; filter: drop-shadow(0 0 4px #ffca28);";
+      el.style.cssText = "cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:0;";
       el.innerHTML = `
-        <div style="width: 14px; height: 14px; background: #000; border: 2px solid #ffca28; 
-             border-radius: 2px; transform: rotate(45deg); display: flex; align-items: center; justify-content: center;">
-          <div style="width: 4px; height: 4px; background: #ffca28; border-radius: 50%;"></div>
-        </div>
-        <div style="margin-top: 6px; padding: 1px 15px; background: transparent; 
-             color: #ffffff; font-size: 10px; font-weight: 700; white-space: nowrap;
-             filter: invert(1) hue-rotate(180deg);">
+        <div style="padding:3px 7px;background:rgba(18,14,10,0.92);border:1px solid rgba(139,90,43,0.8);border-radius:5px;color:#d8b48a;font-size:11px;font-weight:800;white-space:nowrap;font-family:Malgun Gothic,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.45);">
           ${st.stationName}
+        </div>
+        <div style="width:34px;height:46px;display:flex;align-items:center;justify-content:center;">
+          <svg width="34" height="46" viewBox="0 0 34 46" xmlns="http://www.w3.org/2000/svg" style="display:block;">
+            <path d="M17 44 C17 44 4 28 4 17 A13 13 0 1 1 30 17 C30 28 17 44 17 44Z" fill="#8b5a2b" stroke="#2f1b0c" stroke-width="3"/>
+            <circle cx="17" cy="17" r="6" fill="#111827" stroke="#e8d2bd" stroke-width="2"/>
+          </svg>
         </div>
       `;
 
       // 마커 클릭 이벤트: activeStation 상태 업데이트 + 부모 콜백 호출
       el.onclick = (e) => {
         e.stopPropagation();
-        setActiveStation(st.stationId); // 상세 팝업 트리거z
-        if (onStationSelect) onStationSelect(st.stationId);
+        setActiveStation(st.stationId);
+        onStationSelect?.(st.stationId);
       };
 
       const ov = new kakao.maps.CustomOverlay({
@@ -287,21 +370,24 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         content: el,
         zIndex: 6,
         xAnchor: 0.5,
-        yAnchor: 0.5,
+        yAnchor: 1.0,
       });
       ov.setMap(mapObj.current);
       trafficOverlays.current.push(ov);
     });
-  }, [ready, showTraffic, stations]);
+  }, [ready, showTraffic, stations, zoom, onStationSelect]);
 
   // ── useEffect 7-1: 상세 정보 팝업(오버레이) Fetch 및 표시 ──────────────────────
   // 상세 정보 팝업(오버레이) 관리 useEffect
   useEffect(() => {
-    if (!ready || !mapObj.current || !activeStation) return;
+    if (!ready || !mapObj.current) return;
 
     if (stationDetailOverlay.current) {
       stationDetailOverlay.current.setMap(null);
+      stationDetailOverlay.current = null;
     }
+
+    if (!activeStation) return;
 
     // 백엔드 ForecastController 주소와 정확히 일치시킴
     const requestUrl = `${API_BASE}/api/forecast/station/${activeStation}`;
@@ -334,21 +420,21 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         const pos = new window.kakao.maps.LatLng(st.latitude, st.longitude);
         const content = document.createElement("div");
         content.style.cssText = `
-          position: relative; bottom: 45px; background: rgba(10, 20, 35, 0.95);
-          border: 1px solid #ffca28; border-radius: 8px; padding: 12px;
-          width: 180px; color: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+          position: relative; bottom: 54px; background: rgba(10, 20, 35, 0.96);
+          border: 2px solid #ffca28; border-radius: 12px; padding: 13px;
+          width: 210px; color: #fff; box-shadow: 0 6px 22px rgba(0,0,0,0.62), 0 0 16px rgba(255,202,40,0.25);
           backdrop-filter: blur(8px); z-index: 100;
         `;
 
         content.innerHTML = `
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,202,40,0.3); padding-bottom:5px; margin-bottom:8px;">
-            <span style="font-size:13px; font-weight:bold; color:#ffffff;">${st.stationName}</span>
-            <button id="close-ov" style="background:none; border:none; color:#fff; cursor:pointer; font-size:18px;">&times;</button>
+            <span style="font-size:14px; font-weight:bold; color:#ffffff;">${st.stationName}</span>
+            <button type="button" class="traffic-close-ov" style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:#fff; cursor:pointer; font-size:18px;line-height:20px;display:flex;align-items:center;justify-content:center;">&times;</button>
           </div>
           <div style="max-height: 120px; overflow-y: auto;">
             ${futureData.length > 0 
               ? futureData.map(d => `
-                  <div style="display:flex; justify-content:space-between; font-size:12px; padding:4px 0;">
+                  <div style="display:flex; justify-content:space-between; font-size:13px; padding:5px 0;">
                     <span style="color:#aab4c8;">${d.hour}시</span>
                     <span style="color:#fff; font-weight:700;">${Number(d.value || d.count).toLocaleString()}대</span>
                   </div>
@@ -359,7 +445,16 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
           <div style="position:absolute; bottom:-10px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid #ffca28;"></div>
         `;
 
-        content.querySelector("#close-ov").onclick = () => setActiveStation(null);
+        const closeButton = content.querySelector(".traffic-close-ov");
+        closeButton?.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (stationDetailOverlay.current) {
+            stationDetailOverlay.current.setMap(null);
+            stationDetailOverlay.current = null;
+          }
+          setActiveStation(null);
+        });
 
         const ov = new window.kakao.maps.CustomOverlay({
           position: pos,
@@ -409,9 +504,10 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
   );
 
   // ── 지도 렌더링 ─────────────────────────────────────────────────────────────
+  const selectedAreaName = selectedGu?.name || initialCenter?.name || "잠실역";
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
-
       {/* 카카오맵이 실제로 렌더링되는 div (ref로 참조) */}
       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
 
@@ -429,30 +525,43 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       {/* 좌상단: 교차로 수 안내 + CCTV 마커 토글 버튼 */}
       <div style={{ position: "absolute", top: 14, left: 14, display: "flex", gap: 7, zIndex: 10 }}>
         {/* 교차로 수 안내 (pointerEvents:none) */}
-        <div style={{ background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "4px 12px", fontSize: 12, color: "#aab4c8", pointerEvents: "none", backdropFilter: "blur(4px)" }}>
-          🗺️ 잠실역 반경 1km · V2X 실시간 · {crossroads.length}개 교차로
+        <div style={{ background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "7px 14px", fontSize: 14, fontWeight: 700, color: "#aab4c8", pointerEvents: "none", backdropFilter: "blur(4px)" }}>
+          {selectedAreaName} 반경 2.5km · V2X 실시간 · {crossroads.length}개 교차로
         </div>
-        {/* CCTV 토글 버튼: 활성화 시 주황 배경/테두리로 강조 */}
+        {/* 신호등 마커 토글 버튼 */}
+        <button
+          onClick={() => setShowSignal(v => !v)}
+          style={{
+            background: showSignal ? "rgba(78,166,255,0.15)" : "rgba(18,14,10,0.88)",
+            border: `1px solid ${showSignal ? "rgba(78,166,255,0.55)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: 8, padding: "7px 14px", fontSize: 14, fontWeight: 700,
+            color: showSignal ? "#4ea6ff" : "#aab4c8",
+            cursor: "pointer", fontFamily: "inherit", backdropFilter: "blur(4px)",
+          }}>
+          신호등 {crossroads.length}개
+        </button>
+
+        {/* CCTV 토글 버튼: 활성화 시 초록 배경/테두리로 강조 */}
         <button
           onClick={() => setShowCctv(v => !v)}
           style={{
-            background: showCctv ? "rgba(255,170,51,0.15)" : "rgba(18,14,10,0.88)",
-            border: `1px solid ${showCctv ? "rgba(255,170,51,0.5)" : "rgba(255,255,255,0.08)"}`,
-            borderRadius: 4, padding: "4px 12px", fontSize: 12,
-            color: showCctv ? "#ffaa33" : "#aab4c8",
+            background: showCctv ? "rgba(34,197,94,0.15)" : "rgba(18,14,10,0.88)",
+            border: `1px solid ${showCctv ? "rgba(34,197,94,0.55)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: 8, padding: "7px 14px", fontSize: 14, fontWeight: 700,
+            color: showCctv ? "#22c55e" : "#aab4c8",
             cursor: "pointer", fontFamily: "inherit", backdropFilter: "blur(4px)",
           }}>
-          📹 CCTV {cctvList.length > 0 ? `${cctvList.length}개` : ""}
+          CCTV {cctvList.length > 0 ? `${cctvList.length}개` : ""}
         </button>
 
         {/* 교통량 지점 토글 버튼 */}
         <button
           onClick={() => setShowTraffic(v => !v)}
           style={{
-            background: showTraffic ? "rgba(78,166,255,0.15)" : "rgba(18,14,10,0.88)",
-            border: `1px solid ${showTraffic ? "rgba(78,166,255,0.5)" : "rgba(255,255,255,0.08)"}`,
-            borderRadius: 4, padding: "4px 12px", fontSize: 12,
-            color: showTraffic ? "#4ea6ff" : "#aab4c8",
+            background: showTraffic ? "rgba(139,90,43,0.18)" : "rgba(18,14,10,0.88)",
+            border: `1px solid ${showTraffic ? "rgba(216,180,138,0.65)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: 8, padding: "7px 14px", fontSize: 14, fontWeight: 700,
+            color: showTraffic ? "#d8b48a" : "#aab4c8",
             cursor: "pointer", backdropFilter: "blur(4px)",
           }}>
           교통량 지점 {stations.length}개
@@ -460,9 +569,9 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       </div>
 
       {/* 하단 중앙: 클러스터 모드 안내 (zoom < 5일 때만 표시) */}
-      {zoom < 5 && (
+      {zoom >= CLUSTER_LEVEL && (
         <div style={{ position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, padding: "5px 14px", fontSize: 12, color: "#aab4c8", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
-          클러스터 모드 · 확대하면 교차로별 신호 표시
+          클러스터 모드 · 확대하면 마커별 위치 표시
         </div>
       )}
     </div>
