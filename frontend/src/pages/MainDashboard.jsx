@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { GU_LIST, calcDistKm } from "../constants/seoulGeoData";
 import SeoulSvgMap from "../components/map/SeoulSvgMap";
+import ReActToastContainer, { triggerReActToast } from "../components/common/ReActToast";
 
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
@@ -19,24 +20,22 @@ const V = {
 function BottleneckEmailBtn({ district, apiBase }) {
   const [status, setStatus] = useState("idle"); // idle | loading | done | error
 
-  const handleClick = async () => {
+  const handleClick = () => {
+    if (status === "loading") return;
     setStatus("loading");
     const userEmail = JSON.parse(localStorage.getItem("ts_user") || "{}").email || null;
-    try {
-      await fetch(`${apiBase}/api/bottleneck-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ district, userEmail }),
-      });
-      setStatus("done");
-      setTimeout(() => setStatus("idle"), 3000);
-    } catch {
-      setStatus("error");
-      setTimeout(() => setStatus("idle"), 3000);
-    }
+
+    triggerReActToast({
+      endpoint: "/api/agent/bottleneck-email/stream",
+      body: { district, userEmail },
+      onDone: () => {
+        setStatus("done");
+        setTimeout(() => setStatus("idle"), 3000);
+      },
+    });
   };
 
-  const label = status === "loading" ? "전송 중..." : status === "done" ? "✓ 메일 전송됨" : status === "error" ? "전송 실패" : "📧 병목 메일";
+  const label = status === "loading" ? "분석 중..." : status === "done" ? "✓ 메일 전송됨" : status === "error" ? "전송 실패" : "📧 병목 메일";
   const color = status === "done" ? "#2ee07a" : status === "error" ? "#ff5566" : "#4ea6ff";
 
   return (
@@ -568,10 +567,8 @@ const CARD_COLORS = [V.red, V.org, V.grn];
  *   wsData    - App에서 관리하는 WebSocket 교차로 신호 데이터 배열
  */
 
-export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations }) {
+export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu }) {
   const [time, setTime] = useState(new Date());
-  // 기본 선택 구: 송파구 (잠실 V2X 데이터가 있는 지역)
-  const [selectedGu, setSelectedGu] = useState(GU_LIST.find(g => g.name === "송파구"));
   const [loading, setLoading] = useState(false);
   // "송파구 · 12개 교차로 수집됨" 같은 임시 메시지 (3초 후 사라짐)
   const [fetchMsg, setFetchMsg] = useState(null);
@@ -599,6 +596,16 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  // 로그인 직후 (wsData가 비어있을 때) 강남구 자동 fetch — 한 번만 실행
+  const autoFetchedRef = useRef(false);
+  useEffect(() => {
+    if (!autoFetchedRef.current && wsData.length === 0 && selectedGu) {
+      autoFetchedRef.current = true;
+      handleSelectGu(selectedGu);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // sparkline 히스토리 최대 보관 개수. WebSocket으로 새 스냅샷이 올 때만 실제 관측값을 추가한다.
@@ -647,13 +654,16 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
         radius: "2.5",
       });
       const res = await fetch(`${API_BASE}/api/fetch-area?${params.toString()}`, { method: "POST" });
-      if (!res.ok) throw new Error("fetch-area failed");
       const data = await res.json();
-      // 새 구역 데이터가 백엔드에서 준비된 뒤에 선택 상태를 바꿔 이전 구역 데이터와 섞여 보이지 않게 한다.
-      setSelectedGu(gu);
-      setRiskIdx(0);       // 위험도 슬롯 초기화
-      setWatchList([]);    // 관심 목록 초기화
-      setSpeedSelected([]); // 속도 카드 선택 초기화
+      if (!res.ok) {
+        // 503: V2X API 타임아웃 — 캐시는 유지됨, 잠시 후 재시도 안내
+        setFetchMsg(`⚠ ${data.message ?? `${gu.name} 수집 실패`}`);
+        return;
+      }
+      onSelectGu(gu);       // App level 상태 업데이트 (페이지 이동 후에도 유지됨)
+      setRiskIdx(0);
+      setWatchList([]);
+      setSpeedSelected([]);
       setFetchMsg(`${gu.name} · ${data.count ?? 0}개 교차로 수집됨`);
     } catch {
       setFetchMsg(`${gu.name} 데이터 수집 실패`);
@@ -661,7 +671,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
       setLoading(false);
       setTimeout(() => setFetchMsg(null), 3000);
     }
-  }, []);
+  }, [onSelectGu]);
 
   // ── 활성 데이터 계산 ────────────────────────────────────────────────────────
   // 선택된 구 반경 2.5km 내 교차로만 필터한다. 결과가 없을 때 이전 구역 전체 데이터로 대체하면 화면이 섞여 보인다.
@@ -849,6 +859,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
   // ── 렌더링 ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, minHeight: "100vh", display: "flex", flexDirection: "column", overflowY: "auto" }}>
+
+      <ReActToastContainer />
 
       {/* ── 헤더 (sticky) ── */}
       <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 24px", height: 72, display: "flex", alignItems: "center", gap: 18, flexShrink: 0, position: "sticky", top: 0, zIndex: 100 }}>

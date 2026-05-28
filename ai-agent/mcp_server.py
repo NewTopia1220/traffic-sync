@@ -333,12 +333,17 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
 
         sorted_by_speed = sorted(district_signals, key=speed_of)
 
+        RISK_MAP = {"01": "안전", "02": "주의", "03": "위험", "04": "심각"}
+
+        def map_risk(g):
+            return RISK_MAP.get(str(g), g or "미수집")
+
         # 15km/h 이하 병목 교차로만 필터링
         bottleneck_under_15 = [
             {
                 "name": s.get("crsrdNm", ""),
                 "speed_kmh": speed_of(s),
-                "risk_grade": s.get("riskGrade"),
+                "risk_grade": map_risk(s.get("riskGrade")),
             }
             for s in sorted_by_speed
             if 0 < speed_of(s) <= 15

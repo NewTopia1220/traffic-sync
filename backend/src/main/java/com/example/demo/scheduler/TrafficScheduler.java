@@ -45,13 +45,13 @@ public class TrafficScheduler {
     private double radiusKm;
 
     @PostConstruct
-    // 애플리케이션 시작 시 초기 중심 좌표 설정 (잠실)
+    // 애플리케이션 시작 시 기본 구역(강남구) 좌표 설정 — 10초 후 첫 폴링이 이 좌표로 수집
     public void init() {
         cacheService.setCenter(jamsilLat, jamsilLon, radiusKm);
     }
 
     // 5초 후 첫 실행, 이후 ${traffic.poll.interval-ms}마다 실행 (예: 10000ms = 10초)
-    @Scheduled(initialDelay = 100000, fixedRateString = "${traffic.poll.interval-ms}")
+    @Scheduled(initialDelay = 10000, fixedRateString = "${traffic.poll.interval-ms}")
     public void pollTrafficData() {
         if (cacheService.isAreaRefreshInProgress()) {
             log.info("구역 수집 중이라 정기 폴링을 건너뜀");
@@ -83,11 +83,18 @@ public class TrafficScheduler {
 
             // V2X API 호출하여 교차로별 최신 신호 상태 가져오기
             Map<String, TrafficStatus> freshData = v2xApiService.fetchSignalData(crossroads);
+
+            // V2X API 타임아웃 등으로 빈 결과가 오면 캐시를 빈 맵으로 덮어쓰지 않고 건너뜀
+            if (freshData.isEmpty()) {
+                log.warn("폴링: V2X API 빈 결과 (DB 교차로 {}개) — 캐시 유지, 다음 폴링에서 재시도", crossroads.size());
+                return;
+            }
+
             // 프론트와 챗봇이 같은 값을 쓰도록 실제 보조 API 캐시와 계산 지표를 합친다.
             supplementalDataCacheService.enrichTrafficStatuses(freshData);
             // API 호출 결과를 캐시에 업데이트 (교차로ID → 신호 상태 맵)
             cacheService.updateAllSignals(freshData);
-            // WebSocket 핸들러를 통해 프론트엔드에 실시간 데이터 브로드캐스트 (예: { "CRSRD001": { stsg: "녹색", rmndCs: 150 }, ... })
+            // WebSocket 핸들러를 통해 프론트엔드에 실시간 데이터 브로드캐스트
             webSocketHandler.broadcast(freshData);
 
             log.info("===== 폴링 완료: {}개 브로드캐스트 =====", freshData.size());

@@ -76,6 +76,8 @@ public class SupplementalDataScheduler {
 
     private final AtomicBoolean topisSpeedRefreshInProgress = new AtomicBoolean(false);
     private final AtomicBoolean roadRiskRefreshInProgress = new AtomicBoolean(false);
+    // 구역 변경으로 인해 이전 run 진행 중 스킵됐을 때 완료 후 즉시 재실행 요청 플래그
+    private final AtomicBoolean roadRiskPendingRefresh = new AtomicBoolean(false);
 
     @Scheduled(initialDelay = 3000, fixedRateString = "${weather.poll.interval-ms:600000}")
     public void refreshWeather() {
@@ -180,10 +182,13 @@ public class SupplementalDataScheduler {
             return;
         }
         if (!roadRiskRefreshInProgress.compareAndSet(false, true)) {
-            log.info("Road risk refresh skipped: previous run still in progress");
+            // 구역 변경 등으로 인한 요청이면 pending 표시 → 현재 run 완료 후 즉시 재실행
+            roadRiskPendingRefresh.set(true);
+            log.info("Road risk refresh skipped: previous run still in progress (pending=true)");
             return;
         }
 
+        roadRiskPendingRefresh.set(false);
         // 위험도도 현재 대시보드가 사용하는 대표 링크 기준으로만 수집한다.
         try {
             Collection<CrossroadRoadLinkMapping> mappings = supplementalDataCacheService.getMappings();
@@ -196,6 +201,11 @@ public class SupplementalDataScheduler {
                     uniqueRoadRiskMappings(mappings).size(), System.currentTimeMillis() - startedAtMs);
         } finally {
             roadRiskRefreshInProgress.set(false);
+            // 이전 run 중 구역이 바뀐 경우 → 새 구역 위험도를 즉시 수집
+            if (roadRiskPendingRefresh.compareAndSet(true, false)) {
+                log.info("Road risk pending refresh detected — starting new run for current area");
+                refreshRoadRisksAsync();
+            }
         }
     }
 
