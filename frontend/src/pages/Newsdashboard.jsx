@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import AppHeader from "../components/common/AppHeader";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
@@ -127,7 +128,7 @@ function NewsCard({ item }) {
   );
 }
 
-export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulation, selectedGu }) {
+export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulation, onGoMyPage, onLogout, selectedGu }) {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sector, setSector] = useState("all");
@@ -192,52 +193,21 @@ export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulat
   return (
     <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink1, minHeight: "100vh", display: "flex", flexDirection: "column" }}>
 
-      {/* ── 헤더 ── */}
-      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 18px", height: 60, display: "flex", alignItems: "center", gap: 18, flexShrink: 0, position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 260 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}` }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: V.grn, display: "block" }} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>Traffic-Sync 관제 시스템</div>
-            <div style={{ fontSize: 12, color: V.ink3 }}>뉴스 감성 분석 · Groq AI 기반 교통 뉴스 모니터링</div>
-          </div>
-        </div>
-
-        {/* 탭 */}
-        <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 3 }}>
-          {[["통합 대시보드","main"], ["실시간 지도","map"], ["뉴스 감성 분석","news"], ["CCTV 관제","cctv"], ["🚦 신호 시뮬레이션","simulation"]].map(([label, tab]) => {
-            const isActive = tab === "news";
-            const onClick = tab === "main" ? onGoMain : tab === "map" ? () => onGoMap?.(selectedGu) : tab === "cctv" ? onGoCctv : tab === "simulation" ? onGoSimulation : undefined;
-            return (
-              <button key={tab} onClick={onClick} style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : V.ink2, padding: "7px 15px", borderRadius: 2, fontSize: 14, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink5, display: "inline-block" }} />
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        {selectedGu && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 13px", borderRadius: 2, background: V.orgBg, border: `1px solid ${V.orgBd}`, color: V.org, fontSize: 12, fontWeight: 600 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
-            {selectedGu.name} 선택됨
-          </div>
-        )}
-
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", border: `1px solid ${V.line}`, background: V.bg0, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink2 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: news.length > 0 ? V.grn : V.ink4, display: "inline-block" }} />
-            {news.length > 0 ? `LIVE · ${news.length}건 수집됨` : "데이터 없음"}
-          </span>
-          <span style={{ fontFamily: V.mono, fontSize: 13, color: V.ink0 }}>
-            <span style={{ color: V.ink2, marginRight: 6 }}>{time.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}</span>
-            {time.toLocaleTimeString("ko-KR")}
-          </span>
-        </div>
-      </div>
-
-      {/* ── 검색바 ── */}
+      {/* 공통 헤더 */}
+      <AppHeader
+        activePage="news"
+        selectedGu={selectedGu}
+        statusText={news.length > 0 ? `LIVE · ${news.length}건 수집됨` : "데이터 없음"}
+        statusLive={news.length > 0}
+        onGoMain={onGoMain}
+        onGoMap={onGoMap}
+        onGoNews={() => {}}
+        onGoCctv={onGoCctv}
+        onGoSimulation={onGoSimulation}
+        onGoMyPage={onGoMyPage}
+        onLogout={onLogout}
+      />
+{/* ── 검색바 ── */}
       <div style={{ display: "flex", gap: 14, alignItems: "center", padding: "12px 18px", borderBottom: `1px solid ${V.line}`, background: "#050505", flexShrink: 0 }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 12, background: "#000", border: `1px solid ${V.line}`, borderRadius: 2, padding: "0 14px", height: 42 }}>
           <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink4, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap" }}>키워드 검색</span>

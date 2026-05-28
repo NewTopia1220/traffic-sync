@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { GU_LIST, calcDistKm } from "../constants/seoulGeoData";
+import AppHeader from "../components/common/AppHeader";
 
 // UTIC CCTV 스트림 인증키 (.env의 VITE_UTIC_KEY)
 // 기관 계약 후 발급받은 키를 .env에 설정하면 iframe 영상 활성화
@@ -154,7 +155,7 @@ function CctvModal({ cctv, onClose }) {
  *   onGoMain - "← 대시보드" 버튼 콜백
  *   onGoMap  - "🗺️ 지도 보기" 버튼 콜백
  */
-export default function CctvDashboard({ onGoMain, onGoMap }) {
+export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulation, onGoMyPage, onLogout, selectedGu }) {
   const [time,     setTime]     = useState(new Date());
   // 스프링에서 받아온 전체 CCTV 배열 (CctvInfo DTO 배열)
   const [cctvList, setCctvList] = useState([]);
@@ -218,23 +219,21 @@ export default function CctvDashboard({ onGoMain, onGoMap }) {
   return (
     <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-      {/* ── 헤더 ── */}
-      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 22px", height: 56, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-        <button onClick={onGoMain} style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "6px 15px", color: V.ink1, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>← 대시보드</button>
-        <span style={{ fontSize: 18 }}>📷</span>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 19, color: V.blu }}>CCTV 관제</div>
-          <div style={{ fontSize: 13, color: V.ink2 }}>교차로 실시간 영상 모니터링</div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-          {/* 로딩 완료 후 총 CCTV 수 표시 */}
-          {!loading && <span style={{ fontFamily: V.mono, fontSize: 14, color: V.ink2 }}>총 {cctvList.length}개 CCTV</span>}
-          <span style={{ fontFamily: V.mono, fontSize: 14, color: V.ink2 }}>{time.toLocaleTimeString("ko-KR")}</span>
-          <button onClick={onGoMap} style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "6px 15px", color: V.ink1, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>🗺️ 지도 보기</button>
-        </div>
-      </div>
-
-      {/* ── 메인 (2컬럼) ── */}
+      {/* 공통 헤더 */}
+      <AppHeader
+        activePage="cctv"
+        selectedGu={selectedGu}
+        statusText={!loading ? `총 ${cctvList.length}개 CCTV` : "CCTV 수집 중"}
+        statusLive={!loading && cctvList.length > 0}
+        onGoMain={onGoMain}
+        onGoMap={onGoMap}
+        onGoNews={onGoNews}
+        onGoCctv={() => {}}
+        onGoSimulation={onGoSimulation}
+        onGoMyPage={onGoMyPage}
+        onLogout={onLogout}
+      />
+{/* ── 메인 (2컬럼) ── */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
 
         {/* ── 좌측: 구 선택 사이드바 (180px 고정) ── */}

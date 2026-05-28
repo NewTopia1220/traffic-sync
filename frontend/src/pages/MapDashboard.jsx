@@ -7,6 +7,7 @@ import BottleneckList from "../components/sidebar/BottleneckList";
 import RiskList from "../components/sidebar/RiskList";
 import AIChatBot from "../components/sidebar/AIChatBot";
 import { riskGradeValue } from "../utils/signalUtils";
+import AppHeader from "../components/common/AppHeader";
 
 
 const WEATHER = { icon: "🌤️", temp: "21°C", desc: "맑음", humidity: "65%" };
@@ -16,7 +17,7 @@ const TABS = [
 
 const CHAT_W = 480;
 
-export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [] }) {
+export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, selectedGu, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [] }) {
   const [time,         setTime]         = useState(new Date());
   const [selected,     setSelected]     = useState(null);
   const [activeTab,    setActiveTab]    = useState("map");
@@ -60,52 +61,26 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
   return (
     <div style={{ fontFamily: "'Noto Sans KR','Malgun Gothic',sans-serif", background: "#12100a", color: "#e2e8f0", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-      {/* 헤더 */}
-      <div style={{ background: "#12100a", borderBottom: "1px solid #2a2418", padding: "0 22px", height: 56, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-        <button onClick={onGoMain} style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "5px 13px", color: "#aab4c8", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>← 대시보드</button>
-        <span style={{ fontSize: 20 }}>🚦</span>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: "#60a5fa" }}>실시간 교차로 지도</div>
-          <div style={{ fontSize: 11, color: "#475569" }}>V2X 신호 · 위험도 · 혼잡 현황</div>
-        </div>
-
-        {/* 탭 + CCTV 관제 버튼 */}
-        <div style={{ marginLeft: 16, display: "flex", gap: 6, alignItems: "center" }}>
-          <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 3 }}>
-            {TABS.map(({ key, label }) => (
-              <button key={key} onClick={() => setActiveTab(key)}
-                style={{ padding: "4px 16px", borderRadius: 6, fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", transition: "all .15s", background: activeTab === key ? "#1d4ed8" : "transparent", color: activeTab === key ? "#fff" : "#64748b" }}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <button onClick={onGoCctv}
-            style={{ padding: "5px 14px", borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: "rgba(255,170,51,0.12)", border: "1px solid rgba(255,170,51,0.4)", color: "#ffaa33", display: "flex", alignItems: "center", gap: 6 }}>
-            📷 CCTV 관제
-          </button>
-        </div>
-
-        {/* 연결 상태 */}
-        <div style={{ marginLeft: 8, display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 20, border: `1px solid ${isConn ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`, background: isConn ? "rgba(34,197,94,0.07)" : "rgba(239,68,68,0.07)" }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: isConn ? "#22c55e" : "#ef4444", display: "inline-block" }} />
-          <span style={{ fontSize: 12, color: isConn ? "#22c55e" : "#ef4444" }}>{wsStatus}</span>
-        </div>
-        {isConn && <div style={{ fontSize: 12, color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)", padding: "2px 9px", borderRadius: 4, fontWeight: 600 }}>● LIVE · V2X</div>}
-
-        {/* 날씨 + 시간 */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 7, border: "1px solid rgba(255,255,255,0.06)", fontSize: 13 }}>
-            <span>{WEATHER.icon}</span>
-            <span style={{ color: "#94a3b8" }}>{WEATHER.desc}</span>
-            <span style={{ fontWeight: 600 }}>{WEATHER.temp}</span>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>습도 {WEATHER.humidity}</span>
-          </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>갱신: <span style={{ color: "#94a3b8" }}>{lastUpdate ? lastUpdate.toLocaleTimeString("ko-KR") : "-"}</span></div>
-          <div style={{ fontSize: 13, color: "#9ca3af", fontFamily: "monospace", background: "rgba(255,255,255,0.04)", padding: "3px 9px", borderRadius: 5 }}>{time.toLocaleTimeString("ko-KR")}</div>
-        </div>
-      </div>
-
-      {/* 메인 — chatOpen 시 그리드에 챗봇 컬럼 추가 */}
+      {/* 공통 헤더 */}
+      <AppHeader
+        activePage="map"
+        selectedGu={selectedGu}
+        statusText={isConn ? "LIVE · V2X 연결됨" : wsStatus}
+        statusLive={isConn}
+        onGoMain={onGoMain}
+        onGoMap={() => {}}
+        onGoNews={onGoNews}
+        onGoCctv={onGoCctv}
+        onGoSimulation={onGoSimulation}
+        onGoMyPage={onGoMyPage}
+        onLogout={onLogout}
+        rightExtra={(
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 12, color: "#7a7a7a" }}>
+            갱신: <span style={{ color: "#aab4c8" }}>{lastUpdate ? lastUpdate.toLocaleTimeString("ko-KR") : "-"}</span>
+          </span>
+        )}
+      />
+{/* 메인 — chatOpen 시 그리드에 챗봇 컬럼 추가 */}
       <div style={{
         flex: 1, display: "grid",
         gridTemplateColumns: chatOpen ? `1fr 360px ${CHAT_W}px` : "1fr 360px",

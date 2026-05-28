@@ -40,10 +40,10 @@ function BottleneckEmailBtn({ district, apiBase }) {
 
   return (
     <button onClick={handleClick} disabled={status === "loading"} style={{
-      fontSize: 11, padding: "4px 10px", borderRadius: 2,
-      border: `1px solid ${color}`, background: "transparent",
-      color, cursor: status === "loading" ? "wait" : "pointer",
-      fontFamily: "'IBM Plex Mono',monospace", transition: "all 0.2s"
+      fontSize: 15, padding: "7px 15px", borderRadius: 999, fontWeight: 500,
+      border: "1px solid #1a1a1a", background: "transparent",
+      color: "#fff", cursor: status === "loading" ? "wait" : "pointer",
+      fontFamily: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif", transition: "all 0.2s", boxShadow: "none", letterSpacing: "0"
     }}>
       {label}
     </button>
@@ -876,8 +876,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
         </div>
 
         {/* 페이지 탭: 통합 대시보드(현재) / 실시간 지도 / CCTV 관제 */}
-        <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 3 }}>
-          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스 감성 분석", "news"], ["CCTV 관제", "cctv"], ["🚦 신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
+        <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3 }}>
+          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스", "news"], ["CCTV 관제", "cctv"], ["신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
             const isActive = tab === "main";
             const onClick = tab === "map" ? () => onGoMap(selectedGu)
               : tab === "cctv" ? onGoCctv
@@ -887,7 +887,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             return (
               <button key={tab}
                 onClick={onClick}
-                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : tab === "news" ? V.org : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
+                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "7px 15px", borderRadius: 999, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink3, display: "inline-block" }} />
                 {label}
               </button>
@@ -897,13 +897,13 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
 
         {/* 선택된 구 배지 */}
         {selectedGu && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 13px", borderRadius: 2, background: "#1a1206", border: "1px solid #3a2a14", color: V.org, fontSize: 12, fontWeight: 600 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
-            {selectedGu.name} 선택됨
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 13px", borderRadius: 2, background: "#1a1206", border: "1px solid #3a2a14", color: V.org, fontSize: 12, fontWeight: 600 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
+              {selectedGu.name} 선택됨
+            </div>
+            <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
           </div>
-        )}
-        {selectedGu && (
-          <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
         )}
         {/* 데이터 수집 결과 메시지 (3초 표시) */}
         {fetchMsg && (
@@ -922,10 +922,10 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             <span style={{ color: V.ink2, marginRight: 6 }}>{time.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}</span>
             {time.toLocaleTimeString("ko-KR")}
           </span>
-          <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, padding: "5px 12px", color: V.ink2, fontSize: 12, cursor: "pointer", fontFamily: V.mono, letterSpacing: ".3px" }}>
-            👤 마이페이지
+          <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 999, padding: "7px 15px", color: "#fff", fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>
+            마이페이지
           </button>
-          <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: `1px solid #3a1820`, borderRadius: 2, padding: "5px 12px", color: "#ff5566", fontSize: 12, cursor: "pointer", fontFamily: V.mono, letterSpacing: ".3px" }}>
+          <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: `1px solid #3a1820`, borderRadius: 999, padding: "7px 15px", color: V.red, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>
             로그아웃
           </button>
         </div>
@@ -979,7 +979,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
               실시간 지도 →
             </button>
           </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
             <SeoulSvgMap onGoMap={onGoMap} selectedGu={selectedGu} onSelectGu={handleSelectGu} loading={loading} />
           </div>
         </div>

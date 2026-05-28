@@ -82,6 +82,9 @@ export default function App() {
       onGoMap={goMap}
       onGoCctv={() => setPage('cctv')}
       onGoSimulation={() => setPage('simulation')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
     />
   )
 
@@ -89,29 +92,44 @@ export default function App() {
   if (page === 'simulation') return (
     <SimulationDashboard
       onGoMain={() => setPage('main')}
-      onGoMap={() => setPage('map')}
+      onGoMap={goMap}
+      onGoNews={() => setPage('news')}
+      onGoCctv={() => setPage('cctv')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
     />
   )
 
   // CCTV 관제 페이지
   if (page === 'cctv') return (
     <CctvDashboard
-      onGoMain={() => setPage('main')}  // "← 대시보드" 버튼
-      onGoMap={() => setPage('map')}    // "지도 보기" 버튼
+      onGoMain={() => setPage('main')}
+      onGoMap={goMap}
+      onGoNews={() => setPage('news')}
+      onGoSimulation={() => setPage('simulation')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
     />
   )
 
   // 실시간 지도 페이지
   if (page === 'map') return (
     <MapDashboard
-      onGoMain={() => setPage('main')}    // "← 대시보드" 버튼
-      onGoCctv={() => setPage('cctv')}    // "CCTV 관제" 버튼
-      wsData={wsData}                     // 교차로 신호 데이터 (읽기)
-      setWsData={setWsData}               // WebSocket 수신 시 데이터 업데이트 (쓰기)
-      initialCenter={mapCenter}           // 카카오맵 초기 중심 좌표
+      onGoMain={() => setPage('main')}
+      onGoCctv={() => setPage('cctv')}
+      onGoNews={() => setPage('news')}
+      onGoSimulation={() => setPage('simulation')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
+      wsData={wsData}
+      setWsData={setWsData}
+      initialCenter={mapCenter}
       wsStatus={wsStatus}
       lastUpdate={lastUpdate}
-      stations={stations}                 // 메인에서 fetch해온 전체 데이터가 넘어감
+      stations={stations}
     />
   )
 
