@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from langchain_ollama import ChatOllama
@@ -162,6 +163,122 @@ async def free_chat(req: ChatRequest):
     return ChatResponse(answer=extract_answer(result))
 
 
+TOOL_LABELS = {
+    "get_traffic_data":        "교차로 실시간 데이터 조회",
+    "get_bottleneck_list":     "전체 병목 목록 조회",
+    "search_crossroad_by_name":"교차로 이름 검색",
+    "get_district_traffic":    "자치구 교통 현황 조회",
+    "set_signal_timing":       "신호 타이밍 조정",
+    "send_alert":              "관제사 알림 전송",
+    "send_email_report":       "이메일 리포트 전송",
+    "get_simulation_context":  "신호계획 조회",
+    "search_project_docs":     "도메인 지식 검색",
+}
+
+
+@app.post("/api/agent/chat/stream")
+async def free_chat_stream(req: ChatRequest):
+    """ReAct 루프 단계별 SSE 스트리밍 — 프론트 팝업 시각화용"""
+    import json as _json
+
+    email_ctx = (
+        f"\n[요청 유저 이메일: {req.userEmail}]"
+        f"\n메일 발송 요청이 있으면 send_email_report 도구를 호출하고 to 필드에 위 이메일을 반드시 사용할 것."
+    ) if req.userEmail else ""
+
+    if req.crsrdId:
+        prompt = (
+            f"/no_think\n"
+            f"교차로 ID {req.crsrdId}의 실시간 교통 데이터를 조회하고, "
+            f"다음 질문에 한국어로 답해줘: {req.question}{email_ctx}"
+        )
+    else:
+        prompt = (
+            f"/no_think\n"
+            f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
+            f"필요하면 MCP 도구로 데이터를 조회해서 답해줘.\n"
+            f"질문: {req.question}{email_ctx}"
+        )
+
+    async def generate():
+        try:
+            async for event in agent.astream_events(
+                {"messages": [{"role": "user", "content": prompt}]},
+                version="v2",
+            ):
+                kind = event["event"]
+                name = event.get("name", "")
+
+                # ── 도구 호출 시작 ──────────────────────────────────────────
+                if kind == "on_tool_start":
+                    args = event["data"].get("input", {})
+                    args_str = ", ".join(f"{k}={v}" for k, v in args.items()) if args else ""
+                    data = {
+                        "type": "action",
+                        "tool": name,
+                        "label": TOOL_LABELS.get(name, name),
+                        "args": args_str,
+                    }
+                    yield f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
+
+                # ── 도구 결과 수신 ──────────────────────────────────────────
+                elif kind == "on_tool_end":
+                    output = event["data"].get("output")
+                    obs = ""
+                    if output is not None:
+                        raw = str(output.content) if hasattr(output, "content") else str(output)
+                        try:
+                            parsed = _json.loads(raw)
+                            if isinstance(parsed, dict):
+                                keys = list(parsed.keys())[:4]
+                                obs = "{ " + ", ".join(keys) + (" ..." if len(parsed) > 4 else "") + " }"
+                            elif isinstance(parsed, list):
+                                obs = f"[{len(parsed)}개 항목 반환]"
+                            else:
+                                obs = raw[:150]
+                        except Exception:
+                            obs = raw[:150]
+                    yield f"data: {_json.dumps({'type': 'observation', 'content': obs}, ensure_ascii=False)}\n\n"
+
+                # ── LLM 응답 완료 ───────────────────────────────────────────
+                elif kind == "on_chat_model_end":
+                    output = event["data"].get("output")
+                    if not output:
+                        continue
+                    has_tool_calls = bool(getattr(output, "tool_calls", None))
+                    content = output.content if hasattr(output, "content") else ""
+                    if isinstance(content, list):
+                        content = " ".join(
+                            item.get("text", "") if isinstance(item, dict) else str(item)
+                            for item in content
+                        ).strip()
+
+                    # <think> 블록 → Thought 이벤트로 전송
+                    if content and "<think>" in content:
+                        inside = content.split("<think>", 1)[-1].split("</think>")[0].strip()
+                        if inside:
+                            yield f"data: {_json.dumps({'type': 'thought', 'content': inside[:200]}, ensure_ascii=False)}\n\n"
+
+                    # 도구 호출 없는 마지막 응답 = 최종 답변
+                    if not has_tool_calls and content:
+                        if "<think>" in content:
+                            after = content.split("</think>")[-1].strip()
+                            content = after if after else content
+                        if content:
+                            yield f"data: {_json.dumps({'type': 'answer', 'content': content}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            yield f"data: {_json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+
+        yield 'data: {"type":"done"}\n\n'
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/api/agent/simulation-chat", response_model=ChatResponse)
 async def simulation_chat(req: SimulationChatRequest):
     """시뮬레이션 페이지 챗봇 — Spring이 조립한 컨텍스트를 프롬프트에 직접 삽입"""
@@ -229,6 +346,200 @@ async def bottleneck_email(req: DistrictRequest):
     )
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
     return ChatResponse(answer=extract_answer(result))
+
+
+@app.post("/api/agent/bottleneck-email/stream")
+async def bottleneck_email_stream(req: DistrictRequest):
+    """병목 이메일 SSE 스트리밍 — 리포트 생성 후 Spring으로 메일 발송"""
+    import json as _json
+    import httpx as _httpx
+
+    prompt = (
+        f"/no_think\n"
+        f"get_district_traffic 도구로 서울 {req.district} 교통 데이터를 조회해줘.\n"
+        f"조회 결과를 바탕으로 아래 형식을 그대로 지켜서 리포트 본문만 출력해줘. 다른 말은 절대 하지 말고 양식 그대로만 출력.\n\n"
+        f"교통관제 자동화 시스템입니다.\n"
+        f"{req.district} 내 15km/h 이하 구간이 감지되어 경보를 발송합니다.\n"
+        f"관제사께서는 아래 내용을 확인하시고 필요한 조치를 취해주시기 바랍니다.\n\n"
+        f"[병목 구간 현황]\n기준: 15km/h 이하 구간\n수집 교차로: {{total_crossroads}}개\n\n"
+        f"순위 | 교차로명 | 현재속도 | 위험등급\n"
+        f"(병목 교차로를 순위별로 작성. 없으면 '해당 없음' 한 줄)\n\n"
+        f"[날씨 현황]\n기온 {{temperatureC}}°C / 강수량 {{precipitationMm}}mm / 풍속 {{windSpeedMs}}m/s\n\n"
+        f"[시스템 분석 및 조치 권고]\n(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장)\n\n"
+        f"---\nTrafficSync 자동 발송"
+    )
+
+    async def generate():
+        report_text = ""
+        try:
+            async for event in agent.astream_events(
+                {"messages": [{"role": "user", "content": prompt}]},
+                version="v2",
+            ):
+                kind = event["event"]
+                name = event.get("name", "")
+
+                if kind == "on_tool_start":
+                    args = event["data"].get("input", {})
+                    args_str = ", ".join(f"{k}={v}" for k, v in args.items()) if args else ""
+                    data = {"type": "action", "tool": name, "label": TOOL_LABELS.get(name, name), "args": args_str}
+                    yield f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
+
+                elif kind == "on_tool_end":
+                    output = event["data"].get("output")
+                    obs = ""
+                    if output is not None:
+                        raw = str(output.content) if hasattr(output, "content") else str(output)
+                        try:
+                            parsed = _json.loads(raw)
+                            if isinstance(parsed, dict):
+                                keys = list(parsed.keys())[:4]
+                                obs = "{ " + ", ".join(keys) + (" ..." if len(parsed) > 4 else "") + " }"
+                            elif isinstance(parsed, list):
+                                obs = f"[{len(parsed)}개 항목 반환]"
+                            else:
+                                obs = raw[:150]
+                        except Exception:
+                            obs = raw[:150]
+                    yield f"data: {_json.dumps({'type': 'observation', 'content': obs}, ensure_ascii=False)}\n\n"
+
+                elif kind == "on_chat_model_end":
+                    output = event["data"].get("output")
+                    if not output:
+                        continue
+                    has_tool_calls = bool(getattr(output, "tool_calls", None))
+                    content = output.content if hasattr(output, "content") else ""
+                    if isinstance(content, list):
+                        content = " ".join(
+                            item.get("text", "") if isinstance(item, dict) else str(item)
+                            for item in content
+                        ).strip()
+
+                    if content and "<think>" in content:
+                        inside = content.split("<think>", 1)[-1].split("</think>")[0].strip()
+                        if inside:
+                            yield f"data: {_json.dumps({'type': 'thought', 'content': inside[:200]}, ensure_ascii=False)}\n\n"
+
+                    if not has_tool_calls and content:
+                        if "<think>" in content:
+                            after = content.split("</think>")[-1].strip()
+                            content = after if after else content
+                        if content:
+                            report_text = content
+                            yield f"data: {_json.dumps({'type': 'answer', 'content': content}, ensure_ascii=False)}\n\n"
+
+            # 리포트 완성 → Spring EmailService로 메일 발송
+            if report_text and req.userEmail:
+                try:
+                    async with _httpx.AsyncClient(timeout=10.0) as client:
+                        await client.post(
+                            "http://localhost:8080/api/email/send",
+                            json={"to": req.userEmail, "subject": f"[병목 경보] 서울 {req.district}", "body": report_text},
+                        )
+                    yield f"data: {_json.dumps({'type': 'observation', 'content': f'메일 발송 완료 → {req.userEmail}'}, ensure_ascii=False)}\n\n"
+                except Exception as e:
+                    yield f"data: {_json.dumps({'type': 'observation', 'content': f'메일 발송 실패: {e}'}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            yield f"data: {_json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+
+        yield 'data: {"type":"done"}\n\n'
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/agent/district-report/stream")
+async def district_report_stream(req: DistrictRequest):
+    """구 단위 리포트 SSE 스트리밍 — 메인 대시보드 토스트 시각화용"""
+    import json as _json
+
+    prompt = (
+        f"/no_think\n"
+        f"get_district_traffic 도구로 서울 {req.district} 교통 데이터를 조회한 뒤, "
+        f"반드시 한국어로 아래 형식으로 간결하게 리포트 작성해줘:\n"
+        f"## {req.district} 교통 현황\n"
+        f"**수집 교차로**: N개\n"
+        f"**평균 속도**: X km/h\n"
+        f"**15km/h 이하 병목**: 교차로명 (속도 km/h, 위험등급) 목록\n"
+        f"**신호 조정 권고**: 혼잡 원인과 권고 2~3문장"
+    )
+
+    async def generate():
+        try:
+            async for event in agent.astream_events(
+                {"messages": [{"role": "user", "content": prompt}]},
+                version="v2",
+            ):
+                kind = event["event"]
+                name = event.get("name", "")
+
+                if kind == "on_tool_start":
+                    args = event["data"].get("input", {})
+                    args_str = ", ".join(f"{k}={v}" for k, v in args.items()) if args else ""
+                    data = {
+                        "type": "action",
+                        "tool": name,
+                        "label": TOOL_LABELS.get(name, name),
+                        "args": args_str,
+                    }
+                    yield f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
+
+                elif kind == "on_tool_end":
+                    output = event["data"].get("output")
+                    obs = ""
+                    if output is not None:
+                        raw = str(output.content) if hasattr(output, "content") else str(output)
+                        try:
+                            parsed = _json.loads(raw)
+                            if isinstance(parsed, dict):
+                                keys = list(parsed.keys())[:4]
+                                obs = "{ " + ", ".join(keys) + (" ..." if len(parsed) > 4 else "") + " }"
+                            elif isinstance(parsed, list):
+                                obs = f"[{len(parsed)}개 항목 반환]"
+                            else:
+                                obs = raw[:150]
+                        except Exception:
+                            obs = raw[:150]
+                    yield f"data: {_json.dumps({'type': 'observation', 'content': obs}, ensure_ascii=False)}\n\n"
+
+                elif kind == "on_chat_model_end":
+                    output = event["data"].get("output")
+                    if not output:
+                        continue
+                    has_tool_calls = bool(getattr(output, "tool_calls", None))
+                    content = output.content if hasattr(output, "content") else ""
+                    if isinstance(content, list):
+                        content = " ".join(
+                            item.get("text", "") if isinstance(item, dict) else str(item)
+                            for item in content
+                        ).strip()
+
+                    if content and "<think>" in content:
+                        inside = content.split("<think>", 1)[-1].split("</think>")[0].strip()
+                        if inside:
+                            yield f"data: {_json.dumps({'type': 'thought', 'content': inside[:200]}, ensure_ascii=False)}\n\n"
+
+                    if not has_tool_calls and content:
+                        if "<think>" in content:
+                            after = content.split("</think>")[-1].strip()
+                            content = after if after else content
+                        if content:
+                            yield f"data: {_json.dumps({'type': 'answer', 'content': content}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            yield f"data: {_json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+
+        yield 'data: {"type":"done"}\n\n'
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/agent/district-report", response_model=ReportResponse)
