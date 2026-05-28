@@ -2,9 +2,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
 
 const PYTHON_BASE = import.meta.env.VITE_PYTHON_URL || "http://localhost:8001";
 
-const PANEL_W  = 560;
-const HEADER_H = 56;
-
 const INITIAL_MSG = [
   {
     role: "ai",
@@ -14,9 +11,9 @@ const INITIAL_MSG = [
 ];
 
 const PRESETS = [
-  { label: "잠실역 현황", q: "잠실역 교차로 현재 교통 상황 알려줘" },
-  { label: "병목 TOP3",   q: "지금 가장 막히는 교차로 3곳 알려줘" },
+  { label: "병목 TOP3",  q: "지금 가장 막히는 교차로 3곳 알려줘" },
   { label: "신호 최적화", q: "현재 가장 정체가 심한 교차로의 신호 조정 방법을 알려줘" },
+  { label: "날씨 현황",  q: "현재 날씨 상황이 교통에 어떤 영향을 미치고 있어?" },
 ];
 
 const STEP_LABEL = {
@@ -88,10 +85,7 @@ function InlineSteps({ steps, collapsed, onToggle }) {
 
 function ThinkingBlock({ steps }) {
   return (
-    <div style={{
-      border: "1px solid rgba(255,255,255,0.06)",
-      borderRadius: 6, overflow: "hidden",
-    }}>
+    <div style={{ border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6, overflow: "hidden" }}>
       <div style={{
         display: "flex", alignItems: "center", gap: 6,
         padding: "7px 12px",
@@ -110,8 +104,8 @@ function ThinkingBlock({ steps }) {
   );
 }
 
-export default function AIChatBot({ selected }) {
-  const [isOpen,         setIsOpen]         = useState(false);
+// 패널 내용 컴포넌트 — MapDashboard 그리드 셀 안에 렌더링됨
+export default function AIChatBot({ selected, onClose }) {
   const [messages,       setMessages]       = useState(INITIAL_MSG);
   const [input,          setInput]          = useState("");
   const [loading,        setLoading]        = useState(false);
@@ -126,8 +120,8 @@ export default function AIChatBot({ selected }) {
   }, [messages, liveSteps]);
 
   useEffect(() => {
-    if (isOpen) setTimeout(() => inputRef.current?.focus(), 320);
-  }, [isOpen]);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
 
   const toggleStep = (idx) => {
     setCollapsedSteps(prev => ({ ...prev, [idx]: !(prev[idx] ?? false) }));
@@ -173,8 +167,7 @@ export default function AIChatBot({ selected }) {
 
           if (data.type === "done") break;
           if (data.type === "answer") {
-            const finalSteps = currentSteps;
-            setMessages(prev => [...prev, { role: "ai", text: data.content, steps: finalSteps }]);
+            setMessages(prev => [...prev, { role: "ai", text: data.content, steps: currentSteps }]);
             setLiveSteps([]);
           } else if (data.type === "error") {
             setMessages(prev => [...prev, { role: "ai", text: `오류: ${data.content}`, steps: [] }]);
@@ -195,94 +188,95 @@ export default function AIChatBot({ selected }) {
 
   return (
     <>
-      {/* 사이드 패널 */}
       <div style={{
-        position: "fixed",
-        right: 0,
-        top: HEADER_H,
-        width: PANEL_W,
-        height: `calc(100vh - ${HEADER_H}px)`,
-        background: "rgba(11,11,11,0.90)",
-        backdropFilter: "blur(22px)",
-        WebkitBackdropFilter: "blur(22px)",
+        display: "flex", flexDirection: "column", height: "100%",
+        background: "rgba(11,11,11,0.95)",
         borderLeft: "1px solid rgba(255,255,255,0.07)",
-        zIndex: 1100,
-        display: "flex",
-        flexDirection: "column",
-        transform: isOpen ? "translateX(0)" : `translateX(${PANEL_W}px)`,
-        transition: "transform .3s cubic-bezier(.4,0,.2,1)",
+        fontFamily: "system-ui,-apple-system,sans-serif",
       }}>
 
         {/* 헤더 */}
         <div style={{
-          padding: "14px 20px",
+          padding: "12px 16px",
           borderBottom: "1px solid rgba(255,255,255,0.06)",
-          display: "flex", alignItems: "center", gap: 10,
+          display: "flex", alignItems: "center", gap: 8,
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.72)", fontFamily: "system-ui,sans-serif" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.72)" }}>
             AI 교통 어시스턴트
           </span>
           {selected && (
-            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", fontFamily: "system-ui,sans-serif" }}>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.28)" }}>
               · {selected.crsrdNm}
             </span>
           )}
-          <div style={{ marginLeft: "auto", display: "flex", gap: 5 }}>
-            {PRESETS.map(({ label, q }) => (
-              <button key={label} onClick={() => sendChat(q)} disabled={loading} style={{
-                padding: "4px 10px", fontSize: 11, borderRadius: 5,
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(255,255,255,0.04)",
-                color: loading ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.5)",
-                cursor: loading ? "default" : "pointer",
-                fontFamily: "system-ui,sans-serif",
-                transition: "all .15s",
-              }}>
-                {label}
-              </button>
-            ))}
-          </div>
+          <button onClick={onClose} style={{
+            marginLeft: "auto",
+            background: "none", border: "none",
+            color: "rgba(255,255,255,0.3)", fontSize: 14,
+            cursor: "pointer", padding: "0 2px", lineHeight: 1,
+          }}>✕</button>
+        </div>
+
+        {/* 프리셋 */}
+        <div style={{
+          padding: "8px 16px",
+          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          display: "flex", gap: 5, flexWrap: "wrap",
+          flexShrink: 0,
+        }}>
+          {PRESETS.map(({ label, q }) => (
+            <button key={label} onClick={() => sendChat(q)} disabled={loading} style={{
+              padding: "4px 10px", fontSize: 11, borderRadius: 5,
+              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.04)",
+              color: loading ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.5)",
+              cursor: loading ? "default" : "pointer",
+              fontFamily: "inherit",
+            }}>
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* 메시지 영역 */}
         <div style={{
           flex: 1, overflowY: "auto",
-          padding: "16px 20px",
-          display: "flex", flexDirection: "column", gap: 14,
+          padding: "14px 16px",
+          display: "flex", flexDirection: "column", gap: 12,
         }}>
           {messages.map((m, idx) =>
             m.role === "user" ? (
               <div key={idx} style={{ display: "flex", justifyContent: "flex-end" }}>
                 <div style={{
-                  maxWidth: "78%",
-                  padding: "10px 14px",
+                  maxWidth: "80%",
+                  padding: "9px 13px",
                   borderRadius: "12px 12px 3px 12px",
                   background: "rgba(255,255,255,0.08)",
                   border: "1px solid rgba(255,255,255,0.07)",
-                  fontSize: 14, lineHeight: 1.7, color: "rgba(255,255,255,0.82)",
+                  fontSize: 13, lineHeight: 1.7,
+                  color: "rgba(255,255,255,0.82)",
                   whiteSpace: "pre-line",
-                  fontFamily: "system-ui,sans-serif",
                 }}>
                   {m.text}
                 </div>
               </div>
             ) : (
-              <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: "90%" }}>
-                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", paddingLeft: 2, fontFamily: "system-ui,sans-serif" }}>AI</span>
+              <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: "92%" }}>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", paddingLeft: 2 }}>AI</span>
                 <InlineSteps
                   steps={m.steps}
                   collapsed={collapsedSteps[idx] === true}
                   onToggle={() => toggleStep(idx)}
                 />
                 <div style={{
-                  padding: "10px 14px",
+                  padding: "9px 13px",
                   borderRadius: "3px 12px 12px 12px",
                   background: "rgba(255,255,255,0.03)",
                   border: "1px solid rgba(255,255,255,0.06)",
-                  fontSize: 14, lineHeight: 1.8, color: "rgba(255,255,255,0.72)",
+                  fontSize: 13, lineHeight: 1.8,
+                  color: "rgba(255,255,255,0.72)",
                   whiteSpace: "pre-line",
-                  fontFamily: "system-ui,sans-serif",
                 }}>
                   {m.text}
                 </div>
@@ -290,10 +284,9 @@ export default function AIChatBot({ selected }) {
             )
           )}
 
-          {/* 추론 인라인 표시 */}
           {loading && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: "90%" }}>
-              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", paddingLeft: 2, fontFamily: "system-ui,sans-serif" }}>AI</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: "92%" }}>
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", paddingLeft: 2 }}>AI</span>
               <ThinkingBlock steps={liveSteps} />
             </div>
           )}
@@ -301,11 +294,11 @@ export default function AIChatBot({ selected }) {
           <div ref={bottomRef} />
         </div>
 
-        {/* 입력 영역 */}
+        {/* 입력 */}
         <div style={{
-          padding: "12px 20px 18px",
+          padding: "10px 16px 14px",
           borderTop: "1px solid rgba(255,255,255,0.06)",
-          display: "flex", gap: 8, flexShrink: 0,
+          display: "flex", gap: 7, flexShrink: 0,
         }}>
           <input
             ref={inputRef}
@@ -318,57 +311,25 @@ export default function AIChatBot({ selected }) {
               flex: 1,
               background: "rgba(255,255,255,0.05)",
               border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: 8, padding: "11px 14px",
-              color: "rgba(255,255,255,0.82)", fontSize: 14,
-              outline: "none", fontFamily: "system-ui,sans-serif",
+              borderRadius: 8, padding: "9px 13px",
+              color: "rgba(255,255,255,0.82)", fontSize: 13,
+              outline: "none", fontFamily: "inherit",
               opacity: loading ? 0.5 : 1,
-              transition: "border-color .15s",
             }}
           />
           <button onClick={() => sendChat()} disabled={loading} style={{
-            padding: "11px 20px", borderRadius: 8,
+            padding: "9px 16px", borderRadius: 8,
             background: loading ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.09)",
             border: "1px solid rgba(255,255,255,0.09)",
             color: loading ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.7)",
-            fontSize: 14, fontWeight: 600,
+            fontSize: 13, fontWeight: 600,
             cursor: loading ? "default" : "pointer",
-            fontFamily: "system-ui,sans-serif",
-            transition: "all .15s",
+            fontFamily: "inherit",
           }}>
             전송
           </button>
         </div>
       </div>
-
-      {/* 토글 탭 */}
-      <button
-        onClick={() => setIsOpen(o => !o)}
-        style={{
-          position: "fixed",
-          right: isOpen ? PANEL_W : 0,
-          top: "50%",
-          transform: "translateY(-50%)",
-          zIndex: 1200,
-          width: 24,
-          height: 60,
-          background: "rgba(18,18,18,0.90)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          borderRight: "none",
-          borderRadius: "8px 0 0 8px",
-          cursor: "pointer",
-          color: "rgba(255,255,255,0.45)",
-          fontSize: 14,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          transition: "right .3s cubic-bezier(.4,0,.2,1)",
-          boxShadow: "-2px 0 14px rgba(0,0,0,0.5)",
-          lineHeight: 1,
-        }}
-        title={isOpen ? "챗봇 닫기" : "AI 교통 분석 챗봇 열기"}
-      >
-        {isOpen ? "›" : "‹"}
-      </button>
 
       <style>{`
         @keyframes chatDotBlink {

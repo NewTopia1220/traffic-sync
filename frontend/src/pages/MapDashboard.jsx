@@ -14,6 +14,7 @@ const TABS = [
   { key: "map",  label: "🗺️ 실시간 지도" }
 ];
 
+const CHAT_W = 480;
 
 export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [] }) {
   const [time,         setTime]         = useState(new Date());
@@ -21,6 +22,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
   const [activeTab,    setActiveTab]    = useState("map");
   const [showRoadView, setShowRoadView] = useState(false);
   const [selectedCctv, setSelectedCctv] = useState(null);
+  const [chatOpen,     setChatOpen]     = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -67,7 +69,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
           <div style={{ fontSize: 11, color: "#475569" }}>V2X 신호 · 위험도 · 혼잡 현황</div>
         </div>
 
-        {/* 탭 + CCTV 관제 버튼 — 탭 옆 고정 */}
+        {/* 탭 + CCTV 관제 버튼 */}
         <div style={{ marginLeft: 16, display: "flex", gap: 6, alignItems: "center" }}>
           <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 3 }}>
             {TABS.map(({ key, label }) => (
@@ -82,10 +84,9 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
             📷 CCTV 관제
           </button>
         </div>
-        
 
         {/* 연결 상태 */}
-        <div style={{ marginLeft: activeTab === "cctv" && selected ? 0 : 8, display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 20, border: `1px solid ${isConn ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`, background: isConn ? "rgba(34,197,94,0.07)" : "rgba(239,68,68,0.07)" }}>
+        <div style={{ marginLeft: 8, display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 20, border: `1px solid ${isConn ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`, background: isConn ? "rgba(34,197,94,0.07)" : "rgba(239,68,68,0.07)" }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: isConn ? "#22c55e" : "#ef4444", display: "inline-block" }} />
           <span style={{ fontSize: 12, color: isConn ? "#22c55e" : "#ef4444" }}>{wsStatus}</span>
         </div>
@@ -104,22 +105,53 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
         </div>
       </div>
 
-      {/* 메인 */}
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 360px", minHeight: 0 }}>
+      {/* 메인 — chatOpen 시 그리드에 챗봇 컬럼 추가 */}
+      <div style={{
+        flex: 1, display: "grid",
+        gridTemplateColumns: chatOpen ? `1fr 360px ${CHAT_W}px` : "1fr 360px",
+        minHeight: 0,
+        transition: "grid-template-columns .28s ease",
+      }}>
 
-        {/* 좌측 */}
+        {/* 좌측 — 지도 */}
         <div style={{ display: "flex", flexDirection: "column", padding: "10px 6px 10px 10px", minHeight: 0 }}>
 
-          {/* 실시간 지도 탭 */}
           {activeTab === "map" && (
             <div style={{ flex: 1, position: "relative", minHeight: 0, borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
               <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} />
+
               {wsData.length === 0 && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(7,12,23,0.75)", zIndex: 30, gap: 10 }}>
                   <div style={{ fontSize: 15, color: "#94a3b8" }}>V2X 데이터 수신 대기 중...</div>
                   <div style={{ fontSize: 13, color: "#475569" }}>스프링 부트 실행 확인 (port 8080)</div>
                 </div>
               )}
+
+              {/* AI 챗봇 토글 버튼 — 우하단 오버레이 */}
+              <div style={{ position: "absolute", bottom: 14, right: 14, zIndex: 20 }}>
+                <button
+                  onClick={() => setChatOpen(o => !o)}
+                  title={chatOpen ? "AI 챗봇 닫기" : "AI 교통 어시스턴트 열기"}
+                  style={{
+                    width: 48, height: 48,
+                    borderRadius: "50%",
+                    background: chatOpen ? "rgba(255,255,255,0.12)" : "rgba(18,18,18,0.88)",
+                    border: `1.5px solid ${chatOpen ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.14)"}`,
+                    backdropFilter: "blur(12px)",
+                    WebkitBackdropFilter: "blur(12px)",
+                    cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    boxShadow: "0 2px 16px rgba(0,0,0,0.6)",
+                    transition: "all .2s",
+                  }}
+                >
+                  {chatOpen
+                    ? <span style={{ fontSize: 16, color: "rgba(255,255,255,0.55)" }}>✕</span>
+                    : <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.75)", fontFamily: "system-ui,sans-serif", letterSpacing: ".5px" }}>AI</span>
+                  }
+                </button>
+              </div>
+
               {/* 좌측 하단: 신호 현황 오버레이 */}
               {selected && (
                 <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 340, pointerEvents: "auto" }}>
@@ -136,13 +168,13 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
           )}
         </div>
 
-        {/* 우측 사이드바 */}
+        {/* 우측 사이드바 — 항상 표시 */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 10px 10px 4px", overflowY: "auto", background: "#12100a" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
             {[
-              { label: "교차로 수",   value: wsData.length,                             suffix: "개",   color: "#4ea6ff" },
-              { label: "위험 교차로", value: wsData.filter(isHighRisk).length, suffix: "개",   color: "#ff5566" },
-              { label: "평균 속도",   value: avgSpeed,                                   suffix: "km/h", color: "#2ee07a" },
+              { label: "교차로 수",   value: wsData.length,                    suffix: "개",   color: "#4ea6ff" },
+              { label: "위험 교차로", value: wsData.filter(isHighRisk).length,  suffix: "개",   color: "#ff5566" },
+              { label: "평균 속도",   value: avgSpeed,                          suffix: "km/h", color: "#2ee07a" },
             ].map(s => (
               <div key={s.label} style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "12px 10px", textAlign: "center" }}>
                 <div style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "monospace" }}>{s.value}<span style={{ fontSize: 13 }}>{s.suffix}</span></div>
@@ -153,6 +185,14 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
           <BottleneckList bottlenecks={bottlenecks} selected={selected} onSelect={selectCr} crossroadsCount={wsData.length} />
           <RiskList risks={risks} onSelect={selectCr} crossroadsCount={wsData.length} />
         </div>
+
+        {/* 챗봇 패널 — chatOpen일 때만 그리드 컬럼에 렌더링 */}
+        {chatOpen && (
+          <AIChatBot
+            selected={selected}
+            onClose={() => setChatOpen(false)}
+          />
+        )}
       </div>
 
       {/* 모달 */}
@@ -162,9 +202,6 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
       {selectedCctv && (
         <CctvModal cctv={selectedCctv} onClose={() => setSelectedCctv(null)} />
       )}
-
-      {/* AI 챗봇 사이드 패널 (position: fixed) */}
-      <AIChatBot selected={selected} />
     </div>
   );
 }
