@@ -7,6 +7,7 @@ import BottleneckList from "../components/sidebar/BottleneckList";
 import RiskList from "../components/sidebar/RiskList";
 import AIChatBot from "../components/sidebar/AIChatBot";
 import { riskGradeValue } from "../utils/signalUtils";
+import AppHeader from "../components/common/AppHeader";
 
 
 const WEATHER = { icon: "🌤️", temp: "21°C", desc: "맑음", humidity: "65%" };
@@ -16,13 +17,14 @@ const TABS = [
 
 const CHAT_W = 480;
 
-export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [] }) {
+export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, selectedGu, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [] }) {
   const [time,         setTime]         = useState(new Date());
   const [selected,     setSelected]     = useState(null);
   const [activeTab,    setActiveTab]    = useState("map");
   const [showRoadView, setShowRoadView] = useState(false);
   const [selectedCctv, setSelectedCctv] = useState(null);
   const [chatOpen,     setChatOpen]     = useState(false);
+  const [signalPanelOpen, setSignalPanelOpen] = useState(true);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -31,14 +33,15 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
 
   useEffect(() => {
     setSelected(prev => {
-      if (!prev && wsData.length > 0) return wsData[0];
+      if (!prev && wsData.length > 0 && signalPanelOpen) return wsData[0];
       if (prev) return wsData.find(c => c.crsrdId === prev.crsrdId) || prev;
       return prev;
     });
-  }, [wsData]);
+  }, [wsData, signalPanelOpen]);
 
   const selectCr = useCallback(cr => {
     setSelected(cr);
+    setSignalPanelOpen(true);
     setActiveTab("map");
   }, []);
 
@@ -60,52 +63,26 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
   return (
     <div style={{ fontFamily: "'Noto Sans KR','Malgun Gothic',sans-serif", background: "#12100a", color: "#e2e8f0", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-      {/* 헤더 */}
-      <div style={{ background: "#12100a", borderBottom: "1px solid #2a2418", padding: "0 22px", height: 56, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-        <button onClick={onGoMain} style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "5px 13px", color: "#aab4c8", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>← 대시보드</button>
-        <span style={{ fontSize: 20 }}>🚦</span>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: "#60a5fa" }}>실시간 교차로 지도</div>
-          <div style={{ fontSize: 11, color: "#475569" }}>V2X 신호 · 위험도 · 혼잡 현황</div>
-        </div>
-
-        {/* 탭 + CCTV 관제 버튼 */}
-        <div style={{ marginLeft: 16, display: "flex", gap: 6, alignItems: "center" }}>
-          <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 3 }}>
-            {TABS.map(({ key, label }) => (
-              <button key={key} onClick={() => setActiveTab(key)}
-                style={{ padding: "4px 16px", borderRadius: 6, fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", transition: "all .15s", background: activeTab === key ? "#1d4ed8" : "transparent", color: activeTab === key ? "#fff" : "#64748b" }}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <button onClick={onGoCctv}
-            style={{ padding: "5px 14px", borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: "rgba(255,170,51,0.12)", border: "1px solid rgba(255,170,51,0.4)", color: "#ffaa33", display: "flex", alignItems: "center", gap: 6 }}>
-            📷 CCTV 관제
-          </button>
-        </div>
-
-        {/* 연결 상태 */}
-        <div style={{ marginLeft: 8, display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 20, border: `1px solid ${isConn ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`, background: isConn ? "rgba(34,197,94,0.07)" : "rgba(239,68,68,0.07)" }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: isConn ? "#22c55e" : "#ef4444", display: "inline-block" }} />
-          <span style={{ fontSize: 12, color: isConn ? "#22c55e" : "#ef4444" }}>{wsStatus}</span>
-        </div>
-        {isConn && <div style={{ fontSize: 12, color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)", padding: "2px 9px", borderRadius: 4, fontWeight: 600 }}>● LIVE · V2X</div>}
-
-        {/* 날씨 + 시간 */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 7, border: "1px solid rgba(255,255,255,0.06)", fontSize: 13 }}>
-            <span>{WEATHER.icon}</span>
-            <span style={{ color: "#94a3b8" }}>{WEATHER.desc}</span>
-            <span style={{ fontWeight: 600 }}>{WEATHER.temp}</span>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>습도 {WEATHER.humidity}</span>
-          </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>갱신: <span style={{ color: "#94a3b8" }}>{lastUpdate ? lastUpdate.toLocaleTimeString("ko-KR") : "-"}</span></div>
-          <div style={{ fontSize: 13, color: "#9ca3af", fontFamily: "monospace", background: "rgba(255,255,255,0.04)", padding: "3px 9px", borderRadius: 5 }}>{time.toLocaleTimeString("ko-KR")}</div>
-        </div>
-      </div>
-
-      {/* 메인 — chatOpen 시 그리드에 챗봇 컬럼 추가 */}
+      {/* 공통 헤더 */}
+      <AppHeader
+        activePage="map"
+        selectedGu={selectedGu}
+        statusText={isConn ? "LIVE · V2X 연결됨" : wsStatus}
+        statusLive={isConn}
+        onGoMain={onGoMain}
+        onGoMap={() => {}}
+        onGoNews={onGoNews}
+        onGoCctv={onGoCctv}
+        onGoSimulation={onGoSimulation}
+        onGoMyPage={onGoMyPage}
+        onLogout={onLogout}
+        rightExtra={(
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 12, color: "#7a7a7a" }}>
+            갱신: <span style={{ color: "#aab4c8" }}>{lastUpdate ? lastUpdate.toLocaleTimeString("ko-KR") : "-"}</span>
+          </span>
+        )}
+      />
+{/* 메인 — chatOpen 시 그리드에 챗봇 컬럼 추가 */}
       <div style={{
         flex: 1, display: "grid",
         gridTemplateColumns: chatOpen ? `1fr 360px ${CHAT_W}px` : "1fr 360px",
@@ -118,7 +95,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
 
           {activeTab === "map" && (
             <div style={{ flex: 1, position: "relative", minHeight: 0, borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} />
+              <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} selectedGu={selectedGu} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} />
 
               {wsData.length === 0 && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(7,12,23,0.75)", zIndex: 30, gap: 10 }}>
@@ -133,32 +110,48 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
                   onClick={() => setChatOpen(o => !o)}
                   title={chatOpen ? "AI 챗봇 닫기" : "AI 교통 어시스턴트 열기"}
                   style={{
-                    width: 48, height: 48,
+                    width: 54, height: 54,
                     borderRadius: "50%",
-                    background: chatOpen ? "rgba(255,255,255,0.12)" : "rgba(18,18,18,0.88)",
-                    border: `1.5px solid ${chatOpen ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.14)"}`,
+                    background: chatOpen
+                      ? "linear-gradient(135deg, rgba(96,165,250,0.95), rgba(168,85,247,0.95))"
+                      : "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(59,130,246,0.9))",
+                    border: `2px solid ${chatOpen ? "rgba(255,255,255,0.38)" : "rgba(147,197,253,0.55)"}`,
                     backdropFilter: "blur(12px)",
                     WebkitBackdropFilter: "blur(12px)",
                     cursor: "pointer",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    boxShadow: "0 2px 16px rgba(0,0,0,0.6)",
+                    boxShadow: "0 4px 18px rgba(0,0,0,0.62), 0 0 16px rgba(96,165,250,0.28)",
                     transition: "all .2s",
                   }}
                 >
                   {chatOpen
                     ? <span style={{ fontSize: 16, color: "rgba(255,255,255,0.55)" }}>✕</span>
-                    : <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.75)", fontFamily: "system-ui,sans-serif", letterSpacing: ".5px" }}>AI</span>
+                    : <span style={{ fontSize: 27, lineHeight: 1 }}>🧑‍💼</span>
                   }
                 </button>
               </div>
 
               {/* 좌측 하단: 신호 현황 오버레이 */}
-              {selected && (
-                <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 340, pointerEvents: "auto" }}>
-                  <div style={{ background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)", borderRadius: 4, padding: 14, backdropFilter: "blur(8px)" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                      <div style={{ fontSize: 13, color: "#4ea6ff", fontWeight: 700 }}>📍 {selected.crsrdNm} — 실시간 신호 현황</div>
-                      <button onClick={() => setShowRoadView(true)} style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 6, color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "3px 9px", fontFamily: "inherit" }}>🛣️ 로드뷰</button>
+              {selected && signalPanelOpen && (
+                <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 460, maxWidth: "calc(100% - 28px)", pointerEvents: "auto" }}>
+                  <div style={{ background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)", borderRadius: 10, padding: 16, backdropFilter: "blur(8px)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
+                      <div style={{ fontSize: 17, color: "#4ea6ff", fontWeight: 800, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.crsrdNm}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                        <button onClick={() => setShowRoadView(true)} style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 6, color: "#60a5fa", fontSize: 12, cursor: "pointer", padding: "5px 11px", fontFamily: "inherit" }}>로드뷰</button>
+                        <button
+                          onClick={() => { setSignalPanelOpen(false); setSelected(null); }}
+                          title="신호 현황 닫기"
+                          style={{
+                            width: 28, height: 28, borderRadius: 6,
+                            background: "rgba(255,255,255,0.06)",
+                            border: "1px solid rgba(255,255,255,0.14)",
+                            color: "#cbd5e1", cursor: "pointer", fontSize: 16,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontFamily: "inherit", lineHeight: 1,
+                          }}
+                        >×</button>
+                      </div>
                     </div>
                     <SignalPanel cr={selected} />
                   </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import SimulationMapView from "../components/map/SimulationMapView";
 import SignalSimPanel from "../components/map/SignalSimPanel";
+import AppHeader from "../components/common/AppHeader";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
@@ -396,7 +397,7 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk, autoAdjustKey = 0, au
   );
 }
 
-export default function SimulationDashboard({ onGoMain, onGoMap }) {
+export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoMyPage, onLogout, selectedGu }) {
   const [selectedList, setSelectedList] = useState([]);
   const [time, setTime] = useState(new Date());
   const [isOptimized, setIsOptimized] = useState(false);
@@ -505,38 +506,19 @@ export default function SimulationDashboard({ onGoMain, onGoMap }) {
 
   return (
     <div style={{ fontFamily: "'Noto Sans KR','Malgun Gothic',sans-serif", background: "#12100a", color: "#e2e8f0", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ background: "#12100a", borderBottom: "1px solid #2a2418", padding: "0 22px", height: 56, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-        <button onClick={onGoMain} style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "5px 13px", color: "#aab4c8", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>← 대시보드</button>
-        <button onClick={onGoMap} style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "5px 13px", color: "#aab4c8", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>🗺️ 실시간 지도</button>
-        <span style={{ fontSize: 20 }}>🚦</span>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: "#60a5fa" }}>경로 기반 신호 시뮬레이션</div>
-          <div style={{ fontSize: 11, color: "#475569" }}>출발지 → 자동 경유지 → 목적지 → 병목 신호제어 + 신호체계 확인</div>
-        </div>
-
-        {start && end && (
-          <div style={{
-            marginLeft: 16,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "4px 14px",
-            borderRadius: 20,
-            background: isOptimized ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.08)",
-            border: `1px solid ${isOptimized ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.2)"}`,
-          }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: isOptimized ? "#22c55e" : "#ef4444", display: "inline-block", boxShadow: isOptimized ? "0 0 6px #22c55e" : "none" }} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: isOptimized ? "#22c55e" : "#ef4444" }}>
-              {isOptimized ? "신호제어 적용 중" : "현행 신호 운영"}
-            </span>
-          </div>
-        )}
-
-        <div style={{ marginLeft: "auto", fontSize: 13, color: "#9ca3af", fontFamily: "monospace", background: "rgba(255,255,255,0.04)", padding: "3px 9px", borderRadius: 5 }}>
-          {time.toLocaleTimeString("ko-KR")}
-        </div>
-      </div>
-
+      <AppHeader
+        activePage="simulation"
+        selectedGu={selectedGu}
+        statusText={start && end ? (isOptimized ? "신호제어 적용 중" : "현행 신호 운영") : "경로 선택 대기"}
+        statusLive={!!(start && end && isOptimized)}
+        onGoMain={onGoMain}
+        onGoMap={onGoMap}
+        onGoNews={onGoNews}
+        onGoCctv={onGoCctv}
+        onGoSimulation={() => {}}
+        onGoMyPage={onGoMyPage}
+        onLogout={onLogout}
+      />
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: "minmax(0, 1fr) 330px 400px", minHeight: 0 }}>
         <div style={{ padding: "10px 6px 10px 10px", minHeight: 0, position: "relative" }}>
           <div style={{ height: "100%", borderRadius: 11, overflow: "hidden", border: `1px solid ${isOptimized ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.08)"}`, boxShadow: isOptimized ? "0 0 20px rgba(34,197,94,0.1)" : "none" }}>

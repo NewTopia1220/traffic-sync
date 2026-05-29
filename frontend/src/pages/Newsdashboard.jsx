@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import AppHeader from "../components/common/AppHeader";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
@@ -14,13 +15,15 @@ const V = {
   sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
 };
 
-const SECTORS = [
+const MENU_ITEMS = [
   { id: "all",    name: "전체 뉴스",  color: V.ink2 },
-  { id: "서울교통", name: "서울교통",  color: V.blu },
-  { id: "교통사고", name: "교통사고",  color: V.red },
+  { id: "서울교통", name: "도로·정체",  color: V.blu },
+  { id: "교통사고", name: "사고·통제",  color: V.red },
   { id: "대중교통", name: "대중교통",  color: V.grn },
-  { id: "날씨교통", name: "날씨교통",  color: V.org },
+  { id: "날씨교통", name: "날씨 영향",  color: V.org },
 ];
+
+const menuNameOf = (id) => MENU_ITEMS.find(m => m.id === id)?.name || id || "기타";
 
 function sentStyle(s) {
   if (s === "혼잡악화") return { color: V.red, borderColor: V.redBd, background: V.redBg };
@@ -49,10 +52,10 @@ function Donut({ pct, color, label, valueStr }) {
             transform="rotate(-90 48 48)" />
         </svg>
         <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: V.mono }}>
-          <b style={{ fontSize: 13, color: "#fff", fontWeight: 700, lineHeight: 1 }}>{valueStr}</b>
+          <b style={{ fontSize: 14.5, color: "#fff", fontWeight: 800, lineHeight: 1 }}>{valueStr}</b>
         </div>
       </div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: V.ink2, letterSpacing: 0.1, whiteSpace: "nowrap" }}>{label}</div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: V.ink2, letterSpacing: 0.1, whiteSpace: "nowrap" }}>{label}</div>
     </div>
   );
 }
@@ -64,23 +67,23 @@ function NewsCard({ item }) {
   const sent = sentStyle(item.sentiment);
 
   return (
-    <article style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 8, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
+    <article style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 8, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
       {/* Row 1: chips + date */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "space-between" }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {/* 카테고리 */}
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, padding: "4px 11px", borderRadius: 999, color: V.blu, borderColor: V.bluBd, background: V.bluBg, border: `1px solid ${V.bluBd}` }}>
-            {item.category}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 800, padding: "5px 12px", borderRadius: 999, color: V.blu, borderColor: V.bluBd, background: V.bluBg, border: `1px solid ${V.bluBd}` }}>
+            {menuNameOf(item.category)}
           </span>
           {/* 감성 */}
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, padding: "4px 11px", borderRadius: 999, border: `1px solid ${sent.borderColor}`, color: sent.color, background: sent.background }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 800, padding: "5px 12px", borderRadius: 999, border: `1px solid ${sent.borderColor}`, color: sent.color, background: sent.background }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: sentDot(item.sentiment), display: "inline-block" }} />
             {item.sentiment}
           </span>
           {/* 유형 */}
           {item.articleType && (
-            <span style={{ display: "inline-flex", alignItems: "center", fontSize: 12, fontWeight: 600, padding: "4px 11px", borderRadius: 999, color: V.pur, border: "1px solid #2a1f5c", background: "#0f0a1f" }}>
-              {item.articleType} · {(+parseFloat(item.typeProb || 0)).toFixed(0)}%
+            <span style={{ display: "inline-flex", alignItems: "center", fontSize: 15, fontWeight: 800, padding: "5px 12px", borderRadius: 999, color: V.pur, border: "1px solid #2a1f5c", background: "#0f0a1f" }}>
+              기사유형 · {item.articleType} · {(+parseFloat(item.typeProb || 0)).toFixed(0)}%
             </span>
           )}
         </div>
@@ -88,23 +91,23 @@ function NewsCard({ item }) {
       </div>
 
       {/* 제목 */}
-      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff", letterSpacing: 0.1, lineHeight: 1.4 }}>{item.title}</h3>
+      <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: 0.1, lineHeight: 1.4 }}>{item.title}</h3>
 
       {/* 요약 */}
       {item.summary && (
-        <p style={{ margin: 0, fontSize: 13.5, color: V.ink2, lineHeight: 1.5 }}>{item.summary}</p>
+        <p style={{ margin: 0, fontSize: 15, color: V.ink2, lineHeight: 1.5 }}>{item.summary}</p>
       )}
 
       {/* 미터 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 4 }}>
         {[
-          { label: "AI 신뢰도", val: trust, color: V.blu },
-          { label: "낚시 위험", val: bait, color: V.red },
+          { label: "기사 신뢰도", val: trust, color: V.blu },
+          { label: "제목 과장도", val: bait, color: V.red },
         ].map(m => (
           <div key={m.label} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: V.mono, fontSize: 12, color: V.ink3 }}>
-              <span style={{ color: V.ink2, fontWeight: 500, fontSize: 12.5 }}>{m.label}</span>
-              <span style={{ marginLeft: "auto", fontSize: 13.5, fontWeight: 700, color: "#fff" }}>{m.val}%</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: V.mono, fontSize: 13.5, color: V.ink3 }}>
+              <span style={{ color: V.ink2, fontWeight: 500, fontSize: 14 }}>{m.label}</span>
+              <span style={{ marginLeft: "auto", fontSize: 15, fontWeight: 800, color: "#fff" }}>{m.val}%</span>
             </div>
             <div style={{ height: 6, background: "#0d0d0d", border: `1px solid ${V.line}`, borderRadius: 999, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${m.val}%`, background: m.color }} />
@@ -116,21 +119,21 @@ function NewsCard({ item }) {
       {/* 원문 링크 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4, paddingTop: 10, borderTop: `1px solid ${V.line}` }}>
         <a href={item.link} target="_blank" rel="noopener noreferrer"
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#000", border: `1px solid ${V.line}`, borderRadius: 999, color: "#fff", fontSize: 12.5, fontWeight: 600, textDecoration: "none" }}>
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#000", border: `1px solid ${V.line}`, borderRadius: 999, color: "#fff", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
           원문 보기 →
         </a>
-        <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11.5, color: V.ink4 }}>
-          naver news · {item.pubDate?.split(" ")[0]}
+        <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 14, color: V.ink4 }}>
+          교통 뉴스 · {item.pubDate?.split(" ")[0]}
         </span>
       </div>
     </article>
   );
 }
 
-export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulation, selectedGu }) {
+export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulation, onGoMyPage, onLogout, selectedGu }) {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [sector, setSector] = useState("all");
+  const [selectedMenu, setSelectedMenu] = useState("all");
   const [sort, setSort] = useState("recent");
   const [query, setQuery] = useState("");
   const [inputVal, setInputVal] = useState("");
@@ -151,11 +154,11 @@ export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulat
       .catch(() => setLoading(false));
   }, []);
 
-  // 섹터별 개수
+  // 메뉴별 개수
   const countOf = (id) => id === "all" ? news.length : news.filter(n => n.category === id).length;
 
   // 필터링
-  const pool = sector === "all" ? news : news.filter(n => n.category === sector);
+  const pool = selectedMenu === "all" ? news : news.filter(n => n.category === selectedMenu);
   const filtered = pool
     .filter(n => !query || n.title?.includes(query) || n.summary?.includes(query) || n.category?.includes(query))
     .slice()
@@ -186,116 +189,85 @@ export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulat
     setPage(1);
   }, [inputVal]);
 
-  const changeSector = (id) => { setSector(id); setPage(1); };
+  const changeMenu = (id) => { setSelectedMenu(id); setPage(1); };
   const changeSort = (s) => { setSort(s); setPage(1); };
 
   return (
     <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink1, minHeight: "100vh", display: "flex", flexDirection: "column" }}>
 
-      {/* ── 헤더 ── */}
-      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 18px", height: 60, display: "flex", alignItems: "center", gap: 18, flexShrink: 0, position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 260 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}` }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: V.grn, display: "block" }} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>Traffic-Sync 관제 시스템</div>
-            <div style={{ fontSize: 12, color: V.ink3 }}>뉴스 감성 분석 · Groq AI 기반 교통 뉴스 모니터링</div>
-          </div>
-        </div>
-
-        {/* 탭 */}
-        <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 3 }}>
-          {[["통합 대시보드","main"], ["실시간 지도","map"], ["뉴스 감성 분석","news"], ["CCTV 관제","cctv"], ["🚦 신호 시뮬레이션","simulation"]].map(([label, tab]) => {
-            const isActive = tab === "news";
-            const onClick = tab === "main" ? onGoMain : tab === "map" ? () => onGoMap?.(selectedGu) : tab === "cctv" ? onGoCctv : tab === "simulation" ? onGoSimulation : undefined;
-            return (
-              <button key={tab} onClick={onClick} style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : V.ink2, padding: "7px 15px", borderRadius: 2, fontSize: 14, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink5, display: "inline-block" }} />
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        {selectedGu && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 13px", borderRadius: 2, background: V.orgBg, border: `1px solid ${V.orgBd}`, color: V.org, fontSize: 12, fontWeight: 600 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
-            {selectedGu.name} 선택됨
-          </div>
-        )}
-
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", border: `1px solid ${V.line}`, background: V.bg0, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink2 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: news.length > 0 ? V.grn : V.ink4, display: "inline-block" }} />
-            {news.length > 0 ? `LIVE · ${news.length}건 수집됨` : "데이터 없음"}
-          </span>
-          <span style={{ fontFamily: V.mono, fontSize: 13, color: V.ink0 }}>
-            <span style={{ color: V.ink2, marginRight: 6 }}>{time.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}</span>
-            {time.toLocaleTimeString("ko-KR")}
-          </span>
-        </div>
-      </div>
-
-      {/* ── 검색바 ── */}
-      <div style={{ display: "flex", gap: 14, alignItems: "center", padding: "12px 18px", borderBottom: `1px solid ${V.line}`, background: "#050505", flexShrink: 0 }}>
-        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 12, background: "#000", border: `1px solid ${V.line}`, borderRadius: 2, padding: "0 14px", height: 42 }}>
-          <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink4, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap" }}>키워드 검색</span>
+      {/* 공통 헤더 */}
+      <AppHeader
+        activePage="news"
+        selectedGu={selectedGu}
+        statusText={news.length > 0 ? `LIVE · ${news.length}건 수집됨` : "데이터 없음"}
+        statusLive={news.length > 0}
+        onGoMain={onGoMain}
+        onGoMap={onGoMap}
+        onGoNews={() => {}}
+        onGoCctv={onGoCctv}
+        onGoSimulation={onGoSimulation}
+        onGoMyPage={onGoMyPage}
+        onLogout={onLogout}
+      />
+{/* ── 검색바 ── */}
+      <div style={{ display: "flex", gap: 14, alignItems: "center", padding: "14px 20px", borderBottom: `1px solid ${V.line}`, background: "#050505", flexShrink: 0 }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 12, background: "#000", border: `1px solid ${V.line}`, borderRadius: 2, padding: "0 14px", height: 46 }}>
+          <span style={{ fontFamily: V.mono, fontSize: 14, color: V.ink4, letterSpacing: 0.6, textTransform: "uppercase", whiteSpace: "nowrap" }}>키워드 검색</span>
           <input
             value={inputVal}
             onChange={e => setInputVal(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSearch()}
             placeholder="예) 강남 교차로, 폭우, 지하철 2호선"
-            style={{ flex: 1, background: "transparent", border: 0, outline: 0, color: "#fff", fontSize: 15, fontWeight: 500, fontFamily: V.sans }}
+            style={{ flex: 1, background: "transparent", border: 0, outline: 0, color: "#fff", fontSize: 16.5, fontWeight: 500, fontFamily: V.sans }}
           />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink4, letterSpacing: 0.6, textTransform: "uppercase" }}>정렬</span>
+          <span style={{ fontFamily: V.mono, fontSize: 14, color: V.ink4, letterSpacing: 0.6, textTransform: "uppercase" }}>정렬</span>
           <div style={{ display: "flex", background: "#000", border: `1px solid ${V.line}`, borderRadius: 2, padding: 3, gap: 2 }}>
-            {[["recent","최신순"],["trust","신뢰도 높은 순"],["bait","낚시 위험 높은 순"]].map(([id, label]) => (
+            {[["recent","최신순"],["trust","신뢰도 높은 순"],["bait","제목 과장도 높은 순"]].map(([id, label]) => (
               <button key={id} onClick={() => changeSort(id)}
-                style={{ appearance: "none", border: 0, background: sort === id ? "#141414" : "transparent", color: sort === id ? "#fff" : V.ink3, fontSize: 13, fontWeight: 500, padding: "7px 14px", borderRadius: 2, cursor: "pointer", boxShadow: sort === id ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
+                style={{ appearance: "none", border: 0, background: sort === id ? "#141414" : "transparent", color: sort === id ? "#fff" : V.ink3, fontSize: 14.5, fontWeight: 600, padding: "8px 16px", borderRadius: 2, cursor: "pointer", boxShadow: sort === id ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
                 {label}
               </button>
             ))}
           </div>
           <button onClick={handleSearch}
-            style={{ height: 42, padding: "0 24px", border: `1px solid ${V.line}`, background: "#141414", color: "#fff", fontSize: 14, fontWeight: 600, letterSpacing: 0.5, borderRadius: 2, cursor: "pointer", fontFamily: V.sans }}>
+            style={{ height: 46, padding: "0 24px", border: `1px solid ${V.line}`, background: "#141414", color: "#fff", fontSize: 15.5, fontWeight: 700, letterSpacing: 0.5, borderRadius: 2, cursor: "pointer", fontFamily: V.sans }}>
             검색
           </button>
         </div>
       </div>
 
       {/* ── 메인 레이아웃 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 10, padding: 10, flex: 1, alignItems: "flex-start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "330px 1fr", gap: 10, padding: 10, flex: 1, alignItems: "flex-start" }}>
 
         {/* 사이드바 */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, position: "sticky", top: 70 }}>
 
           {/* 종합 분석 카드 */}
           <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2 }}>
-            <div style={{ padding: "12px 14px", borderBottom: `1px solid ${V.line}`, background: "#080808", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#fff", display: "inline-flex", alignItems: "center" }}>
+            <div style={{ padding: "14px 16px", borderBottom: `1px solid ${V.line}`, background: "#080808", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18, fontWeight: 800, color: "#fff", display: "inline-flex", alignItems: "center" }}>
                 <span style={{ color: V.ink5, marginRight: 8, fontSize: 11 }}>▪</span>
-                종합 분석 · {SECTORS.find(s => s.id === sector)?.name}
+                교통 뉴스 분석 · {menuNameOf(selectedMenu)}
               </span>
-              <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 12, color: V.ink2, padding: "4px 9px", border: `1px solid ${V.line}`, borderRadius: 2, background: "#000" }}>
+              <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 15, color: V.ink2, padding: "4px 9px", border: `1px solid ${V.line}`, borderRadius: 2, background: "#000" }}>
                 총 {total}건
               </span>
             </div>
             <div style={{ padding: "14px", display: "flex", flexDirection: "column", gap: 14 }}>
               {/* 도넛 3개 */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
-                <Donut pct={avgTrust} color={V.blu}  label="AI 신뢰도"    valueStr={`${avgTrust.toFixed(1)}%`} />
-                <Donut pct={avgBait}  color={V.red}  label="낚시 위험"    valueStr={`${avgBait.toFixed(1)}%`} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+                <Donut pct={avgTrust} color={V.blu}  label="기사 신뢰도"    valueStr={`${avgTrust.toFixed(1)}%`} />
+                <Donut pct={avgBait}  color={V.red}  label="제목 과장도"    valueStr={`${avgBait.toFixed(1)}%`} />
                 <Donut pct={goodPct}  color={V.grn}  label="교통 개선"    valueStr={`${goodPct.toFixed(0)}%`} />
               </div>
 
               {/* 감성 분포 바 */}
-              <div style={{ background: "#000", border: `1px solid ${V.line}`, borderRadius: 2, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: V.ink3, fontFamily: V.mono }}>
-                  <b style={{ color: "#fff", fontWeight: 600, fontSize: 12, fontFamily: V.sans }}>감성 분포</b>
-                  <span style={{ marginLeft: "auto", fontSize: 11, color: V.ink4 }}>총 {total}건</span>
+              <div style={{ background: "#000", border: `1px solid ${V.line}`, borderRadius: 2, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: V.ink3, fontFamily: V.mono }}>
+                  <b style={{ color: "#fff", fontWeight: 600, fontSize: 12, fontFamily: V.sans }}>교통 영향 분포</b>
+                  <span style={{ marginLeft: "auto", fontSize: 12, color: V.ink4 }}>총 {total}건</span>
                 </div>
                 <div style={{ display: "flex", height: 8, background: "#0d0d0d", border: `1px solid ${V.line}`, borderRadius: 999, overflow: "hidden" }}>
                   <div style={{ width: `${badPct}%`,  background: V.red }} />
@@ -304,7 +276,7 @@ export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulat
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {[["혼잡악화", V.red, badN, badPct], ["교통개선", V.grn, goodN, goodPct], ["중립", "#9a9a9a", neutN, neutPct]].map(([label, c, n, pct]) => (
-                    <div key={label} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5 }}>
+                    <div key={label} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13 }}>
                       <span style={{ width: 7, height: 7, borderRadius: "50%", background: c, flexShrink: 0 }} />
                       <span style={{ color: V.ink2, fontWeight: 500 }}>{label}</span>
                       <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 12, fontWeight: 700, color: "#fff" }}>
@@ -317,10 +289,10 @@ export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulat
 
               {/* 범례 */}
               <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "4px 0" }}>
-                {[[V.blu, "AI 신뢰도", "사실 기반 작성 확률"], [V.red, "낚시 확률", "클릭베이트성 제목"], [V.grn, "교통 개선", "호재성 기사 비율"]].map(([c, b, i]) => (
+                {[[V.blu, "기사 신뢰도", "사실 기반으로 작성된 정도"], [V.red, "제목 과장도", "과장·자극적 제목 가능성"], [V.grn, "교통 개선", "교통 개선 관련 기사 비율"]].map(([c, b, i]) => (
                   <div key={b} style={{ display: "grid", gridTemplateColumns: "auto auto 1fr", gap: 8, alignItems: "baseline", fontSize: 12.5, color: V.ink2 }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: c, alignSelf: "center", flexShrink: 0 }} />
-                    <b style={{ color: "#fff", fontWeight: 600, fontSize: 13, whiteSpace: "nowrap" }}>{b}</b>
+                    <b style={{ color: "#fff", fontWeight: 600, fontSize: 14.5, whiteSpace: "nowrap" }}>{b}</b>
                     <i style={{ fontStyle: "normal", color: V.ink3, fontSize: 12 }}>{i}</i>
                   </div>
                 ))}
@@ -328,23 +300,23 @@ export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulat
             </div>
           </div>
 
-          {/* 섹터 선택 */}
+          {/* 메뉴 선택 */}
           <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2 }}>
-            <div style={{ padding: "12px 14px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#fff", display: "inline-flex", alignItems: "center" }}>
-                <span style={{ color: V.ink5, marginRight: 8, fontSize: 11 }}>▪</span>섹터 선택
+            <div style={{ padding: "14px 16px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}>
+              <span style={{ fontSize: 18, fontWeight: 800, color: "#fff", display: "inline-flex", alignItems: "center" }}>
+                <span style={{ color: V.ink5, marginRight: 8, fontSize: 11 }}>▪</span>메뉴 선택
               </span>
             </div>
             <div style={{ display: "flex", flexDirection: "column" }}>
-              {SECTORS.map(s => {
-                const isOn = sector === s.id;
+              {MENU_ITEMS.map(s => {
+                const isOn = selectedMenu === s.id;
                 const cnt = countOf(s.id);
                 return (
-                  <button key={s.id} onClick={() => changeSector(s.id)}
-                    style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "13px 16px", background: isOn ? "#141414" : "transparent", border: 0, borderBottom: `1px solid ${V.line}`, color: isOn ? "#fff" : V.ink2, fontSize: 14, fontWeight: 500, textAlign: "left", cursor: "pointer", boxShadow: isOn ? `inset 2px 0 0 ${s.color}` : "none", fontFamily: V.sans }}>
+                  <button key={s.id} onClick={() => changeMenu(s.id)}
+                    style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "15px 18px", background: isOn ? "#141414" : "transparent", border: 0, borderBottom: `1px solid ${V.line}`, color: isOn ? "#fff" : V.ink2, fontSize: 16, fontWeight: 600, textAlign: "left", cursor: "pointer", boxShadow: isOn ? `inset 2px 0 0 ${s.color}` : "none", fontFamily: V.sans }}>
                     <span style={{ width: 8, height: 8, borderRadius: 1, background: s.color }} />
                     <span>{s.name}</span>
-                    <span style={{ fontFamily: V.mono, fontSize: 12.5, color: isOn ? "#fff" : V.ink4, fontWeight: 600 }}>{cnt}</span>
+                    <span style={{ fontFamily: V.mono, fontSize: 14, color: isOn ? "#fff" : V.ink4, fontWeight: 600 }}>{cnt}</span>
                   </button>
                 );
               })}
@@ -355,20 +327,20 @@ export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulat
         {/* 뉴스 리스트 */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "0 4px" }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>
-              {query ? `"${query}" ` : ""}{SECTORS.find(s => s.id === sector)?.name} 검색 결과
+            <span style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>
+              {query ? `"${query}" ` : ""}{menuNameOf(selectedMenu)} 검색 결과
             </span>
-            <span style={{ fontFamily: V.mono, fontSize: 12.5, color: V.ink4 }}>
+            <span style={{ fontFamily: V.mono, fontSize: 14, color: V.ink4 }}>
               {filtered.length}건 · {page}/{totalPages} 페이지
             </span>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {loading ? (
               <div style={{ padding: 40, textAlign: "center", color: V.ink3, fontFamily: V.mono }}>뉴스 로딩 중...</div>
             ) : slice.length === 0 ? (
               <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 8, padding: "32px 18px", textAlign: "center", color: V.ink3, fontFamily: V.mono }}>
-                {news.length === 0 ? "수집된 뉴스가 없습니다. POST /news/fetch 로 수집을 시작하세요." : "검색 결과가 없습니다."}
+                {news.length === 0 ? "수집된 뉴스가 없습니다. 뉴스 수집 서버에서 /news/fetch를 실행해 데이터를 수집하세요." : "검색 결과가 없습니다."}
               </div>
             ) : (
               slice.map((item, i) => <NewsCard key={item.link || i} item={item} />)

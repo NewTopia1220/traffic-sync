@@ -16,6 +16,10 @@ const V = {
   sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
 };
 
+// 위험도 API 점수는 100점을 넘을 수 있으므로 300점을 기준으로 게이지를 환산한다.
+// 300점 이상은 게이지를 100%로 표시한다.
+const RISK_MAX_SCORE = 300;
+
 // ── BottleneckEmailBtn ──────────────────────────────────────────────────────
 function BottleneckEmailBtn({ district, apiBase }) {
   const [status, setStatus] = useState("idle"); // idle | loading | done | error
@@ -35,16 +39,37 @@ function BottleneckEmailBtn({ district, apiBase }) {
     });
   };
 
-  const label = status === "loading" ? "분석 중..." : status === "done" ? "✓ 메일 전송됨" : status === "error" ? "전송 실패" : "📧 병목 메일";
-  const color = status === "done" ? "#2ee07a" : status === "error" ? "#ff5566" : "#4ea6ff";
+  const label = status === "loading" ? "⏳" : status === "done" ? "📨" : status === "error" ? "❌" : "📧";
+  const title = status === "loading" ? "병목 메일 분석 중" : status === "done" ? "병목 메일 전송 완료" : status === "error" ? "병목 메일 전송 실패" : "병목 메일 보내기";
+  const borderColor = status === "done" ? "#1a3a24" : status === "error" ? "#3a1820" : "#1a1a1a";
+  const background = status === "done" ? "#0d1f14" : status === "error" ? "#1a0a10" : "transparent";
 
   return (
-    <button onClick={handleClick} disabled={status === "loading"} style={{
-      fontSize: 11, padding: "4px 10px", borderRadius: 2,
-      border: `1px solid ${color}`, background: "transparent",
-      color, cursor: status === "loading" ? "wait" : "pointer",
-      fontFamily: "'IBM Plex Mono',monospace", transition: "all 0.2s"
-    }}>
+    <button
+      onClick={handleClick}
+      disabled={status === "loading"}
+      title={title}
+      aria-label={title}
+      style={{
+        width: 38,
+        height: 32,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 17,
+        padding: 0,
+        borderRadius: 999,
+        fontWeight: 500,
+        border: `1px solid ${borderColor}`,
+        background,
+        color: "#fff",
+        cursor: status === "loading" ? "wait" : "pointer",
+        fontFamily: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
+        transition: "all 0.2s",
+        boxShadow: status === "done" ? "0 0 10px rgba(46,224,122,0.18)" : "none",
+        letterSpacing: "0"
+      }}
+    >
       {label}
     </button>
   );
@@ -154,8 +179,13 @@ function statusOf(v) {
   return "원활";
 }
 
+function riskScoreValue(score) {
+  const n = Number.parseFloat(score);
+  return Number.isFinite(n) ? n : null;
+}
+
 function hasRiskScore(score) {
-  return Number.isFinite(score);
+  return riskScoreValue(score) != null;
 }
 
 function riskGradeValue(grade) {
@@ -167,9 +197,10 @@ function hasRiskGrade(grade) {
   return riskGradeValue(grade) != null;
 }
 
-function riskPercent(score) {
-  if (!hasRiskScore(score)) return 0;
-  return Math.max(0, Math.min(100, score));
+function riskPercent(score, maxScore = RISK_MAX_SCORE) {
+  const value = riskScoreValue(score);
+  if (value == null) return 0;
+  return Math.max(0, Math.min(100, (value / maxScore) * 100));
 }
 
 function riskColor(score, grade) {
@@ -194,7 +225,7 @@ function riskLevel(score, grade) {
 
 function riskRank(item) {
   const grade = riskGradeValue(item?.riskGrade ?? item?.grade);
-  const score = hasRiskScore(item?.riskScore ?? item?.score) ? (item.riskScore ?? item.score) : -1;
+  const score = riskScoreValue(item?.riskScore ?? item?.score) ?? -1;
   return grade == null ? -1 : grade * 100000 + score;
 }
 
@@ -297,7 +328,7 @@ function DonutChart({ name, score, grade }) {
 // ── ForecastChart ─────────────────────────────────────────────────────────────
 /**
  * 24시간 상행/하행 교통량 예측 막대 차트
- * 피크 시간대(최대값)에 흰색 outline 강조
+ * 피크 시간대(최대값)만 선명하게 표시하고, 나머지 막대는 낮은 채도의 색으로 표시
  * 좌측 Y축 + 하단 시간 라벨(00~23)
  *
  * @param {number[]} up   - 상행 0~23시 교통량 배열 (대/시)
@@ -305,11 +336,16 @@ function DonutChart({ name, score, grade }) {
  * @param {string}   name - 교차로 이름
  */
 function ForecastChart({ up = [], down = [], name }) {
+  const [selectedHour, setSelectedHour] = useState(null);
   const all = [...up, ...down];
   const maxVal = all.length ? Math.max(...all, 1) : 1;
   const hours = Array.from({ length: 24 }, (_, i) => i);
   const peakUp = up.length ? up.indexOf(Math.max(...up)) : -1;   // 상행 피크 시간
   const peakDn = down.length ? down.indexOf(Math.max(...down)) : -1; // 하행 피크 시간
+  const activeUpHour = selectedHour ?? peakUp;
+  const activeDnHour = selectedHour ?? peakDn;
+  const selectedUpValue = selectedHour != null ? (up[selectedHour] ?? 0) : null;
+  const selectedDnValue = selectedHour != null ? (down[selectedHour] ?? 0) : null;
   const axisVals = [maxVal, Math.round(maxVal * 0.75), Math.round(maxVal * 0.5), Math.round(maxVal * 0.25), 0];
 
   return (
@@ -324,8 +360,9 @@ function ForecastChart({ up = [], down = [], name }) {
         </div>
         {/* 상행/하행 피크 요약 */}
         <div style={{ display: "flex", gap: 16 }}>
-          {[{ label: "상행 피크", sw: V.blu, val: up.length ? Math.max(...up) : "—", h: peakUp >= 0 ? `${peakUp}시` : "" },
-            { label: "하행 피크", sw: "#ff8e55", val: down.length ? Math.max(...down) : "—", h: peakDn >= 0 ? `${peakDn}시` : "" }
+          {[
+            { label: selectedHour != null ? "선택 상행" : "상행 피크", sw: V.blu, val: selectedHour != null ? selectedUpValue : (up.length ? Math.max(...up) : "—"), h: selectedHour != null ? `${selectedHour}시` : (peakUp >= 0 ? `${peakUp}시` : "") },
+            { label: selectedHour != null ? "선택 하행" : "하행 피크", sw: "#ff8e55", val: selectedHour != null ? selectedDnValue : (down.length ? Math.max(...down) : "—"), h: selectedHour != null ? `${selectedHour}시` : (peakDn >= 0 ? `${peakDn}시` : "") }
           ].map(s => (
             <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: V.ink1 }}>
               <span style={{ width: 14, height: 3, borderRadius: 1, background: s.sw, display: "inline-block" }} />
@@ -354,23 +391,64 @@ function ForecastChart({ up = [], down = [], name }) {
             {hours.map(h => {
               const u = up[h] ?? 0, d = down[h] ?? 0;
               const uH = (u / maxVal) * 100, dH = (d / maxVal) * 100;
+              const isActiveUp = h === activeUpHour;
+              const isActiveDn = h === activeDnHour;
+              const isSelected = selectedHour === h;
+              const upColor = isActiveUp ? V.blu : "rgba(78,166,255,0.55)";
+              const downColor = isActiveDn ? "#ff8e55" : "rgba(255,142,85,0.55)";
               return (
-                <div key={h} style={{ display: "flex", flexDirection: "row", alignItems: "flex-end", justifyContent: "center", gap: 1, height: "100%", padding: "0 1px" }}>
-                  {/* 상행 막대 (파란색), 피크 시간은 흰 outline */}
-                  <div style={{ width: 6, height: `${uH}%`, minHeight: uH > 0 ? 2 : 0, background: V.blu, borderRadius: "1px 1px 0 0", outline: h === peakUp ? "1px solid #fff" : "none" }} />
-                  {/* 하행 막대 (주황색) */}
-                  <div style={{ width: 6, height: `${dH}%`, minHeight: dH > 0 ? 2 : 0, background: "#ff8e55", borderRadius: "1px 1px 0 0", outline: h === peakDn ? "1px solid #fff" : "none" }} />
+                <div
+                  key={h}
+                  onClick={() => setSelectedHour(prev => prev === h ? null : h)}
+                  title={`${String(h).padStart(2, "0")}시 · 상행 ${u.toLocaleString()}대 / 하행 ${d.toLocaleString()}대`}
+                  style={{
+                    display: "flex", flexDirection: "row", alignItems: "flex-end", justifyContent: "center", gap: 1,
+                    height: "100%", padding: "0 1px", cursor: "pointer", position: "relative",
+                    background: isSelected ? "rgba(255,255,255,0.035)" : "transparent",
+                    borderRadius: 2,
+                  }}
+                >
+                  {/* 상행 막대: 선택한 시간 또는 피크 시간만 선명하게 강조 */}
+                  <div style={{
+                    width: 6, height: `${uH}%`, minHeight: uH > 0 ? 2 : 0,
+                    background: upColor, borderRadius: "1px 1px 0 0",
+                    outline: isActiveUp ? "1px solid #fff" : "none",
+                    boxShadow: isActiveUp ? `0 0 12px ${V.blu}99` : "none",
+                    opacity: isActiveUp ? 1 : 0.75,
+                    transition: "opacity .15s ease, box-shadow .15s ease, background .15s ease",
+                  }} />
+                  {/* 하행 막대: 선택한 시간 또는 피크 시간만 선명하게 강조 */}
+                  <div style={{
+                    width: 6, height: `${dH}%`, minHeight: dH > 0 ? 2 : 0,
+                    background: downColor, borderRadius: "1px 1px 0 0",
+                    outline: isActiveDn ? "1px solid #fff" : "none",
+                    boxShadow: isActiveDn ? "0 0 12px rgba(255,142,85,0.75)" : "none",
+                    opacity: isActiveDn ? 1 : 0.75,
+                    transition: "opacity .15s ease, box-shadow .15s ease, background .15s ease",
+                  }} />
                 </div>
               );
             })}
           </div>
           {/* X축 시간 레이블 (00~23) */}
           <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 24, display: "grid", gridTemplateColumns: "repeat(24,1fr)", fontFamily: V.mono, fontSize: 10, color: V.ink2, textAlign: "center" }}>
-            {hours.map(h => (
-              <span key={h} style={{ paddingTop: 4, color: h === peakUp || h === peakDn ? "#fff" : V.ink2, fontWeight: h === peakUp || h === peakDn ? 700 : 400 }}>
-                {String(h).padStart(2, "0")}
-              </span>
-            ))}
+            {hours.map(h => {
+              const isActive = h === activeUpHour || h === activeDnHour;
+              const isSelected = selectedHour === h;
+              return (
+                <span
+                  key={h}
+                  onClick={() => setSelectedHour(prev => prev === h ? null : h)}
+                  style={{
+                    paddingTop: 4, color: isActive ? "#fff" : V.ink2, fontWeight: isActive ? 700 : 400,
+                    cursor: "pointer", borderTop: isSelected ? `1px solid ${V.blu}` : "1px solid transparent",
+                    background: isSelected ? "rgba(78,166,255,0.08)" : "transparent",
+                  }}
+                >
+                  {String(h).padStart(2, "0")}
+                </span>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -851,7 +929,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
   // ── 위험도 breakdown 아이템 ──────────────────────────────────────────────────
   // 선택된 교차로의 위험도·속도·혼잡도를 수평 프로그레스 바로 표시
   const bdItems = selectedRisk ? [
-    { label: "도로 위험도", sub: "교차로 구조 · 사고 이력 종합", value: hasRiskScore(selectedRisk.score) ? selectedRisk.score : "—", unit: "점", color: riskColor(selectedRisk.score, selectedRisk.grade), pct: riskPercent(selectedRisk.score) },
+    { label: "도로 위험도", sub: `교차로 구조 · 사고 이력 종합 · ${RISK_MAX_SCORE}점 기준`, value: hasRiskScore(selectedRisk.score) ? selectedRisk.score : "—", unit: "점", color: riskColor(selectedRisk.score, selectedRisk.grade), pct: riskPercent(selectedRisk.score) },
     { label: "실시간 평균 속도", sub: "TOPIS 수집 · 낮을수록 위험", value: selectedRisk.speed ?? "—", unit: "km/h", color: V.org, pct: selectedRisk.speed == null ? 0 : Math.min((selectedRisk.speed / 80) * 100, 100) },
     { label: "혼잡 상태", sub: "현재 구간 추정", value: selectedRisk.congestion, unit: "", color: V.blu, pct: 50 },
   ] : [];
@@ -876,8 +954,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
         </div>
 
         {/* 페이지 탭: 통합 대시보드(현재) / 실시간 지도 / CCTV 관제 */}
-        <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 3 }}>
-          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스 감성 분석", "news"], ["CCTV 관제", "cctv"], ["🚦 신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
+        <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3 }}>
+          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스", "news"], ["CCTV 관제", "cctv"], ["신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
             const isActive = tab === "main";
             const onClick = tab === "map" ? () => onGoMap(selectedGu)
               : tab === "cctv" ? onGoCctv
@@ -887,7 +965,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             return (
               <button key={tab}
                 onClick={onClick}
-                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : tab === "news" ? V.org : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
+                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "7px 15px", borderRadius: 999, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink3, display: "inline-block" }} />
                 {label}
               </button>
@@ -897,13 +975,13 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
 
         {/* 선택된 구 배지 */}
         {selectedGu && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 13px", borderRadius: 2, background: "#1a1206", border: "1px solid #3a2a14", color: V.org, fontSize: 12, fontWeight: 600 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
-            {selectedGu.name} 선택됨
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 13px", borderRadius: 2, background: "#1a1206", border: "1px solid #3a2a14", color: V.org, fontSize: 12, fontWeight: 600 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
+              {selectedGu.name} 선택됨
+            </div>
+            <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
           </div>
-        )}
-        {selectedGu && (
-          <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
         )}
         {/* 데이터 수집 결과 메시지 (3초 표시) */}
         {fetchMsg && (
@@ -922,10 +1000,10 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             <span style={{ color: V.ink2, marginRight: 6 }}>{time.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}</span>
             {time.toLocaleTimeString("ko-KR")}
           </span>
-          <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, padding: "5px 12px", color: V.ink2, fontSize: 12, cursor: "pointer", fontFamily: V.mono, letterSpacing: ".3px" }}>
-            👤 마이페이지
+          <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 999, padding: "7px 15px", color: "#fff", fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>
+            마이페이지
           </button>
-          <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: `1px solid #3a1820`, borderRadius: 2, padding: "5px 12px", color: "#ff5566", fontSize: 12, cursor: "pointer", fontFamily: V.mono, letterSpacing: ".3px" }}>
+          <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: `1px solid #3a1820`, borderRadius: 999, padding: "7px 15px", color: V.red, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>
             로그아웃
           </button>
         </div>
@@ -979,7 +1057,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
               실시간 지도 →
             </button>
           </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
             <SeoulSvgMap onGoMap={onGoMap} selectedGu={selectedGu} onSelectGu={handleSelectGu} loading={loading} />
           </div>
         </div>
@@ -1060,8 +1138,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
                       {b.value}<em style={{ fontStyle: "normal", fontSize: 13, color: V.ink2, marginLeft: 3 }}>{b.unit}</em>
                     </div>
                     {/* 수평 프로그레스 바 */}
-                    <div style={{ gridColumn: "1/3", height: 6, background: "#141414" }}>
-                      <div style={{ height: "100%", width: `${b.pct}%`, background: b.color }} />
+                    <div style={{ gridColumn: "1/3", height: 8, background: "#141414", borderRadius: 999, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${b.pct}%`, background: b.color, borderRadius: 999, transition: "width .25s ease" }} />
                     </div>
                   </div>
                 ))}
