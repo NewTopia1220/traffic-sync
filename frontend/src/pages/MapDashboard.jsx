@@ -136,7 +136,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
                 <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 460, maxWidth: "calc(100% - 28px)", pointerEvents: "auto" }}>
                   <div style={{ background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)", borderRadius: 10, padding: 16, backdropFilter: "blur(8px)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
-                      <div style={{ fontSize: 17, color: "#4ea6ff", fontWeight: 800, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📍 {selected.crsrdNm}</div>
+                      <div style={{ fontSize: 17, color: "#4ea6ff", fontWeight: 800, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.crsrdNm}</div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                         <button onClick={() => setShowRoadView(true)} style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 6, color: "#60a5fa", fontSize: 12, cursor: "pointer", padding: "5px 11px", fontFamily: "inherit" }}>로드뷰</button>
                         <button

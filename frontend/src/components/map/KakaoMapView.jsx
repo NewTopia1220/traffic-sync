@@ -169,6 +169,18 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
 
     if (!showSignal) return;
 
+    const makeSignalMarkerImage = () => {
+      const svg = `
+        <svg width="34" height="46" viewBox="0 0 34 46" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17 44 C17 44 4 28 4 17 A13 13 0 1 1 30 17 C30 28 17 44 17 44Z" fill="#2b7fc3" stroke="#0f3d66" stroke-width="3"/>
+          <circle cx="17" cy="17" r="6" fill="#0b1726" stroke="#a7d8ff" stroke-width="2"/>
+        </svg>`;
+      const url = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
+      return new kakao.maps.MarkerImage(url, new kakao.maps.Size(34, 46), {
+        offset: new kakao.maps.Point(17, 44),
+      });
+    };
+
     if (zoom < CLUSTER_LEVEL) {
       // ── 줌인 상태: 교차로별 개별 CustomOverlay 표시 ──
       crossroads.forEach(cr => {
@@ -177,11 +189,16 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         // domColor: mappedSignals의 신호 상태 → 빨강/노랑/초록 색상 반환
         const color = domColor(cr.mappedSignals);
 
-        // 신호등 마커: 이름 라벨 없이 파란 핀만 표시
+        // 신호등 마커: 기본은 파란 핀만 표시, 선택된 마커만 이름 라벨 표시
         const el = document.createElement("div");
-        el.style.cssText = "cursor:pointer;display:flex;align-items:center;justify-content:center;";
+        el.style.cssText = "cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:0;";
         el.title = cr.crsrdNm;
         el.innerHTML = `
+          ${isSel ? `
+            <div style="padding:3px 8px;background:rgba(18,14,10,0.94);border:1px solid rgba(78,166,255,0.65);border-radius:5px;color:#4ea6ff;font-size:11px;font-weight:800;white-space:nowrap;font-family:Malgun Gothic,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.45);">
+              ${cr.crsrdNm}
+            </div>
+          ` : ""}
           <svg width="${isSel ? 38 : 32}" height="${isSel ? 50 : 42}" viewBox="0 0 34 46" xmlns="http://www.w3.org/2000/svg" style="display:block;">
             <path d="M17 44 C17 44 4 28 4 17 A13 13 0 1 1 30 17 C30 28 17 44 17 44Z" fill="#2b7fc3" stroke="#0f3d66" stroke-width="3"/>
             <circle cx="17" cy="17" r="6" fill="#0b1726" stroke="#a7d8ff" stroke-width="2"/>
@@ -205,8 +222,12 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       // CustomOverlay는 클러스터러가 지원하지 않아 기본 Marker 사용
       // 클릭 이벤트는 kakao.maps.event.addListener로 직접 등록
       if (signalClusterer.current) {
+        const image = makeSignalMarkerImage();
         const markers = crossroads.map(cr => {
-          const m = new kakao.maps.Marker({ position: new kakao.maps.LatLng(cr.lat, cr.lon) });
+          const m = new kakao.maps.Marker({
+            position: new kakao.maps.LatLng(cr.lat, cr.lon),
+            image,
+          });
           kakao.maps.event.addListener(m, "click", () => onSelect(cr));
           return m;
         });
@@ -245,11 +266,31 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     cctvClusterer.current?.clear();
     if (!showCctv) return;
 
+    const makeCctvMarkerImage = () => {
+      const svg = `
+        <svg width="44" height="48" viewBox="0 0 44 48" xmlns="http://www.w3.org/2000/svg">
+          <rect x="6" y="3" width="32" height="29" rx="7" fill="#ffffff" stroke="#22c55e" stroke-width="3"/>
+          <rect x="12" y="11" width="18" height="13" rx="2" fill="#1e293b"/>
+          <polygon points="30,14 36,12 36,24 30,22" fill="#1e293b"/>
+          <circle cx="21" cy="17.5" r="4" fill="#334155"/>
+          <circle cx="21" cy="17.5" r="2.1" fill="#0f172a"/>
+          <rect x="16" y="7" width="6" height="3" rx="1" fill="#1e293b"/>
+          <path d="M22 46 L17 32 H27 Z" fill="#ffffff" opacity="0.95"/>
+          <circle cx="22" cy="41" r="4" fill="#ffffff" opacity="0.95"/>
+        </svg>`;
+      const url = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
+      return new kakao.maps.MarkerImage(url, new kakao.maps.Size(44, 48), {
+        offset: new kakao.maps.Point(22, 44),
+      });
+    };
+
     if (zoom >= CLUSTER_LEVEL) {
       // 줌아웃 상태: CCTV를 클러스터로 묶어서 표시
+      const image = makeCctvMarkerImage();
       const markers = cctvList.map(cctv => {
         const marker = new kakao.maps.Marker({
           position: new kakao.maps.LatLng(cctv.lat, cctv.lon),
+          image,
         });
         kakao.maps.event.addListener(marker, "click", () => onCctvClick?.(cctv));
         return marker;
