@@ -338,7 +338,6 @@ function buildSegmentMarkerChain(startLL, endLL, crossroads, excludeIds = new Se
   }));
 }
 
-
 function buildBendAwareMarkerRoute(startCr, endCr, crossroads, totalDist) {
   const start = getCrLonLat(startCr);
   const end = getCrLonLat(endCr);

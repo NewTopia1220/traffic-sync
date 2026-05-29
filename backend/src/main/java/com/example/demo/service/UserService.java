@@ -33,7 +33,8 @@ public class UserService {
             "userId",   user.getUserId(),
             "name",     user.getName(),
             "role",     user.getRole(),
-            "isTempPw", user.getIsTempPw()
+            "isTempPw", user.getIsTempPw(),
+            "email",    user.getEmail() != null ? user.getEmail() : ""
         );
     }
 
