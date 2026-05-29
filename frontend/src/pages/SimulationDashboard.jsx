@@ -416,7 +416,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [autoAdjustKey, setAutoAdjustKey] = useState(0);
 
   const start = selectedList[0] ?? null;
-  const end = selectedList[1] ?? null;
+  // const end = selectedList[1] ?? null;
+  const end = selectedList.length >= 2 ? selectedList[selectedList.length - 1] : null;
   const bottleneckWaypoint = autoWaypoints.length
     ? [...autoWaypoints].sort((a, b) => Math.abs((a.routeProgress ?? 0.5) - 0.54) - Math.abs((b.routeProgress ?? 0.5) - 0.54))[0]
     : null;
@@ -445,17 +446,17 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       if (prev.some(item => item.intNo === cr.intNo)) {
         const next = prev.filter(item => item.intNo !== cr.intNo);
         if (next.length < 2) setIsOptimized(false);
+        if (next.length === 0) setSliderTarget("end");
         if (next.length === 1) setSliderTarget("start");
         return next;
       }
-      if (prev.length >= 2) {
-        setIsOptimized(false);
-        setSliderTarget("start");
-        return [cr];
-      }
+
+      const next = [...prev, cr];
+
       setIsOptimized(false);
-      setSliderTarget(prev.length === 0 ? "start" : "end");
-      return [...prev, cr];
+      setSliderTarget(next.length <= 1 ? "start" : "end");
+
+      return next;
     });
   };
 
