@@ -2,87 +2,835 @@ import { useState, useEffect, useRef } from "react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 const VWORLD_KEY = import.meta.env.VITE_VWORLD_API_KEY || "";
-// GeoServer: WMS(Cesium 직접 호출), WFS(fetch → Vite 프록시 경유 CORS 우회)
-const GEOSERVER_WMS = (import.meta.env.VITE_GEOSERVER_WMS_URL || "http://localhost:8600/geoserver/traffic/wms");
-const GEOSERVER_WFS = "/geoserver/traffic/ows";  // Vite proxy: /geoserver → 8600
 
-const EN_TO_KO = {
-  north: "북", south: "남", east: "동", west: "서",
-  northeast: "북동", southeast: "남동", southwest: "남서", northwest: "북서",
-};
-
-// ── 좌표 변환 ─────────────────────────────────────────────────────────────────
-// 명세서 확인: X_COORD "126976922" → ÷1e7 → 126.976922° (항상 정수×1e7 형태)
-// Y_COORD "37564022"  → ÷1e7 → 37.564022°
 function toCoord(val) {
   const n = parseInt(val, 10);
   if (!n || isNaN(n)) return null;
   return n / 1e7;
 }
 
-const SIM_DIRECTIONS = [
-  { start: [0, -0.00115], end: [0, 0.00115], phaseNos: [1, 3], label: "south-north" },
-  { start: [0, 0.00115], end: [0, -0.00115], phaseNos: [1, 3], label: "north-south" },
-  { start: [-0.00115, 0], end: [0.00115, 0], phaseNos: [2, 4], label: "west-east" },
-  { start: [0.00115, 0], end: [-0.00115, 0], phaseNos: [2, 4], label: "east-west" },
-];
-const CARS_PER_ROUTE = 3;
-const FALLBACK_ROUTE_HALF_LENGTH_DEG = 0.00115;
-const SIM_SECONDS_PER_REAL_SECOND = 12;
-const DEFAULT_SPEED_KPH = 28;
-const MIN_ROLL_SPEED_KPH = 6;
-const OPTIMIZED_SPEED_GAIN_KPH = 18;
+function getCrLonLat(cr) {
+  const lon = cr?.lon ?? toCoord(cr?.xCoord);
+  const lat = cr?.lat ?? toCoord(cr?.yCoord);
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  return { lon, lat };
+}
 
-// 교차로별 수동 경로 좌표 (필요 시 추가)
-// points는 [lon, lat] 절대 좌표, relativePoints는 교차로 중심 기준 [lonOffset, latOffset]입니다.
-// phaseNos는 해당 route 차량이 통과 가능한 현시 번호입니다.
-const ROAD_WAYPOINTS = {
-  // 성수사거리 후보 ID. 실제 INT_NO가 다르면 아래 키만 DB 값으로 바꾸면 됩니다.
-  "1716": [
-    { label: "main-sw-ne", phaseNos: [1, 3], relativePoints: [[-0.00165, -0.00125], [-0.00045, -0.00032], [0.00042, 0.00030], [0.00165, 0.00122]] },
-    { label: "main-ne-sw", phaseNos: [1, 3], relativePoints: [[0.00165, 0.00122], [0.00042, 0.00030], [-0.00045, -0.00032], [-0.00165, -0.00125]] },
-    { label: "sub-nw-se", phaseNos: [2, 4], relativePoints: [[-0.00145, 0.00105], [-0.00034, 0.00024], [0.00035, -0.00025], [0.00145, -0.00106]] },
-    { label: "sub-se-nw", phaseNos: [2, 4], relativePoints: [[0.00145, -0.00106], [0.00035, -0.00025], [-0.00034, 0.00024], [-0.00145, 0.00105]] },
-  ],
-};
+// 46%~62% 사이 구간의 노드들을 추출하는 함수 추가
+function extractRouteSegment(points, startProgress, endProgress) {
+  if (!points?.length) return [];
+  
+  const totalLen = routeLengthMeters(points);
+  if (!totalLen) return [];
+  
+  const startDist = startProgress * totalLen;
+  const endDist = endProgress * totalLen;
+  
+  const result = [];
+  let acc = 0;
+  
+  // 시작 지점 삽입
+  result.push(interpolateRoute(points, startProgress));
+  
+  // 그 사이에 있는 실제 노드들 삽입
+  for (let i = 1; i < points.length - 1; i++) {
+    acc += distanceMeters(points[i - 1], points[i]);
+    if (acc > startDist && acc < endDist) {
+      result.push(points[i]);
+    }
+  }
+  
+  // 끝 지점 삽입
+  result.push(interpolateRoute(points, endProgress));
+  
+  return result;
+}
 
-export default function SimulationMapView({ selectedList = [], onSelect, phaseIdx, isOptimized, trafficContext }) {
+function distanceMeters(a, b) {
+  const lat1 = a.lat * Math.PI / 180;
+  const lat2 = b.lat * Math.PI / 180;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function metersToDegrees(meters, lat) {
+  const latDeg = meters / 111320;
+  const lonDeg = meters / (111320 * Math.cos(lat * Math.PI / 180) || 1);
+  return { lon: lonDeg, lat: latDeg };
+}
+
+function lonLatToLocalMeters(point, originLat) {
+  const metersPerDegLat = 111320;
+  const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180);
+  return { x: point.lon * metersPerDegLon, y: point.lat * metersPerDegLat };
+}
+
+function perpendicularDistanceToSegmentMeters(point, start, end) {
+  const originLat = (start.lat + end.lat) / 2;
+  const p = lonLatToLocalMeters(point, originLat);
+  const a = lonLatToLocalMeters(start, originLat);
+  const b = lonLatToLocalMeters(end, originLat);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
+  const qx = a.x + dx * t;
+  const qy = a.y + dy * t;
+  return { distance: Math.hypot(p.x - qx, p.y - qy), progress: t };
+}
+
+
+async function getOsrmRoute(startLL, endLL) {
+  const url = `https://router.project-osrm.org/route/v1/driving/${startLL.lon},${startLL.lat};${endLL.lon},${endLL.lat}?overview=full&geometries=geojson`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.code !== "Ok") return null;
+  return data.routes[0].geometry.coordinates.map(([lon, lat]) => ({ lon, lat }));
+}
+
+async function getOsrmRouteThroughWaypoints(points) {
+  const coords = points.map(p => `${p.lon},${p.lat}`).join(";");
+  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+  const res = await fetch(url);
+  const data = await res.json();
+
+  if (data.code !== "Ok") return null;
+
+  return data.routes[0].geometry.coordinates.map(([lon, lat]) => ({ lon, lat }));
+}
+
+
+function pickOsrmWaypoints(viaCrossroads, maxCount = 6) {
+  const valid = viaCrossroads
+    .map(getCrLonLat)
+    .filter(Boolean);
+
+  if (valid.length <= maxCount) return valid;
+
+  const result = [];
+  for (let i = 0; i < maxCount; i++) {
+    const idx = Math.round((i / (maxCount - 1)) * (valid.length - 1));
+    result.push(valid[idx]);
+  }
+  return result;
+}
+
+async function buildRouteViaNearbyCrossroads(startCr, endCr, crossroads) {
+  const start = getCrLonLat(startCr);
+  const end = getCrLonLat(endCr);
+  if (!start || !end) return { points: [], viaCrossroads: [] };
+
+  const totalDist = distanceMeters(start, end);
+  if (!crossroads?.length || totalDist < 80) {
+    return { points: [start, end], viaCrossroads: [] };
+    // return { points: [], viaCrossroads: [] };
+  }
+
+  // 1. marker graph가 안 잡히면 bend route 시도
+  // const bendRoute = buildBendAwareMarkerRoute(startCr, endCr, crossroads, totalDist);
+  // if (bendRoute.points.length >= 2 && bendRoute.viaCrossroads.length >= 1) {
+  //   const forcedPoints = [
+  //     start,
+  //     // ...bendRoute.viaCrossroads.map(getCrLonLat).filter(Boolean),
+  //     ...pickOsrmWaypoints(bendRoute.viaCrossroads, 6),
+  //     end,
+  //   ];
+
+  //   try {
+  //     const osrmForced = await getOsrmRouteThroughWaypoints(forcedPoints);
+
+  //     if (osrmForced?.length >= 2) {
+  //       return {
+  //         points: osrmForced,
+  //         viaCrossroads: bendRoute.viaCrossroads,
+  //       };
+  //     }
+  //   } catch (e) {
+  //     console.warn("bendRoute 강제 OSRM 실패, bendRoute 사용:", e);
+  //   }
+
+  //   return bendRoute;
+  // }
+
+  // const bendRoute = buildBendAwareMarkerRoute(startCr, endCr, crossroads, totalDist);
+  // if (bendRoute.points.length >= 2 && bendRoute.viaCrossroads.length >= 1) {
+  //   return bendRoute;
+  // }
+
+
+  // 2. 먼저 신호등 노드 그래프 경로를 찾는다
+  // const markerRoute = buildMarkerGraphRoute(startCr, endCr, crossroads, totalDist);
+
+  // if (markerRoute.points.length >= 2 && markerRoute.viaCrossroads.length > 0) {
+  //   const forcedPoints = [
+  //     start,
+  //     // ...markerRoute.viaCrossroads.map(getCrLonLat).filter(Boolean),
+  //     ...pickOsrmWaypoints(markerRoute.viaCrossroads, 6),
+  //     end,
+  //   ];
+
+  //   try {
+  //     const osrmForced = await getOsrmRouteThroughWaypoints(forcedPoints);
+  //     if (osrmForced?.length >= 2) {
+  //       return {
+  //         points: osrmForced,
+  //         viaCrossroads: markerRoute.viaCrossroads,
+  //       };
+  //     }
+  //   } catch (e) {
+  //     console.warn("신호등 노드 강제 OSRM 실패, markerRoute 사용:", e);
+  //   }
+
+  //   return markerRoute;
+  // }
+  const markerRoute = buildMarkerGraphRoute(startCr, endCr, crossroads, totalDist);
+  if (markerRoute.points.length >= 2 && markerRoute.viaCrossroads.length > 0) {
+    return markerRoute;
+  }
+
+
+  // 3. 마지막 fallback으로만 일반 OSRM 사용
+  // try {
+  //   const osrmPoints = await getOsrmRoute(start, end);
+
+  //   if (osrmPoints && osrmPoints.length >= 2) {
+  //     const viaCrossroads = mapSignalNodesToRoute(osrmPoints, startCr, endCr, crossroads);
+
+  //     if (isSignalNodeRouteAcceptable(startCr, endCr, viaCrossroads, osrmPoints)) {
+  //       return { points: osrmPoints, viaCrossroads };
+  //     }
+  //   }
+  // } catch (e) {
+  //   console.warn("일반 OSRM 실패:", e);
+  // }
+
+  return { points: [start, end], viaCrossroads: [] };
+  // return { points: [], viaCrossroads: [] };
+}
+
+
+function mapSignalNodesToRoute(routePoints, startCr, endCr, crossroads) {
+  const total = routeLengthMeters(routePoints);
+  if (!total) return [];
+
+  return crossroads
+    .filter(cr => cr.intNo !== startCr?.intNo && cr.intNo !== endCr?.intNo)
+    .map(cr => {
+      const ll = getCrLonLat(cr);
+      if (!ll) return null;
+
+      let minDist = Infinity;
+      let minProgress = 0;
+      let acc = 0;
+
+      for (let i = 0; i < routePoints.length - 1; i++) {
+        const seg = perpendicularDistanceToSegmentMeters(ll, routePoints[i], routePoints[i + 1]);
+        const segLen = distanceMeters(routePoints[i], routePoints[i + 1]);
+
+        if (seg.distance < minDist) {
+          minDist = seg.distance;
+          minProgress = (acc + seg.progress * segLen) / total;
+        }
+
+        acc += segLen;
+      }
+
+      if (minDist > 45) return null;
+
+      return {
+        ...cr,
+        routeProgress: minProgress,
+        routeDistanceMeters: Math.round(minDist),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.routeProgress - b.routeProgress);
+}
+
+
+function isSignalNodeRouteAcceptable(startCr, endCr, viaCrossroads, routePoints) {
+  const start = getCrLonLat(startCr);
+  const end = getCrLonLat(endCr);
+  if (!start || !end || !routePoints?.length) return false;
+
+  const routeLen = routeLengthMeters(routePoints);
+
+  // 너무 짧은 경로는 신호등 노드가 적어도 허용
+  if (routeLen < 250) {
+    return true; // 너무 짧은 출발-도착은 허용
+  }
+  if (viaCrossroads.length < 1) return false;
+
+  // 중거리 이상인데 신호등 노드가 하나도 없으면
+  // OSRM이 신호 없는 지름길을 탄 것으로 보고 reject
+  if (routeLen >= 250 && viaCrossroads.length < 1) return false;
+
+  // 700m 이상이면 최소 2개 정도는 신호등 노드가 잡혀야 함
+  if (routeLen >= 700 && viaCrossroads.length < 2) return false;
+
+  // 신호등 노드 사이가 너무 크게 비어 있으면 reject
+  const progresses = [
+    0,
+    ...viaCrossroads.map(cr => cr.routeProgress).filter(Number.isFinite),
+    1,
+  ].sort((a, b) => a - b);
+
+  const maxGap = Math.max(
+    ...progresses.slice(1).map((p, i) => p - progresses[i])
+  );
+
+  // 전체 경로 중 60% 이상이 신호등 노드 없이 비어 있으면 지름길 가능성 큼
+  if (maxGap > 0.6) return false;
+
+  return true;
+}
+
+
+
+function routeBearingDeg(a, b) {
+  const originLat = (a.lat + b.lat) / 2;
+  const am = lonLatToLocalMeters(a, originLat);
+  const bm = lonLatToLocalMeters(b, originLat);
+  return (Math.atan2(bm.x - am.x, bm.y - am.y) * 180 / Math.PI + 360) % 360;
+}
+
+function angleDiffDeg(a, b) {
+  const diff = Math.abs(((a - b + 540) % 360) - 180);
+  return Math.min(diff, 360 - diff);
+}
+
+function buildSegmentMarkerChain(startLL, endLL, crossroads, excludeIds = new Set(), options = {}) {
+  const total = distanceMeters(startLL, endLL);
+  if (total < 40) return [];
+
+  const corridorMeters = options.corridorMeters ?? Math.min(180, Math.max(60, total * 0.22));
+  const minGapMeters = options.minGapMeters ?? Math.min(120, Math.max(35, total / 10));
+  const maxCount = options.maxCount ?? Math.min(10, Math.max(2, Math.floor(total / 110)));
+
+  const candidates = crossroads
+    .filter(cr => !excludeIds.has(String(cr.intNo)))
+    .map(cr => {
+      const ll = getCrLonLat(cr);
+      if (!ll) return null;
+      const projected = perpendicularDistanceToSegmentMeters(ll, startLL, endLL);
+      if (projected.progress <= 0.06 || projected.progress >= 0.94) return null;
+      if (projected.distance > corridorMeters) return null;
+      return { cr, ll, ...projected };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.progress - b.progress || a.distance - b.distance);
+
+  const selected = [];
+  for (const cand of candidates) {
+    if (selected.length >= maxCount) break;
+    const duplicated = selected.some(prev => distanceMeters(prev.ll, cand.ll) < minGapMeters);
+    if (!duplicated) selected.push(cand);
+  }
+
+  return selected.map(item => ({
+    ...item.cr,
+    ll: item.ll,
+    segmentProgress: item.progress,
+    segmentDistanceMeters: Math.round(item.distance),
+  }));
+}
+
+
+function buildBendAwareMarkerRoute(startCr, endCr, crossroads, totalDist) {
+  const start = getCrLonLat(startCr);
+  const end = getCrLonLat(endCr);
+  if (!start || !end || !crossroads?.length) return { points: [], viaCrossroads: [] };
+
+  const straightBearing = routeBearingDeg(start, end);
+  const baseExclude = new Set([String(startCr?.intNo), String(endCr?.intNo)]);
+  // const maxDetour = Math.max(520, totalDist * 1.15);
+  const maxDetour = Math.max(800, totalDist * 1.4);
+  // const searchPad = metersToDegrees(Math.max(420, totalDist * 0.85), (start.lat + end.lat) / 2);
+  const searchPad = metersToDegrees(Math.max(600, totalDist * 1.2), (start.lat + end.lat) / 2);
+  const minLon = Math.min(start.lon, end.lon) - searchPad.lon;
+  const maxLon = Math.max(start.lon, end.lon) + searchPad.lon;
+  const minLat = Math.min(start.lat, end.lat) - searchPad.lat;
+  const maxLat = Math.max(start.lat, end.lat) + searchPad.lat;
+
+  const bendCandidates = crossroads
+    .filter(cr => !baseExclude.has(String(cr.intNo)))
+    .map(cr => {
+      const ll = getCrLonLat(cr);
+      if (!ll) return null;
+      if (ll.lon < minLon || ll.lon > maxLon || ll.lat < minLat || ll.lat > maxLat) return null;
+
+      const d1 = distanceMeters(start, ll);
+      const d2 = distanceMeters(ll, end);
+      if (d1 < 70 || d2 < 70) return null;
+
+      const routeLen = d1 + d2;
+      const detour = routeLen - totalDist;
+      if (detour < 20 || detour > maxDetour) return null;
+
+      const b1 = routeBearingDeg(start, ll);
+      const b2 = routeBearingDeg(ll, end);
+      const turn = angleDiffDeg(b1, b2);
+
+      // // 직선에서 어느 정도 떨어진 마커를 꺾임점으로 선호합니다.
+      // // 너무 직선 근처면 기존 직선/그래프 경로가 더 자연스럽습니다.
+      if (turn < 25 || turn > 160) return null;
+      const straightProjected = perpendicularDistanceToSegmentMeters(ll, start, end);
+      if (straightProjected.distance < Math.min(30, totalDist * 0.05)) return null;
+
+      const excludeWithBend = new Set([...baseExclude, String(cr.intNo)]);
+      const segDist1 = distanceMeters(start, ll);
+      const chain1 = buildSegmentMarkerChain(start, ll, crossroads, excludeWithBend, {
+        corridorMeters: Math.min(500, Math.max(120, segDist1 * 0.25)),  // 크게 완화
+        minGapMeters: Math.min(110, Math.max(35, segDist1 / 18)),  // /10 → /15
+        maxCount: Math.min(14, Math.max(6, Math.floor(segDist1 / 100))),  // 120→100, 최대 14개
+      });
+      
+      const usedAfterChain1 = new Set([...excludeWithBend, ...chain1.map(item => String(item.intNo))]);
+      const segDist2 = distanceMeters(ll, end);  // ← 이 줄 추가
+      const chain2 = buildSegmentMarkerChain(ll, end, crossroads, usedAfterChain1, {
+        corridorMeters: Math.min(350, Math.max(85, segDist2 * 0.15)),
+        minGapMeters: Math.min(110, Math.max(35, segDist2 / 18)),  // /8 → /15
+        maxCount: Math.min(12, Math.max(5, Math.floor(segDist2 / 100))),  // 130→100
+      });
+
+
+      const minChain1 = segDist1 > 180 ? 1 : 0;
+      const minChain2 = segDist2 > 180 ? 1 : 0; 
+      if (chain1.length < minChain1 || chain2.length < minChain2) return null;
+
+      const support = chain1.length + chain2.length;
+      const turnBonus = Math.min(turn, 100) * 1.2;
+      const supportBonus = support * 95;
+      const score = detour * 0.85 + straightProjected.distance * 0.15 - turnBonus - supportBonus;
+
+      return { cr, ll, routeLen, detour, turn, chain1, chain2, support, score };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 8);
+
+  if (!bendCandidates.length) return { points: [], viaCrossroads: [] };
+
+  const best = bendCandidates[0];
+  console.log("chain1 노드수:", best.chain1.length, "chain2 노드수:", best.chain2.length);
+  console.log("꺾임점:", best.ll);
+  const rawVia = [
+    ...best.chain1,
+    { ...best.cr, ll: best.ll, segmentProgress: 0.5, segmentDistanceMeters: 0, isBendPoint: true },
+    ...best.chain2,
+  ];
+
+  // 같은 마커가 중복으로 들어오면 제거합니다.
+  const seen = new Set();
+  const via = rawVia.filter(item => {
+    const key = String(item.intNo);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (!via.length) return { points: [], viaCrossroads: [] };
+
+  const pathPoints = [start, ...via.map(item => item.ll), end];
+  const routeTotal = routeLengthMeters(pathPoints) || totalDist;
+
+  let acc = 0;
+  const viaCrossroads = via.map((item, idx) => {
+    acc += distanceMeters(pathPoints[idx], pathPoints[idx + 1]);
+    const { ll, segmentProgress, segmentDistanceMeters, isBendPoint, ...crOnly } = item;
+    return {
+      ...crOnly,
+      routeProgress: acc / routeTotal,
+      routeDistanceMeters: segmentDistanceMeters ?? 0,
+      isBendPoint: !!isBendPoint,
+    };
+  });
+
+  // return { points: pathPoints, viaCrossroads };
+  if (hasLargeNodeGap(pathPoints, 400)) {
+    return { points: [], viaCrossroads: [] };
+  }
+
+  return { points: pathPoints, viaCrossroads };
+  
+}
+
+function hasLargeNodeGap(points, maxGapMeters = 230) {
+  if (!points || points.length < 2) return true;
+
+  for (let i = 0; i < points.length - 1; i++) {
+    if (distanceMeters(points[i], points[i + 1]) > maxGapMeters) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function buildMarkerGraphRoute(startCr, endCr, crossroads, totalDist) {
+  const start = getCrLonLat(startCr);
+  const end = getCrLonLat(endCr);
+  if (!start || !end) return { points: [], viaCrossroads: [] };
+
+  // 서울 교차로 마커 간격은 촘촘한 편이라, 너무 긴 간선을 허용하면
+  // "마커를 따라가는 경로"가 아니라 다시 대각선 직선처럼 보입니다.
+  // 그래서 기본 간선 길이를 짧게 두고, 경로가 없을 때만 조금 더 완화합니다.
+  const edgeLimits = [
+    Math.min(300, Math.max(150, totalDist * 0.25)),
+    Math.min(450, Math.max(220, totalDist * 0.38)),
+    Math.min(900, Math.max(400, totalDist * 0.65)),
+  ];
+
+  for (const maxEdgeMeters of edgeLimits) {
+    const route = tryBuildMarkerGraphRoute(startCr, endCr, crossroads, totalDist, maxEdgeMeters);
+    if (route.points.length >= 2) return route;
+  }
+
+  return { points: [], viaCrossroads: [] };
+}
+
+function tryBuildMarkerGraphRoute(startCr, endCr, crossroads, totalDist, maxEdgeMeters) {
+  const start = getCrLonLat(startCr);
+  const end = getCrLonLat(endCr);
+  if (!start || !end) return { points: [], viaCrossroads: [] };
+
+  const maxNodeCount = 800;
+  const neighborLimit = 20;
+  const detourLimit = Math.max(totalDist * 6.0, totalDist + 2500);
+  const bboxPad = metersToDegrees(Math.max(800, totalDist * 0.9), (start.lat + end.lat) / 2);
+
+  const minLon = Math.min(start.lon, end.lon) - bboxPad.lon;
+  const maxLon = Math.max(start.lon, end.lon) + bboxPad.lon;
+  const minLat = Math.min(start.lat, end.lat) - bboxPad.lat;
+  const maxLat = Math.max(start.lat, end.lat) + bboxPad.lat;
+
+  const startNode = {
+    key: `start-${startCr.intNo}`,
+    cr: startCr,
+    ll: start,
+    kind: "start",
+    projected: { distance: 0, progress: 0 },
+    detour: totalDist,
+  };
+  const endNode = {
+    key: `end-${endCr.intNo}`,
+    cr: endCr,
+    ll: end,
+    kind: "end",
+    projected: { distance: 0, progress: 1 },
+    detour: totalDist,
+  };
+
+  const middleNodes = crossroads
+    .filter(cr => cr.intNo !== startCr?.intNo && cr.intNo !== endCr?.intNo)
+    .map(cr => {
+      const ll = getCrLonLat(cr);
+      if (!ll) return null;
+      if (ll.lon < minLon || ll.lon > maxLon || ll.lat < minLat || ll.lat > maxLat) return null;
+
+      const fromStart = distanceMeters(start, ll);
+      const toEnd = distanceMeters(ll, end);
+      const detour = fromStart + toEnd;
+      if (detour > detourLimit) return null;
+
+      const projected = perpendicularDistanceToSegmentMeters(ll, start, end);
+      const score =
+        // 직선에서 너무 멀리 떨어진 마커만 우선하지 않도록 하되,
+        // ㄱ자 도로처럼 살짝 돌아가는 마커는 후보에 남겨둡니다.
+        Math.max(0, detour - totalDist) * 0.55 +  // detour 위주로
+        projected.distance * 0.28 +               // 0.58 → 0.28로 낮춤
+        Math.abs(projected.progress - 0.5) * 20;  // 35 → 20으로 낮춤
+
+
+      return {
+        key: `cr-${cr.intNo}`,
+        cr,
+        ll,
+        kind: "via",
+        fromStart,
+        toEnd,
+        detour,
+        projected,
+        score,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, maxNodeCount);
+
+  const nodes = [startNode, ...middleNodes, endNode];
+  const endIndex = nodes.length - 1;
+
+  const edges = Array.from({ length: nodes.length }, () => []);
+
+  for (let i = 0; i < nodes.length; i++) {
+    const current = nodes[i];
+    const candidates = [];
+
+    for (let j = 0; j < nodes.length; j++) {
+      if (i === j) continue;
+
+      // 시작점으로 되돌아가는 간선은 만들지 않습니다.
+      if (j === 0) continue;
+
+      const next = nodes[j];
+      const d = distanceMeters(current.ll, next.ll);
+      if (d > maxEdgeMeters) continue;
+
+      // 출발지에서 목적지로 바로 가는 대각선 간선은 막습니다.
+      // 그래야 중간 마커가 있을 때 실제 마커 체인을 따라갑니다.
+      if (i === 0 && j === endIndex && middleNodes.length > 0 && totalDist > maxEdgeMeters * 0.9) {
+        continue;
+      }
+
+      const currentToEnd = distanceMeters(current.ll, end);
+      const nextToEnd = distanceMeters(next.ll, end);
+
+      // 완전히 반대 방향으로 멀어지는 경우만 제외합니다.
+      // 단, ㄱ자 경로에서는 잠깐 옆으로 이동해야 하므로 제한을 강하게 걸지 않습니다.
+      if (j !== endIndex && i !== 0 && nextToEnd > currentToEnd + maxEdgeMeters * 2.0) {
+        continue;
+      }
+
+      // 긴 간선을 강하게 벌점 처리해서 가까운 마커 여러 개를 이어가도록 유도합니다.
+      const longEdgePenalty = Math.max(0, d - 180) * 1.8;
+      const detourPenalty = Math.max(0, (next.detour ?? totalDist) - totalDist) * 0.06;
+      const offLinePenalty = (next.projected?.distance ?? 0) * 0.008;
+
+      // 진행률이 크게 뒤로 가는 경우에는 벌점만 주고 완전히 차단하지 않습니다.
+      // const backtrack =
+      //   (current.projected && next.projected)
+      //     ? Math.max(0, current.projected.progress - next.projected.progress) * 120
+      //     : 0;
+      const backtrack = nextToEnd > currentToEnd + maxEdgeMeters * 1.5
+        ? (nextToEnd - currentToEnd) * 0.4
+        : 0;
+
+
+      candidates.push({
+        to: j,
+        weight: d + longEdgePenalty + detourPenalty + offLinePenalty + backtrack,
+      });
+    }
+
+    candidates.sort((a, b) => a.weight - b.weight);
+    edges[i] = candidates.slice(0, neighborLimit);
+  }
+
+  const dist = Array(nodes.length).fill(Infinity);
+  const prev = Array(nodes.length).fill(-1);
+  const visited = Array(nodes.length).fill(false);
+  dist[0] = 0;
+
+  for (let step = 0; step < nodes.length; step++) {
+    let u = -1;
+    let best = Infinity;
+
+    for (let i = 0; i < nodes.length; i++) {
+      if (!visited[i] && dist[i] < best) {
+        best = dist[i];
+        u = i;
+      }
+    }
+
+    if (u === -1 || u === endIndex) break;
+    visited[u] = true;
+
+    for (const edge of edges[u]) {
+      const alt = dist[u] + edge.weight;
+      if (alt < dist[edge.to]) {
+        dist[edge.to] = alt;
+        prev[edge.to] = u;
+      }
+    }
+  }
+
+  if (!Number.isFinite(dist[endIndex]) || prev[endIndex] === -1) {
+    return { points: [], viaCrossroads: [] };
+  }
+
+  const pathIndexes = [];
+  let cur = endIndex;
+  while (cur !== -1) {
+    pathIndexes.push(cur);
+    cur = prev[cur];
+  }
+  pathIndexes.reverse();
+
+  // 출발지-목적지 직접 연결이면 마커 경로로 보이지 않으므로 실패 처리합니다.
+  if (pathIndexes.length <= 2) return { points: [], viaCrossroads: [] };
+
+  // 너무 촘촘한 중복 마커는 정리하되, 꺾이는 모양은 유지합니다.
+  // const pathNodes = compressMarkerPath(pathIndexes.map(idx => nodes[idx]));
+  const pathNodes = pathIndexes.map(idx => nodes[idx]);
+  const points = pathNodes.map(node => node.ll);
+  const routeTotal = routeLengthMeters(points) || totalDist;
+
+  let acc = 0;
+  const viaCrossroads = [];
+  for (let i = 1; i < pathNodes.length - 1; i++) {
+    acc += distanceMeters(points[i - 1], points[i]);
+    viaCrossroads.push({
+      ...pathNodes[i].cr,
+      routeProgress: acc / routeTotal,
+      routeDistanceMeters: Math.round(distanceMeters(points[i - 1], points[i])),
+    });
+  }
+
+  // return { points, viaCrossroads };
+  if (hasLargeNodeGap(points, 500)) {
+    return { points: [], viaCrossroads: [] };
+  }
+  return { points, viaCrossroads };
+
+}
+
+
+function compressMarkerPath(pathNodes) {
+  if (!pathNodes || pathNodes.length <= 3) return pathNodes || [];
+
+  const compressed = [pathNodes[0]];
+
+  for (let i = 1; i < pathNodes.length - 1; i++) {
+    const prev = compressed[compressed.length - 1];
+    const current = pathNodes[i];
+    const next = pathNodes[i + 1];
+
+    const prevDist = distanceMeters(prev.ll, current.ll);
+    const nextDist = distanceMeters(current.ll, next.ll);
+
+    if (prevDist < 80 && nextDist < 180) continue;
+
+    // lat/lon 지그재그 조건 전부 제거 - 너무 공격적으로 노드 날림
+    // 대신 두 노드 사이 거리가 너무 짧고 방향이 완전히 역행할 때만 제거
+    const bearingIn = routeBearingDeg(prev.ll, current.ll);
+    const bearingOut = routeBearingDeg(current.ll, next.ll);
+    const turn = angleDiffDeg(bearingIn, bearingOut);
+    if (prevDist < 120 && turn > 150) continue;  // 유턴에 가까운 짧은 역행만 제거
+
+    compressed.push(current);
+  }
+
+  compressed.push(pathNodes[pathNodes.length - 1]);
+  return compressed;
+}
+
+function interpolateRoute(points, progress) {
+  if (!points?.length) return null;
+  if (points.length === 1) return points[0];
+
+  const segments = [];
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const len = distanceMeters(points[i], points[i + 1]);
+    segments.push({ from: points[i], to: points[i + 1], len });
+    total += len;
+  }
+  if (total <= 0) return points[0];
+
+  let target = Math.max(0, Math.min(1, progress)) * total;
+  for (const seg of segments) {
+    if (target <= seg.len) {
+      const t = seg.len === 0 ? 0 : target / seg.len;
+      return {
+        lon: seg.from.lon + (seg.to.lon - seg.from.lon) * t,
+        lat: seg.from.lat + (seg.to.lat - seg.from.lat) * t,
+      };
+    }
+    target -= seg.len;
+  }
+  return points[points.length - 1];
+}
+
+function routeLengthMeters(points) {
+  if (!points || points.length < 2) return 0;
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) total += distanceMeters(points[i], points[i + 1]);
+  return total;
+}
+
+function estimateTrip(routePoints, isOptimized) {
+  const distance = routeLengthMeters(routePoints);
+  if (!distance) return null;
+
+  const normalSpeedKph = 28;
+  const bottleneckSpeedKph = isOptimized ? 24 : 10;
+  const normalRatio = 0.72;
+  const bottleneckRatio = 0.28;
+
+  const normalSec = (distance * normalRatio) / (normalSpeedKph / 3.6);
+  const bottleneckSec = (distance * bottleneckRatio) / (bottleneckSpeedKph / 3.6);
+  const waitSec = isOptimized ? 20 : 75;
+  const totalSec = Math.round(normalSec + bottleneckSec + waitSec);
+
+  return {
+    distance,
+    totalSec,
+    avgSpeedKph: Math.round((distance / Math.max(totalSec, 1)) * 3.6),
+  };
+}
+
+function formatSec(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}분 ${s}초` : `${s}초`;
+}
+
+export default function SimulationMapView({ selectedList = [], onSelect, isOptimized = false, onStatsChange, onAutoWaypointsChange }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
-  const entityMapRef = useRef({});
-  const carEntitiesRef = useRef({});       // { [intNo]: [Entity, ...] }
-  const simCarsRef = useRef({});            // { [intNo]: [CarState, ...] }
-  const intersectionPhaseRefs = useRef({}); // { [intNo]: phaseIdx }
-  const roadStatusEntitiesRef = useRef([]);
-  const directionGuideEntitiesRef = useRef([]);
+  const markerEntitiesRef = useRef({});
+  const overlayEntitiesRef = useRef([]);
+  const carEntityRef = useRef(null);
   const animationRef = useRef(null);
+  const progressRef = useRef(0);
   const lastTickRef = useRef(null);
-  const phaseIdxRef = useRef(phaseIdx);
-  const isOptimizedRef = useRef(isOptimized);
-  const trafficContextRef = useRef(trafficContext);
-  // 편의 변수 (마커 렌더링·배지·방향 가이드 등에서 사용)
-  const selected     = selectedList[0] ?? null;
-  const linkedTarget = selectedList[1] ?? null;
 
   const [crossroads, setCrossroads] = useState([]);
   const [cesiumReady, setCesiumReady] = useState(false);
   const [status, setStatus] = useState("VWorld 3D 지도 로딩 중...");
-  const [globeVisible, setGlobeVisible] = useState(true);
-  const [wfsSource, setWfsSource] = useState("대기");  // "WFS" | "폴백" | "대기"
-  const [rotationMap, setRotationMap] = useState({});
-  const rotationMapRef   = useRef({});
-  const routeRotationRef  = useRef(0);
-  const lastSpawnArgsRef  = useRef(null);
 
-  // 신호 현시 변경 시 해당 교차로 ref에 저장 (교차로별 신호 독립 관리)
-  useEffect(() => {
-    const lastCr = selectedList[selectedList.length - 1];
-    if (lastCr) intersectionPhaseRefs.current[lastCr.intNo] = phaseIdx;
-  }, [phaseIdx, selectedList]);
+  const [routePlan, setRoutePlan] = useState({ points: [], viaCrossroads: [] });
 
-  // Cesium + VWorld 스크립트 로드
+  const start = selectedList[0] ?? null;
+  const end = selectedList[1] ?? null;
+  const startLL = getCrLonLat(start);
+  const endLL = getCrLonLat(end);
+  // const routePlan = start && end ? buildRouteViaNearbyCrossroads(start, end, crossroads) : { points: [], viaCrossroads: [] };
+  const routePoints = routePlan.points;
+  const viaCrossroads = routePlan.viaCrossroads;
+
   useEffect(() => {
-    if (window.Cesium) { setCesiumReady(true); return; }
+  let cancelled = false;
+
+  if (!start || !end) {
+    setRoutePlan({ points: [], viaCrossroads: [] });
+    return;
+  }
+  buildRouteViaNearbyCrossroads(start, end, crossroads).then(plan => {
+    if (!cancelled) setRoutePlan(plan);
+  });
+  return () => {
+    cancelled = true;
+  };
+}, [start?.intNo, end?.intNo, crossroads]);
+
+
+
+
+  useEffect(() => {
+    onAutoWaypointsChange?.(viaCrossroads);
+  }, [start?.intNo, end?.intNo, viaCrossroads.map(cr => cr.intNo).join("|"), onAutoWaypointsChange]);
+
+  useEffect(() => {
+    if (window.Cesium) {
+      setCesiumReady(true);
+      return;
+    }
+
     if (!document.querySelector("link[data-cesium]")) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
@@ -90,6 +838,7 @@ export default function SimulationMapView({ selectedList = [], onSelect, phaseId
       link.setAttribute("data-cesium", "1");
       document.head.appendChild(link);
     }
+
     const script = document.createElement("script");
     script.src = "https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js";
     script.setAttribute("data-cesium-js", "1");
@@ -98,7 +847,6 @@ export default function SimulationMapView({ selectedList = [], onSelect, phaseId
     document.head.appendChild(script);
   }, []);
 
-  // 교차로 목록 로드
   useEffect(() => {
     fetch(`${API_BASE}/api/signal/crossroads`)
       .then(r => r.json())
@@ -109,13 +857,10 @@ export default function SimulationMapView({ selectedList = [], onSelect, phaseId
       .catch(() => setStatus("교차로 데이터 로드 실패"));
   }, []);
 
-  // Cesium Viewer 초기화
   useEffect(() => {
     if (!cesiumReady || !containerRef.current || viewerRef.current) return;
     const Cesium = window.Cesium;
 
-    // Cesium Ion을 전혀 쓰지 않도록 VWorld 레이어를 직접 기본 레이어로 지정합니다.
-    // baseLayer를 지정하지 않으면 Cesium이 내부 기본 asset(2번)을 요청하면서 401이 날 수 있습니다.
     const vworldProvider = new Cesium.UrlTemplateImageryProvider({
       url: `https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Satellite/{z}/{y}/{x}.jpeg`,
       maximumLevel: 18,
@@ -137,38 +882,12 @@ export default function SimulationMapView({ selectedList = [], onSelect, phaseId
       selectionIndicator: false,
       shouldAnimate: true,
       requestRenderMode: false,
-
-      // 핵심: Cesium Ion 기본 imagery/terrain 차단
       baseLayer: new Cesium.ImageryLayer(vworldProvider),
       terrainProvider: new Cesium.EllipsoidTerrainProvider(),
     });
 
     viewer.imageryLayers.removeAll();
-
-    viewer.imageryLayers.addImageryProvider(
-      new Cesium.UrlTemplateImageryProvider({
-        url: `https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Satellite/{z}/{y}/{x}.jpeg`,
-        maximumLevel: 18,
-        minimumLevel: 6,
-        credit: new Cesium.Credit("VWorld"),
-        tilingScheme: new Cesium.WebMercatorTilingScheme(),
-      })
-    );
-
-    // GeoServer WMS 도로 레이어 (VWorld 위에 반투명 오버레이)
-    try {
-      // viewer.imageryLayers.addImageryProvider(new Cesium.WebMapServiceImageryProvider({
-      //   url: GEOSERVER_WMS,
-      //   layers: "traffic:seoul_roads",
-      //   parameters: { transparent: true, format: "image/png", styles: "" },
-      //   minimumLevel: 12,
-      //   maximumLevel: 19,
-      //   credit: new Cesium.Credit("GeoServer"),
-      // }));
-    } catch (e) {
-      console.warn("GeoServer WMS 연결 실패 (폴백 모드):", e);
-    }
-
+    viewer.imageryLayers.addImageryProvider(vworldProvider);
     viewer.scene.globe.enableLighting = false;
     viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#0a0f1e");
     viewer.camera.setView({
@@ -180,56 +899,61 @@ export default function SimulationMapView({ selectedList = [], onSelect, phaseId
     setStatus(null);
 
     return () => {
-      if (animationRef.current) { cancelAnimationFrame(animationRef.current); animationRef.current = null; }
-      removeRoadStatusOverlay();
-      removeDirectionGuide();
-      if (viewerRef.current && !viewerRef.current.isDestroyed()) { viewerRef.current.destroy(); viewerRef.current = null; }
+      stopAnimation();
+      clearOverlays();
+      Object.values(markerEntitiesRef.current).forEach(e => viewer.entities.remove(e));
+      markerEntitiesRef.current = {};
+      if (viewerRef.current && !viewerRef.current.isDestroyed()) viewerRef.current.destroy();
+      viewerRef.current = null;
     };
   }, [cesiumReady]);
 
-  // 교차로 마커 렌더링
   useEffect(() => {
     if (!cesiumReady || !viewerRef.current || crossroads.length === 0) return;
     const Cesium = window.Cesium;
     const viewer = viewerRef.current;
 
-    Object.values(entityMapRef.current).forEach(e => viewer.entities.remove(e));
-    entityMapRef.current = {};
+    Object.values(markerEntitiesRef.current).forEach(e => viewer.entities.remove(e));
+    markerEntitiesRef.current = {};
 
     crossroads.forEach(cr => {
       const lon = toCoord(cr.xCoord);
       const lat = toCoord(cr.yCoord);
       if (!lon || !lat) return;
 
-      const isSel = selected?.intNo === cr.intNo;
-      const isLinked = linkedTarget?.intNo === cr.intNo;
+      const isStart = start?.intNo === cr.intNo;
+      const isEnd = end?.intNo === cr.intNo;
+      const viaIndex = viaCrossroads.findIndex(item => item.intNo === cr.intNo);
+      const isVia = viaIndex >= 0;
+      const color = isStart ? "#22c55e" : isEnd ? "#ef4444" : isVia ? "#f59e0b" : "rgba(96,165,250,0.55)";
+      const size = isStart || isEnd ? 18 : isVia ? 13 : 9;
+      const markerText = isStart ? "출" : isEnd ? "도" : isVia ? String(viaIndex + 1) : "";
+
       const entity = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(lon, lat, 10),
         billboard: {
-          image: isSel
-            ? createMarkerCanvas("#60a5fa", 18)
-            : isLinked
-              ? createMarkerCanvas("#f59e0b", 16)
-              : createMarkerCanvas("rgba(96,165,250,0.6)", 10),
+          image: createMarkerCanvas(color, size, markerText),
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
-        label: (isSel || isLinked) ? {
-          text: cr.intNm, font: "12px Malgun Gothic",
-          fillColor: Cesium.Color.fromCssColorString(isSel ? "#60a5fa" : "#f59e0b"),
-          outlineColor: Cesium.Color.BLACK, outlineWidth: 2,
+        label: (isStart || isEnd || isVia) ? {
+          text: isVia ? `경유 ${viaIndex + 1} · ${cr.intNm}` : `${isStart ? "출발" : "도착"} · ${cr.intNm}`,
+          font: "bold 12px Malgun Gothic",
+          fillColor: Cesium.Color.fromCssColorString(isStart ? "#22c55e" : isEnd ? "#ef4444" : "#f59e0b"),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          pixelOffset: new Cesium.Cartesian2(0, -28),
+          pixelOffset: new Cesium.Cartesian2(0, -32),
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         } : undefined,
         properties: { intNo: cr.intNo, intNm: cr.intNm, xCoord: cr.xCoord, yCoord: cr.yCoord },
       });
-      entityMapRef.current[cr.intNo] = entity;
+      markerEntitiesRef.current[cr.intNo] = entity;
     });
 
-    if (!viewer._simClickHandler) {
+    if (!viewer._routeSimClickHandler) {
       const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
       handler.setInputAction(click => {
         const picked = viewer.scene.pick(click.position);
@@ -238,963 +962,332 @@ export default function SimulationMapView({ selectedList = [], onSelect, phaseId
           const intNm = picked.id.properties.intNm?.getValue();
           const xCoord = picked.id.properties.xCoord?.getValue();
           const yCoord = picked.id.properties.yCoord?.getValue();
-          if (intNo) onSelect({ intNo, intNm, xCoord, yCoord });
+          if (intNo) onSelect?.({ intNo, intNm, xCoord, yCoord });
         }
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-      viewer._simClickHandler = handler;
+      viewer._routeSimClickHandler = handler;
     }
-  }, [crossroads, selectedList, cesiumReady]);
+  }, [
+    crossroads,
+    start?.intNo,
+    end?.intNo,
+    viaCrossroads.map(cr => cr.intNo).join("|"),
+    cesiumReady,
+    onSelect
+  ]);
 
-  // ── selectedList 변경 시: 카메라 이동 + 교차로별 차량 생성 ─────────────────
-  // 팀원 코드 방식: 모든 선택 교차로를 배열로 관리, 각각 독립적으로 차량 생성
   useEffect(() => {
-    if (!cesiumReady || !viewerRef.current) return;
+    if (!viewerRef.current || !window.Cesium) return;
+    clearOverlays();
+    stopAnimation();
 
-    // 마커 전부 취소됐을 때 → 차량/선 전부 제거
-    if (selectedList.length === 0) {
-      const viewer = viewerRef.current;
-      Object.values(carEntitiesRef.current).flat().forEach(e => viewer.entities.remove(e));
-      carEntitiesRef.current = {};
-      simCarsRef.current = {};
-      removeRoadStatusOverlay();
-      removeDirectionGuide();
-      if (animationRef.current) { cancelAnimationFrame(animationRef.current); animationRef.current = null; }
-      lastTickRef.current = null;
-      lastSpawnArgsRef.current = null;
+    if (!startLL) {
+      onStatsChange?.(null);
       return;
     }
-    const Cesium = window.Cesium;
 
-    // 카메라: 마지막으로 클릭한 교차로로 이동
-    const lastCr = selectedList[selectedList.length - 1];
-    const lastLon = toCoord(lastCr.xCoord);
-    const lastLat = toCoord(lastCr.yCoord);
-    if (!lastLon || !lastLat) return;
+    flyToSelectedArea();
 
-    if (selectedList.length === 1) {
-      // 단독: 해당 교차로 위로
-      viewerRef.current.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(lastLon, lastLat, 600),
-        orientation: { heading: Cesium.Math.toRadians(0), pitch: Cesium.Math.toRadians(-40), roll: 0 },
-        duration: 1.5,
-      });
-    } else {
-      // 다중: 전체가 보이도록 중간 지점으로
-      const firstCr = selectedList[0];
-      const firstLon = toCoord(firstCr.xCoord), firstLat = toCoord(firstCr.yCoord);
-      const dist = distanceMeters([firstLon, firstLat], [lastLon, lastLat]);
-      viewerRef.current.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-          (firstLon + lastLon) / 2, (firstLat + lastLat) / 2, Math.max(700, dist * 2.4)
-        ),
-        orientation: { heading: Cesium.Math.toRadians(0), pitch: Cesium.Math.toRadians(-42), roll: 0 },
-        duration: 1.1,
-      });
+    if (!endLL || routePoints.length < 2) {
+      onStatsChange?.(null);
+      return;
     }
 
-    // 교차로별 차량 생성 (팀원 코드의 spawnCarsForMultiple 방식)
-    spawnCarsForList(selectedList);
-  }, [selectedList, cesiumReady]);
+    renderRouteSimulation();
+    startCarAnimation();
 
-  // 교차로별 회전각 변경 시 해당 교차로만 재생성
-  useEffect(() => {
-    rotationMapRef.current = rotationMap;
-    if (lastSpawnArgsRef.current && viewerRef.current) {
-      spawnCarsForList(lastSpawnArgsRef.current);
-    }
-  }, [rotationMap]);
+    const before = estimateTrip(routePoints, false);
+    const after = estimateTrip(routePoints, true);
+    onStatsChange?.({
+      distanceMeters: Math.round(before.distance),
+      beforeSec: before.totalSec,
+      afterSec: after.totalSec,
+      savedSec: Math.max(0, before.totalSec - after.totalSec),
+      beforeSpeedKph: before.avgSpeedKph,
+      afterSpeedKph: after.avgSpeedKph,
+      bottleneckCount: 1,
+      viaCount: viaCrossroads.length,
+    });
+  }, [selectedList, isOptimized, cesiumReady, routePlan]);
 
-  // 신호 현시 변경
-  useEffect(() => {
-    phaseIdxRef.current = phaseIdx;
-    updateRoadStatusOverlay();
-  }, [phaseIdx]);
-
-  // AI 최적화 모드 변경
-  useEffect(() => {
-    isOptimizedRef.current = isOptimized;
-    updateRoadStatusOverlay();
-  }, [isOptimized]);
-
-  useEffect(() => {
-    trafficContextRef.current = trafficContext;
-    updateRoadStatusOverlay();
-  }, [trafficContext]);
-
-  // ── WFS 헬퍼 ──────────────────────────────────────────────────────────────
-
-  async function fetchSignalPhases(intNo) {
-    try {
-      const res = await fetch(`${API_BASE}/api/signal/simulation/context/${intNo}`,
-        { signal: AbortSignal.timeout(3000) });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.phases ?? [];
-    } catch { return []; }
-  }
-
-  async function fetchWfsFeatures(intNo) {
-    try {
-      const filter = `int_no='${intNo}'`;
-      const url = `${GEOSERVER_WFS}?service=WFS&version=1.0.0&request=GetFeature` +
-        `&typeName=traffic:seoul_roads&outputFormat=application/json` +
-        `&CQL_FILTER=${encodeURIComponent(filter)}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
-      if (!res.ok) return null;
-      const geo = await res.json();
-      return geo.features?.length ? geo.features : null;
-    } catch { return null; }
-  }
-
-  function resolvePhaseNos(fromDir, toDir, phases) {
-    const fromKo = EN_TO_KO[fromDir] ?? fromDir;
-    const toKo = EN_TO_KO[toDir] ?? toDir;
-    if (!phases?.length) {
-      return ["north", "south"].includes(fromDir) ? [1, 3] : [2, 4];
-    }
-    const matched = phases
-      .filter(p => (p.dirs ?? []).some(d =>
-        d !== "전적색" && d !== "보행" && (d.includes(fromKo) || d.includes(toKo))
-      ))
-      .map(p => p.no);
-    return matched.length ? matched : [1, 3];
-  }
-
-  function wfsFeaturesToRoutes(features, phases) {
-    return features.map((feat, idx) => {
-      const raw = feat.geometry?.type === "MultiLineString"
-        ? feat.geometry.coordinates[0]
-        : feat.geometry?.coordinates ?? [];
-      const pts = raw.map(([lon, lat]) => [lon, lat]);
-      const props = feat.properties ?? {};
-      const phaseNos = resolvePhaseNos(props.from_dir, props.to_dir, phases);
-      return makeRoute(
-        pts,
-        idx,
-        props.lane === "forward" ? 1 : -1,
-        phaseNos,
-        props.direction ?? `wfs-${idx}`,
-      );
-    }).filter(r => r.points.length >= 2);
-  }
-
-  // ── 차량 생성: 다중 교차로 지원 (팀원 코드 spawnCarsForMultiple 방식) ────────
-  // selectedList의 각 교차로마다 독립적으로 차량을 생성하고 관리
-  async function spawnCarsForList(crossroadsList) {
-    if (!viewerRef.current) return;
-    lastSpawnArgsRef.current = crossroadsList; // 회전 재생성에 사용
-    const Cesium = window.Cesium;
+  function clearOverlays() {
     const viewer = viewerRef.current;
+    if (!viewer) return;
+    overlayEntitiesRef.current.forEach(entity => viewer.entities.remove(entity));
+    overlayEntitiesRef.current = [];
+    if (carEntityRef.current) {
+      viewer.entities.remove(carEntityRef.current);
+      carEntityRef.current = null;
+    }
+  }
 
-    // 기존 모든 차량/오버레이 제거
-    Object.values(carEntitiesRef.current).flat().forEach(e => viewer.entities.remove(e));
-    carEntitiesRef.current = {};
-    simCarsRef.current = {};
-    removeRoadStatusOverlay();
-    removeDirectionGuide();
-    if (animationRef.current) { cancelAnimationFrame(animationRef.current); animationRef.current = null; }
+  function stopAnimation() {
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    animationRef.current = null;
     lastTickRef.current = null;
+    progressRef.current = 0;
+  }
 
-    let lastWfsSource = "폴백";
+  function flyToSelectedArea() {
+    if (!viewerRef.current || !window.Cesium || !startLL) return;
+    const Cesium = window.Cesium;
 
-    for (const crossroad of crossroadsList) {
-      const intNo = crossroad.intNo;
-      const lon = toCoord(crossroad.xCoord);
-      const lat = toCoord(crossroad.yCoord);
-      if (!lon || !lat) continue;
+    if (endLL && routePoints.length >= 2) {
+      const mid = interpolateRoute(routePoints, 0.5);
+      if (!mid) return;
 
-      // WFS + 신호 병렬 조회
-      const [wfsFeatures, phases] = await Promise.all([
-        fetchWfsFeatures(intNo),
-        fetchSignalPhases(intNo),
-      ]);
-
-      const routes = wfsFeatures
-        ? wfsFeaturesToRoutes(wfsFeatures, phases)
-        : buildRoadLikeRoutes(crossroad, lon, lat, null, phases); // phases 전달 → 실제 도로 방향 추론
-      if (wfsFeatures) lastWfsSource = "WFS";
-
-      // 방향 가이드는 첫 번째 교차로만
-      if (crossroad.intNo === crossroadsList[0].intNo) {
-        renderDirectionGuide(lon, lat);
-      }
-      // 단독 마커일 때만 개별 선 표시 (연결 모드에선 연결선만 표시)
-      if (crossroadsList.length === 1) {
-        renderRoadStatusOverlay(routes);
-      }
-
-      // 연결 모드(2개 이상)에선 개별 교차로 차량 생성 안 함
-      // → 연결선 위 차량만 달리게 하기 위해 skip
-      if (crossroadsList.length === 1) {
-        carEntitiesRef.current[intNo] = [];
-        simCarsRef.current[intNo] = [];
-
-        routes.forEach((route, routeIdx) => {
-          for (let i = 0; i < CARS_PER_ROUTE; i++) {
-            const state = {
-              routeIdx,
-              groupIdx: route.groupIdx,
-              queueIdx: i,
-              progress: -0.12 - i * 0.24 - (routeIdx % 2) * 0.06,
-              speedBias: 0.92 + (i % 2) * 0.08,
-              route,
-              intNo,
-              entity: null,
-            };
-            const [carLon, carLat] = pointOnRoute(route, state.progress, i);
-            const car = viewer.entities.add({
-              position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 3),
-              billboard: {
-                image: createCarCanvas(route.heading, routeIdx),
-                width: 26, height: 15,
-                verticalOrigin: Cesium.VerticalOrigin.CENTER,
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-                disableDepthTestDistance: Number.POSITIVE_INFINITY,
-              },
-              properties: { routeIdx, queueIdx: i },
-            });
-            state.entity = car;
-            carEntitiesRef.current[intNo].push(car);
-            simCarsRef.current[intNo].push(state);
-          }
-        });
-      }
-    } // end for crossroad
-
-    // ── 교차로 간 연결 경로 생성 ──────────────────────────────────────────────
-    // crossroadsList에 2개 이상 있으면 인접 교차로 쌍(i, i+1)마다
-    // A→B, B→A 양방향 연결 경로를 추가로 생성하여 차량이 구간을 달리게 함
-    if (crossroadsList.length >= 2) {
-      for (let i = 0; i < crossroadsList.length - 1; i++) {
-        const crA = crossroadsList[i];
-        const crB = crossroadsList[i + 1];
-        const aLon = toCoord(crA.xCoord), aLat = toCoord(crA.yCoord);
-        const bLon = toCoord(crB.xCoord), bLat = toCoord(crB.yCoord);
-        if (!aLon || !aLat || !bLon || !bLat) continue;
-
-        const dist = distanceMeters([aLon, aLat], [bLon, bLat]);
-        if (dist < 30 || dist > 5000) continue;
-
-        // A→B, B→A 두 방향 경로
-        const angle = Math.atan2(bLat - aLat, bLon - aLon);
-        const approachM = Math.min(80, Math.max(30, dist * 0.12));
-        const approachDeg = metersToDegrees(approachM, aLat);
-        const dx = Math.cos(angle) * approachDeg.lon;
-        const dy = Math.sin(angle) * approachDeg.lat;
-
-        const fwd = [[aLon - dx, aLat - dy], [aLon, aLat], [bLon, bLat], [bLon + dx, bLat + dy]];
-        const rev = [[bLon + dx, bLat + dy], [bLon, bLat], [aLon, aLat], [aLon - dx, aLat - dy]];
-
-        const linkKey = `link-${crA.intNo}-${crB.intNo}`;
-        const routeFwd = makeRoute(fwd, 0, 1,  [1, 2, 3, 4], `${linkKey}-fwd`);
-        const routeRev = makeRoute(rev, 1, -1, [1, 2, 3, 4], `${linkKey}-rev`);
-
-        carEntitiesRef.current[linkKey] = [];
-        simCarsRef.current[linkKey] = [];
-        renderRoadStatusOverlay([routeFwd, routeRev]);
-
-        [routeFwd, routeRev].forEach((route, routeIdx) => {
-          for (let qi = 0; qi < CARS_PER_ROUTE; qi++) {
-            const state = {
-              routeIdx,
-              groupIdx: route.groupIdx,
-              queueIdx: qi,
-              progress: -0.12 - qi * 0.24 - (routeIdx % 2) * 0.06,
-              speedBias: 0.92 + (qi % 2) * 0.08,
-              route,
-              intNo: linkKey,
-              entity: null,
-            };
-            const [carLon, carLat] = pointOnRoute(route, state.progress, qi);
-            const car = viewer.entities.add({
-              position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 3),
-              billboard: {
-                image: createCarCanvas(route.heading, routeIdx + 4),
-                width: 26, height: 15,
-                verticalOrigin: Cesium.VerticalOrigin.CENTER,
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-                disableDepthTestDistance: Number.POSITIVE_INFINITY,
-              },
-            });
-            state.entity = car;
-            carEntitiesRef.current[linkKey].push(car);
-            simCarsRef.current[linkKey].push(state);
-          }
-        });
-      }
+      const dist = routeLengthMeters(routePoints);
+      viewerRef.current.camera.flyToBoundingSphere(
+        new Cesium.BoundingSphere(
+          Cesium.Cartesian3.fromDegrees(mid.lon, mid.lat, 0),
+          Math.max(120, dist * 0.45)
+        ),
+        {
+          offset: new Cesium.HeadingPitchRange(
+            Cesium.Math.toRadians(0),
+            Cesium.Math.toRadians(-42),
+            Math.max(900, Math.min(2600, dist * 1.5))
+          ),
+          duration: 1.1,
+        }
+      );
+      return;
     }
 
-    setWfsSource(lastWfsSource);
-    tickCars();
+    viewerRef.current.camera.flyToBoundingSphere(
+      new Cesium.BoundingSphere(
+        Cesium.Cartesian3.fromDegrees(startLL.lon, startLL.lat, 0),
+        80
+      ),
+      {
+        offset: new Cesium.HeadingPitchRange(
+          Cesium.Math.toRadians(0),
+          Cesium.Math.toRadians(-40),
+          650
+        ),
+        duration: 1.0,
+      }
+    );
   }
 
-  function tickCars(timestamp = performance.now()) {
-    if (!viewerRef.current) return;
-    const allCars = Object.values(simCarsRef.current).flat();
-    if (allCars.length === 0) return;
-
-    const Cesium = window.Cesium;
-    const dt = lastTickRef.current ? Math.min((timestamp - lastTickRef.current) / 1000, 0.08) : 0.016;
-    lastTickRef.current = timestamp;
-
-    // 교차로별로 해당 교차로의 현시(phaseIdx)를 독립적으로 적용
-    Object.keys(simCarsRef.current).forEach(intNo => {
-      // 해당 교차로의 최신 현시 (없으면 전역 phaseIdxRef 사용)
-      const currentPhase = intersectionPhaseRefs.current[intNo] ?? phaseIdxRef.current;
-
-      simCarsRef.current[intNo].forEach(car => {
-        const optimized = isOptimizedRef.current;
-        const green = isRouteGreen(car.route, currentPhase);
-        const stopAt = 0.43 - car.queueIdx * 0.105;
-        const canRoll = car.progress < stopAt;
-        const speedKph = routeSpeedKph(car.route, optimized, green);
-        const progressPerSec = speedKphToProgressPerSec(speedKph * car.speedBias, car.route.lengthMeters);
-        const speed = green ? progressPerSec : canRoll ? speedKphToProgressPerSec(MIN_ROLL_SPEED_KPH, car.route.lengthMeters) : 0;
-
-        car.progress += speed * dt;
-        if (!green && car.progress > stopAt) car.progress = stopAt;
-        if (car.progress > 1.08) car.progress = -0.14 - car.queueIdx * 0.22 - (car.routeIdx % 2) * 0.05;
-
-        const [carLon, carLat] = pointOnRoute(car.route, car.progress, car.queueIdx);
-        car.entity.position = Cesium.Cartesian3.fromDegrees(carLon, carLat, 3);
-        car.entity.billboard.scale = green ? 1.12 : 0.96;
-      });
-    });
-
-    viewerRef.current.scene.requestRender();
-    animationRef.current = requestAnimationFrame(tickCars);
-  }
-
-  function renderRoadStatusOverlay(routes) {
-    if (!viewerRef.current || !window.Cesium) return;
+  function renderRouteSimulation() {
     const Cesium = window.Cesium;
     const viewer = viewerRef.current;
+    const positions = routePoints.flatMap(p => [p.lon, p.lat]);
 
-    // push로 누적 (= 덮어쓰기 금지 — 루프에서 여러 번 호출되므로)
-    routes.forEach((route) => {
-      const positions = route.points.flatMap(([lon, lat]) => [lon, lat]);
-      roadStatusEntitiesRef.current.push({
-        route,
-        entity: viewer.entities.add({
-          polyline: {
-            positions: Cesium.Cartesian3.fromDegreesArray(positions),
-            width: routeLineWidth(route),
-            clampToGround: true,
-            material: routeLineMaterial(route),
-            zIndex: 20,
-          },
+    overlayEntitiesRef.current.push(viewer.entities.add({
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray(positions),
+        width: 9,
+        clampToGround: true,
+        material: new Cesium.PolylineGlowMaterialProperty({
+          glowPower: 0.18,
+          taperPower: 0.7,
+          color: Cesium.Color.fromCssColorString(isOptimized ? "#22c55e" : "#38bdf8").withAlpha(0.82),
         }),
-      });
-    });
-  }
+        zIndex: 20,
+      },
+    }));
 
-  function removeRoadStatusOverlay() {
-    if (!viewerRef.current) return;
-    roadStatusEntitiesRef.current.forEach(({ entity }) => viewerRef.current.entities.remove(entity));
-    roadStatusEntitiesRef.current = [];
-  }
 
-  function renderDirectionGuide(lon, lat) {
-    if (!viewerRef.current || !window.Cesium) return;
-    const Cesium = window.Cesium;
-    const viewer = viewerRef.current;
-    const guides = [
-      { key: "N", text: "북", sub: "N", lon: lon, lat: lat + 0.00115, color: "#60a5fa" },
-      { key: "E", text: "동", sub: "E", lon: lon + 0.00115, lat, color: "#22c55e" },
-      { key: "S", text: "남", sub: "S", lon: lon, lat: lat - 0.00115, color: "#f59e0b" },
-      { key: "W", text: "서", sub: "W", lon: lon - 0.00115, lat, color: "#f43f5e" },
-    ];
+    
 
-    directionGuideEntitiesRef.current = guides.flatMap(guide => {
-      const point = viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(guide.lon, guide.lat, 8),
+    viaCrossroads.forEach((cr, idx) => {
+      const ll = getCrLonLat(cr);
+      if (!ll) return;
+      overlayEntitiesRef.current.push(viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 16),
         point: {
-          pixelSize: 34,
-          color: Cesium.Color.fromCssColorString(guide.color).withAlpha(0.92),
-          outlineColor: Cesium.Color.WHITE.withAlpha(0.85),
+          pixelSize: 13,
+          color: Cesium.Color.fromCssColorString("#f59e0b").withAlpha(0.95),
+          outlineColor: Cesium.Color.WHITE.withAlpha(0.9),
           outlineWidth: 2,
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
-      });
-      const label = viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(guide.lon, guide.lat, 10),
         label: {
-          text: `${guide.text}\n${guide.sub}`,
-          font: "bold 13px Malgun Gothic",
-          fillColor: Cesium.Color.WHITE,
+          text: `자동 경유 ${idx + 1}`,
+          font: "bold 11px Malgun Gothic",
+          fillColor: Cesium.Color.fromCssColorString("#fbbf24"),
           outlineColor: Cesium.Color.BLACK,
           outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          verticalOrigin: Cesium.VerticalOrigin.CENTER,
-          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          pixelOffset: new Cesium.Cartesian2(0, -22),
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
-      });
-      return [point, label];
+      }));
+    });
+
+    
+    const bottleneckSegment = extractRouteSegment(routePoints, 0.46, 0.62);
+    overlayEntitiesRef.current.push(viewer.entities.add({
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray(bottleneckSegment.flatMap(p => [p.lon, p.lat])),
+        width: 14,
+        clampToGround: true,
+        material: new Cesium.PolylineGlowMaterialProperty({
+          glowPower: 0.32,
+          taperPower: 0.7,
+          color: Cesium.Color.fromCssColorString(isOptimized ? "#22c55e" : "#ef4444").withAlpha(0.95),
+        }),
+        zIndex: 25,
+      },
+    }));
+
+    const bottleneckPoint = interpolateRoute(routePoints, 0.54);
+    overlayEntitiesRef.current.push(viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(bottleneckPoint.lon, bottleneckPoint.lat, 20),
+      billboard: {
+        image: createBottleneckCanvas(isOptimized),
+        width: 118,
+        height: 42,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    }));
+
+    const first = routePoints[0];
+    carEntityRef.current = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(first.lon, first.lat, 8),
+      billboard: {
+        image: createCarCanvas(),
+        width: 34,
+        height: 22,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
     });
   }
 
-  function removeDirectionGuide() {
-    if (!viewerRef.current) return;
-    directionGuideEntitiesRef.current.forEach(entity => viewerRef.current.entities.remove(entity));
-    directionGuideEntitiesRef.current = [];
-  }
-
-  function updateRoadStatusOverlay() {
-    if (!viewerRef.current || !window.Cesium) return;
-    roadStatusEntitiesRef.current.forEach(({ route, entity }) => {
-      if (!entity?.polyline) return;
-      entity.polyline.width = routeLineWidth(route);
-      entity.polyline.material = routeLineMaterial(route);
-    });
-    viewerRef.current.scene.requestRender();
-  }
-
-  function routeLineWidth(route) {
-    if (isOptimizedRef.current) return 9;
-    return isRouteCongested(route) ? 10 : 6;
-  }
-
-  function routeLineMaterial(route) {
+  function startCarAnimation(timestamp = performance.now()) {
+    if (!viewerRef.current || !carEntityRef.current || routePoints.length < 2) return;
     const Cesium = window.Cesium;
-    const optimized = isOptimizedRef.current;
-    const congested = isRouteCongested(route);
-    const color = optimized
-      ? Cesium.Color.fromCssColorString("#22c55e").withAlpha(0.9)
-      : !congested
-        ? Cesium.Color.fromCssColorString("#38bdf8").withAlpha(0.38)
-        : Cesium.Color.fromCssColorString("#ef4444").withAlpha(0.92);
+    const dt = lastTickRef.current ? Math.min((timestamp - lastTickRef.current) / 1000, 0.08) : 0.016;
+    lastTickRef.current = timestamp;
 
-    return new Cesium.PolylineGlowMaterialProperty({
-      glowPower: optimized || congested ? 0.28 : 0.16,
-      taperPower: 0.65,
-      color,
-    });
-  }
+    const baseSpeed = isOptimized ? 0.055 : 0.035;
+    const inBottleneck = progressRef.current > 0.45 && progressRef.current < 0.64;
+    const speed = inBottleneck ? baseSpeed * (isOptimized ? 0.95 : 0.38) : baseSpeed;
+    progressRef.current += speed * dt;
+    if (progressRef.current > 1) progressRef.current = 0;
 
-  // ── 도로 경로 생성 ─────────────────────────────────────────────────────────
-  // 정방향/역방향을 반드시 다른 groupIdx + 반대 laneSign으로 배정
-  // phases: 백엔드에서 받은 신호 현시 배열 → 실제 도로 방향 추론에 사용
-  function buildRoadLikeRoutes(crossroad, lon, lat, targetCrossroad = null, phases = []) {
-    const linkedRoutes = buildLinkedCrossroadRoutes(crossroad, targetCrossroad, lon, lat);
-    if (linkedRoutes.length > 0) return linkedRoutes;
-
-    const manual = ROAD_WAYPOINTS[crossroad.intNo];
-    if (manual) {
-      return manual.map((route, idx) => makeRoute(
-        resolveRoutePoints(route, lon, lat),
-        idx,
-        idx % 2 === 0 ? 1 : -1,
-        route.phaseNos,
-        route.label
-      ));
-    }
-
-    // phases의 dirs에서 실제 도로 축 추론
-    // "동↔서 직진", "남↔북 직진", "북→남 직진" 등의 패턴으로 방향 파악
-    const phaseDirs = buildRoutesFromPhases(lon, lat, phases, crossroad.intNo);
-    if (phaseDirs.length > 0) return phaseDirs;
-
-    // 최종 fallback: 4방향 (WFS도 실패하고 phases도 없을 때만 사용)
-    const rot = rotationMapRef.current[crossroad?.intNo] ?? 0;
-    return SIM_DIRECTIONS.map((dir, idx) => {
-      const pts = rotatePoints([
-        [lon + dir.start[0], lat + dir.start[1]],
-        [lon, lat],
-        [lon + dir.end[0], lat + dir.end[1]],
-      ], lon, lat, rot);
-      return makeRoute(pts, idx, idx % 2 === 0 ? 1 : -1, dir.phaseNos, dir.label);
-    });
-  }
-
-  // phases의 dirs 문자열에서 실제 도로 축(동서/남북/대각선)을 추론하여 경로 생성
-  // dirs 예시: ["동↔서 직진"], ["남↔북 직진"], ["서→북 좌회전", "동→남 좌회전"]
-  function buildRoutesFromPhases(lon, lat, phases, _intNo = null) {
-    if (!phases?.length) return [];
-
-    const H = FALLBACK_ROUTE_HALF_LENGTH_DEG;
-    const routes = [];
-    let axisIdx = 0;
-
-    // 방향 키워드 → [lonOffset, latOffset] 맵핑
-    const DIR_VECTOR = {
-      "동": [H, 0], "서": [-H, 0], "북": [0, H], "남": [0, -H],
-      "북동": [H * 0.71, H * 0.71], "남서": [-H * 0.71, -H * 0.71],
-      "북서": [-H * 0.71, H * 0.71], "남동": [H * 0.71, -H * 0.71],
-    };
-
-    // 이미 추가한 축 중복 방지 (각도 차이 30° 이하면 같은 축으로 간주)
-    const addedAngles = [];
-
-    phases.forEach(phase => {
-      (phase.dirs ?? []).forEach(dir => {
-        if (dir === "전적색" || dir === "보행") return;
-
-        // "동↔서 직진", "남→북 직진", "서→북 좌회전" 등에서 방향어 추출
-        const tokens = dir.match(/[동서남북]{1,2}/g) ?? [];
-        if (tokens.length < 1) return;
-
-        const from = tokens[0];
-        const to   = tokens[1] ?? oppositeDir(from);
-        const fromVec = DIR_VECTOR[from];
-        const toVec   = DIR_VECTOR[to];
-        if (!fromVec || !toVec) return;
-
-        // 이 축의 각도 계산 (중복 방지)
-        const angle = Math.atan2(toVec[1] - fromVec[1], toVec[0] - fromVec[0]);
-        const normAngle = ((angle % Math.PI) + Math.PI) % Math.PI;
-        const isDuplicate = addedAngles.some(a => Math.abs(a - normAngle) < 0.52); // 30°
-        if (isDuplicate) return;
-        addedAngles.push(normAngle);
-
-        const phaseNos = [phase.no];
-        // 같은 축을 가진 다른 현시도 포함 (예: 현시1과 현시3이 모두 남북 직진)
-        phases.forEach(p2 => {
-          if (p2.no === phase.no) return;
-          (p2.dirs ?? []).forEach(d2 => {
-            const t2 = d2.match(/[동서남북]{1,2}/g) ?? [];
-            if (!t2.length) return;
-            const f2 = t2[0], t2e = t2[1] ?? oppositeDir(t2[0]);
-            const v2f = DIR_VECTOR[f2], v2t = DIR_VECTOR[t2e];
-            if (!v2f || !v2t) return;
-            const a2 = Math.atan2(v2t[1] - v2f[1], v2t[0] - v2f[0]);
-            const na2 = ((a2 % Math.PI) + Math.PI) % Math.PI;
-            if (Math.abs(na2 - normAngle) < 0.52 && !phaseNos.includes(p2.no)) {
-              phaseNos.push(p2.no);
-            }
-          });
-        });
-
-        // intNo는 buildRoutesFromPhases 호출 시 closure로 전달
-        const rot = rotationMapRef.current[_intNo] ?? 0;
-        // 정방향: from → to
-        routes.push(makeRoute(rotatePoints([
-          [lon + fromVec[0], lat + fromVec[1]],
-          [lon, lat],
-          [lon + toVec[0],   lat + toVec[1]],
-        ], lon, lat, rot), axisIdx * 2, 1, phaseNos, `phase-${from}-${to}`));
-
-        // 역방향: to → from
-        routes.push(makeRoute(rotatePoints([
-          [lon + toVec[0],   lat + toVec[1]],
-          [lon, lat],
-          [lon + fromVec[0], lat + fromVec[1]],
-        ], lon, lat, rot), axisIdx * 2 + 1, -1, phaseNos, `phase-${to}-${from}`));
-
-        axisIdx++;
-      });
-    });
-
-    return routes;
-  }
-
-  // 방향 반대어 헬퍼
-  function oppositeDir(dir) {
-    const map = { "동": "서", "서": "동", "북": "남", "남": "북", "북동": "남서", "남서": "북동", "북서": "남동", "남동": "북서" };
-    return map[dir] ?? dir;
-  }
-
-  function resolveRoutePoints(route, lon, lat) {
-    if (route.points) return route.points;
-    return (route.relativePoints || []).map(([dx, dy]) => [lon + dx, lat + dy]);
-  }
-
-  function buildLinkedCrossroadRoutes(crossroad, targetCrossroad, lon, lat) {
-    if (!targetCrossroad || targetCrossroad.intNo === crossroad.intNo) return [];
-    const targetLon = toCoord(targetCrossroad.xCoord);
-    const targetLat = toCoord(targetCrossroad.yCoord);
-    if (!targetLon || !targetLat) return [];
-
-    const dist = distanceMeters([lon, lat], [targetLon, targetLat]);
-    if (dist < 30 || dist > 2500) return [];
-
-    const angle = Math.atan2(targetLat - lat, targetLon - lon);
-    const approachMeters = Math.min(90, Math.max(35, dist * 0.18));
-    const approachDeg = metersToDegrees(approachMeters, lat);
-    const dx = Math.cos(angle) * approachDeg.lon;
-    const dy = Math.sin(angle) * approachDeg.lat;
-    const midLon = (lon + targetLon) / 2;
-    const midLat = (lat + targetLat) / 2;
-    const phaseNos = [1, 3];
-
-    const fwd = [
-      [lon - dx, lat - dy],
-      [lon, lat],
-      [midLon, midLat],
-      [targetLon, targetLat],
-      [targetLon + dx, targetLat + dy],
-    ];
-    const rev = [
-      [targetLon + dx, targetLat + dy],
-      [targetLon, targetLat],
-      [midLon, midLat],
-      [lon, lat],
-      [lon - dx, lat - dy],
-    ];
-
-    return [
-      makeRoute(fwd, 0, 1, phaseNos, `linked-${crossroad.intNo}-${targetCrossroad.intNo}`),
-      makeRoute(rev, 1, -1, phaseNos, `linked-${targetCrossroad.intNo}-${crossroad.intNo}`),
-    ];
-  }
-
-  function selectDiverseRoadPairs(pairs) {
-    const sorted = pairs
-      .map(pair => ({
-        ...pair,
-        axis: normalizeAxisAngle(Math.atan2(pair.b.lat - pair.a.lat, pair.b.lon - pair.a.lon)),
-      }))
-      .sort((a, b) => a.score - b.score);
-
-    const selected = [];
-    for (const pair of sorted) {
-      const duplicatedAxis = selected.some(prev => axisAngleDiff(prev.axis, pair.axis) < Math.PI / 5);
-      if (!duplicatedAxis) selected.push(pair);
-      if (selected.length === 2) break;
-    }
-    return selected.length >= 2 ? selected : sorted.slice(0, 2);
-  }
-
-  function makeLocalAxisRoutes(lon, lat, angle, axisIdx) {
-    const dx = Math.cos(angle) * FALLBACK_ROUTE_HALF_LENGTH_DEG;
-    const dy = Math.sin(angle) * FALLBACK_ROUTE_HALF_LENGTH_DEG;
-    const phaseNos = phaseNosForAxis(axisIdx);
-    const fwd = [[lon - dx, lat - dy], [lon, lat], [lon + dx, lat + dy]];
-    const rev = [[lon + dx, lat + dy], [lon, lat], [lon - dx, lat - dy]];
-    return [
-      makeRoute(fwd, axisIdx * 2, 1, phaseNos, `local-axis-${axisIdx}-fwd`),
-      makeRoute(rev, axisIdx * 2 + 1, -1, phaseNos, `local-axis-${axisIdx}-rev`),
-    ];
-  }
-
-  function normalizeAxisAngle(angle) {
-    const pi = Math.PI;
-    return ((angle % pi) + pi) % pi;
-  }
-
-  function axisAngleDiff(a, b) {
-    const diff = Math.abs(a - b);
-    return Math.min(diff, Math.PI - diff);
-  }
-
-  function phaseNosForAxis(axisIdx) {
-    return axisIdx % 2 === 0 ? [1, 3] : [2, 4];
-  }
-
-  function isRouteGreen(route, phaseNo) {
-    if (phaseNo == null) return route.groupIdx === 0;
-    if (Array.isArray(route.phaseNos) && route.phaseNos.length > 0) {
-      return route.phaseNos.includes(Number(phaseNo));
-    }
-    return route.groupIdx === (Number(phaseNo) - 1) % 2;
-  }
-
-  function makeRoute(points, groupIdx, laneSign, phaseNos = [], label = null) {
-    const first = points[0];
-    const last = points[points.length - 1];
-    return {
-      points,
-      groupIdx,
-      laneSign,
-      phaseNos,
-      label,
-      lengthMeters: routeLengthMeters(points),
-      heading: bearingDeg(first[0], first[1], last[0], last[1]),
-    };
-  }
-
-  function liveSpeedKph() {
-    const speed = Number(trafficContextRef.current?.speedKph);
-    return Number.isFinite(speed) && speed > 0 ? speed : DEFAULT_SPEED_KPH;
-  }
-
-  function routeSpeedKph(route, optimized, green) {
-    const routeLive = Number(route.speedKph);
-    const live = Number.isFinite(routeLive) && routeLive > 0 ? routeLive : liveSpeedKph();
-    if (optimized) return Math.min(60, live + OPTIMIZED_SPEED_GAIN_KPH);
-    if (!green) return Math.min(live, MIN_ROLL_SPEED_KPH);
-    return live;
-  }
-
-  function isRouteCongested(route) {
-    if (isOptimizedRef.current) return false;
-    const speed = liveSpeedKph();
-    return speed < 20 || !isRouteGreen(route, phaseIdxRef.current);
-  }
-
-  function speedKphToProgressPerSec(speedKph, lengthMeters) {
-    const metersPerSecond = Math.max(0, speedKph) / 3.6;
-    return (metersPerSecond * SIM_SECONDS_PER_REAL_SECOND) / Math.max(lengthMeters || 1, 1);
-  }
-
-  function routeLengthMeters(points) {
-    let total = 0;
-    for (let i = 0; i < points.length - 1; i++) {
-      total += distanceMeters(points[i], points[i + 1]);
-    }
-    return Math.max(total, 1);
-  }
-
-  function distanceMeters(a, b) {
-    const lat1 = a[1] * Math.PI / 180;
-    const lat2 = b[1] * Math.PI / 180;
-    const dLat = (b[1] - a[1]) * Math.PI / 180;
-    const dLon = (b[0] - a[0]) * Math.PI / 180;
-    const h = Math.sin(dLat / 2) ** 2
-      + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-    return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-  }
-
-  function metersToDegrees(meters, lat) {
-    const latDeg = meters / 111320;
-    const lonDeg = meters / (111320 * Math.cos(lat * Math.PI / 180) || 1);
-    return { lon: lonDeg, lat: latDeg };
-  }
-
-  // 차선 오프셋: laneSign +1=우측, -1=좌측
-  function pointOnRoute(route, progress, queueIdx) {
-    const points = route.points;
-    const p = Math.max(0, Math.min(1, progress));
-    const segCount = Math.max(points.length - 1, 1);
-    const raw = p * segCount;
-    const segIdx = Math.min(Math.floor(raw), segCount - 1);
-    const local = raw - segIdx;
-    const a = points[segIdx];
-    const b = points[Math.min(segIdx + 1, points.length - 1)];
-    const cx = a[0] + (b[0] - a[0]) * local;
-    const cy = a[1] + (b[1] - a[1]) * local;
-
-    const dx = b[0] - a[0];
-    const dy = b[1] - a[1];
-    const len = Math.hypot(dx, dy) || 1;
-
-    // 우측 법선: (dy/len, -dx/len), 좌측은 부호 반전
-    const laneSpread = 0.000075 + (Math.floor(queueIdx / 2) * 0.000014);
-    const routeSpread = (route.groupIdx % 2) * 0.000018;
-    const offset = (laneSpread + routeSpread) * route.laneSign;
-    return [
-      cx + (dy / len) * offset,
-      cy + (-dx / len) * offset,
-    ];
-  }
-
-  // 교차로 중심(cx, cy) 기준으로 points를 deg도 회전
-  function rotatePoints(points, cx, cy, deg) {
-    if (!deg) return points;
-    const rad = deg * Math.PI / 180;
-    const cos = Math.cos(rad), sin = Math.sin(rad);
-    return points.map(([lon, lat]) => {
-      const dx = lon - cx, dy = lat - cy;
-      return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
-    });
-  }
-
-  function bearingDeg(lon1, lat1, lon2, lat2) {
-    return (Math.atan2(lon2 - lon1, lat2 - lat1) * 180 / Math.PI + 360) % 360;
-  }
-
-  function toggleGlobe() {
-    if (!viewerRef.current) return;
-    const viewer = viewerRef.current;
-    const next = !globeVisible;
-    viewer.scene.globe.show = next;
-    viewer.scene.skyAtmosphere.show = next;
-    viewer.scene.skyBox.show = next;
-    setGlobeVisible(next);
+    const p = interpolateRoute(routePoints, progressRef.current);
+    if (p) carEntityRef.current.position = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 8);
+    viewerRef.current.scene.requestRender();
+    animationRef.current = requestAnimationFrame(startCarAnimation);
   }
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+    <div style={{ width: "100%", height: "100%", position: "relative", background: "#0a0f1e" }}>
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
       {status && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(10,15,30,0.85)", zIndex: 30 }}>
-          <div style={{ color: "#94a3b8", fontSize: 14 }}>{status}</div>
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#93c5fd", background: "rgba(10,15,30,0.85)", zIndex: 5 }}>
+          {status}
         </div>
       )}
 
-      <div style={{ position: "absolute", top: 14, right: 14, background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "10px 14px", zIndex: 10, backdropFilter: "blur(4px)" }}>
-        <div style={{ fontSize: 12, color: "#aab4c8", fontWeight: 700, marginBottom: 6 }}>신호 시뮬레이션</div>
-        <div style={{ fontSize: 11, color: "#64748b" }}>🔵 교차로 마커 클릭</div>
-        <div style={{ fontSize: 11, color: "#64748b", marginTop: 2, marginBottom: 10 }}>→ 실시간 신호 + 3D 차량</div>
-        <div style={{
-          width: 112, height: 112, margin: "0 auto 10px", position: "relative",
-          border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%",
-          background: "rgba(15,23,42,0.45)",
-        }}>
-          {[
-            ["북", "N", "50%", 18, "#60a5fa"],
-            ["동", "E", "calc(100% - 18px)", "50%", "#22c55e"],
-            ["남", "S", "50%", "calc(100% - 18px)", "#f59e0b"],
-            ["서", "W", 18, "50%", "#f43f5e"],
-          ].map(([ko, en, left, top, color]) => (
-            <div key={en} style={{
-              position: "absolute", left, top, transform: "translate(-50%, -50%)",
-              width: 34, height: 28, borderRadius: 4,
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-              background: `${color}22`, border: `1px solid ${color}88`, color,
-              fontSize: 10, fontWeight: 800, lineHeight: 1.05,
-            }}>
-              <span>{ko}</span>
-              <span style={{ fontSize: 9, color: "#cbd5e1" }}>{en}</span>
-            </div>
-          ))}
-          <div style={{
-            position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
-            width: 10, height: 10, borderRadius: "50%", background: "#e2e8f0",
-            boxShadow: "0 0 8px rgba(255,255,255,0.6)",
-          }} />
-        </div>
-        <div style={{ fontSize: 11, color: trafficContext?.speedKph != null ? "#22c55e" : "#f59e0b", marginBottom: 4, fontWeight: 700 }}>
-          {trafficContext?.speedKph != null
-            ? `속도 ${Math.round(trafficContext.speedKph)}km/h ${trafficContext.realTime ? "실시간" : "보정/대기"}`
-            : `속도 ${DEFAULT_SPEED_KPH}km/h 기본값`}
-        </div>
-        <div style={{ fontSize: 11, color: isOptimized ? "#22c55e" : "#ef4444", marginBottom: 6, fontWeight: 700 }}>
-          {isOptimized ? "초록 선: 병목 완화" : "빨간 선: 병목/대기 구간"}
-        </div>
-        <div style={{
-          fontSize: 10, marginBottom: 10, fontWeight: 600,
-          color: wfsSource === "WFS" ? "#22c55e" : wfsSource === "폴백" ? "#f59e0b" : "#475569",
-        }}>
-          도로 소스: {wfsSource === "WFS" ? "🟢 GeoServer WFS" : wfsSource === "폴백" ? "🟡 수학적 폴백" : "⚪ 대기"}
-        </div>
-        <button onClick={toggleGlobe} style={{
-          width: "100%", padding: "6px 10px", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer",
-          border: `1px solid ${globeVisible ? "rgba(239,68,68,0.5)" : "rgba(34,197,94,0.5)"}`,
-          background: globeVisible ? "rgba(239,68,68,0.12)" : "rgba(34,197,94,0.12)",
-          color: globeVisible ? "#ef4444" : "#22c55e", transition: "all 0.2s",
-        }}>
-          {globeVisible ? "🌍 도로 숨기기" : "🌍 도로 표시"}
-        </button>
-
-        {/* 교차로별 도로 선 회전 조정 */}
-        {selectedList.length > 0 && (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700, marginBottom: 6 }}>
-              🔄 도로 선 회전 조정
-            </div>
-            {selectedList.map(cr => {
-              const deg = rotationMap[cr.intNo] ?? 0;
-              const setDeg = (v) => setRotationMap(prev => {
-                const next = { ...prev, [cr.intNo]: v };
-                rotationMapRef.current = next;
-                return next;
-              });
-              return (
-                <div key={cr.intNo} style={{ marginBottom: 10, padding: "8px 8px 6px", borderRadius: 4, background: "rgba(255,255,255,0.03)", border: "1px solid #1e293b" }}>
-                  <div style={{ fontSize: 10, color: "#60a5fa", fontWeight: 700, marginBottom: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {cr.intNm}
-                  </div>
-                  <div style={{ display: "flex", gap: 4, marginBottom: 5 }}>
-                    <button onClick={() => setDeg(Math.round(deg - 5))}
-                      style={{ flex: 1, padding: "3px 0", borderRadius: 3, border: "1px solid #334155", background: "rgba(255,255,255,0.05)", color: "#94a3b8", fontSize: 12, cursor: "pointer" }}>
-                      ↺ -5°
-                    </button>
-                    <button onClick={() => setDeg(Math.round(deg + 5))}
-                      style={{ flex: 1, padding: "3px 0", borderRadius: 3, border: "1px solid #334155", background: "rgba(255,255,255,0.05)", color: "#94a3b8", fontSize: 12, cursor: "pointer" }}>
-                      ↻ +5°
-                    </button>
-                  </div>
-                  <input type="range" min={-90} max={90} step={1} value={deg}
-                    onChange={e => setDeg(Number(e.target.value))}
-                    style={{ width: "100%", accentColor: "#60a5fa", cursor: "pointer", marginBottom: 3 }}
-                  />
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#475569" }}>
-                    <span>-90°</span>
-                    <span style={{ color: "#60a5fa", fontWeight: 700 }}>{deg > 0 ? `+${deg}` : deg}°</span>
-                    <span>+90°</span>
-                  </div>
-                  {deg !== 0 && (
-                    <button onClick={() => setDeg(0)}
-                      style={{ width: "100%", marginTop: 4, padding: "3px 0", borderRadius: 3, border: "1px solid #334155", background: "rgba(255,255,255,0.05)", color: "#64748b", fontSize: 10, cursor: "pointer" }}>
-                      초기화 (0°)
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+      <div style={{ position: "absolute", top: 14, left: 14, zIndex: 10, padding: "10px 14px", borderRadius: 6, background: "rgba(18,16,10,0.88)", border: "1px solid rgba(255,255,255,0.12)", color: "#dbeafe", fontSize: 12 }}>
+        <div style={{ fontWeight: 800, color: "#60a5fa", marginBottom: 4 }}>🚦 경로 기반 신호 시뮬레이션</div>
+        <div>1. 출발지 마커 클릭 → 2. 목적지 마커 클릭</div>
+        <div style={{ color: "#fbbf24", marginTop: 3 }}>직선 주변 교차로를 자동 경유지로 연결합니다.</div>
       </div>
 
-      <div style={{ position: "absolute", top: 14, left: 14, background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "4px 12px", fontSize: 12, color: "#aab4c8", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
-        🚦 서울시 신호 교차로 {crossroads.length}개
-      </div>
-
-      {/* 첫 번째 마커 선택 후 두 번째 클릭 유도 배지 */}
-      {selected && !linkedTarget && (
-        <div style={{
-          position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)",
-          background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.5)",
-          borderRadius: 20, padding: "6px 18px", fontSize: 12, color: "#f59e0b",
-          fontWeight: 700, zIndex: 10, pointerEvents: "none",
-          boxShadow: "0 0 12px rgba(245,158,11,0.2)",
-        }}>
-          🟠 인근 교차로를 클릭하면 구간이 연결됩니다
+      {start && !end && (
+        <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 10, padding: "8px 14px", borderRadius: 999, background: "rgba(34,197,94,0.16)", border: "1px solid rgba(34,197,94,0.4)", color: "#bbf7d0", fontSize: 12, fontWeight: 800 }}>
+          출발지 선택됨: {start.intNm} · 목적지를 클릭하세요
         </div>
       )}
 
-      {/* 구간 연결 중 배지 */}
-      {selected && linkedTarget && (
-        <div style={{
-          position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)",
-          background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.5)",
-          borderRadius: 20, padding: "6px 18px", fontSize: 12, color: "#22c55e",
-          fontWeight: 700, zIndex: 10, pointerEvents: "none",
-        }}>
-          🔗 {selected.intNm} ↔ {linkedTarget.intNm} 구간 연결 중
-        </div>
-      )}
-
-      {selected && !ROAD_WAYPOINTS[selected.intNo] && (
-        <div style={{ position: "absolute", bottom: 14, left: 14, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.3)", borderRadius: 4, padding: "6px 12px", fontSize: 11, color: "#eab308", zIndex: 10, pointerEvents: "none" }}>
-          ⚠ 이 교차로는 도로 경로 미등록 — 임시 차량 표시 중
+      {start && end && (
+        <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 10, padding: "8px 14px", borderRadius: 999, background: isOptimized ? "rgba(34,197,94,0.16)" : "rgba(239,68,68,0.13)", border: `1px solid ${isOptimized ? "rgba(34,197,94,0.5)" : "rgba(239,68,68,0.4)"}`, color: isOptimized ? "#bbf7d0" : "#fecaca", fontSize: 12, fontWeight: 800 }}>
+          {isOptimized ? "✅ 신호제어 적용: 병목 완화 구간 통과 중" : "🔴 현행 운영: 병목구간 발생"}
+          {viaCrossroads.length > 0 ? ` · 자동 경유 ${viaCrossroads.length}개` : ""}
         </div>
       )}
     </div>
   );
 }
 
-function createMarkerCanvas(color, radius) {
-  const size = radius * 2 + 4;
+function createMarkerCanvas(color, size = 12, text = "") {
   const canvas = document.createElement("canvas");
-  canvas.width = size; canvas.height = size;
+  canvas.width = 72;
+  canvas.height = 72;
   const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, 72, 72);
   ctx.beginPath();
-  ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
-  ctx.fillStyle = color; ctx.fill();
-  ctx.strokeStyle = "rgba(96,165,250,0.8)"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.arc(36, 34, size, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.stroke();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 16;
+  ctx.beginPath();
+  ctx.arc(36, 34, size + 4, 0, Math.PI * 2);
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  if (text) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 15px Malgun Gothic";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 36, 34);
+  }
   return canvas.toDataURL();
 }
 
-function createCarCanvas(heading, dirIdx) {
+function createCarCanvas() {
   const canvas = document.createElement("canvas");
-  canvas.width = 68; canvas.height = 40;
+  canvas.width = 96;
+  canvas.height = 60;
   const ctx = canvas.getContext("2d");
-  const colors = ["#22c55e", "#f59e0b", "#38bdf8", "#f43f5e"];
-
-  ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate(((heading - 90) * Math.PI) / 180);
-  ctx.shadowColor = "rgba(0,0,0,0.65)"; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
-
-  ctx.fillStyle = colors[dirIdx % colors.length];
-  roundRect(ctx, -23, -10, 46, 20, 6); ctx.fill();
-
-  ctx.fillStyle = "rgba(255,255,255,0.82)";
-  roundRect(ctx, -8, -7, 14, 14, 4); ctx.fill();
-
-  ctx.fillStyle = "#0f172a"; ctx.beginPath();
-  ctx.arc(-15, -10, 4, 0, Math.PI * 2); ctx.arc(15, -10, 4, 0, Math.PI * 2);
-  ctx.arc(-15, 10, 4, 0, Math.PI * 2); ctx.arc(15, 10, 4, 0, Math.PI * 2);
+  ctx.translate(48, 30);
+  ctx.fillStyle = "#facc15";
+  roundRect(ctx, -28, -12, 56, 24, 8);
   ctx.fill();
+  ctx.fillStyle = "#111827";
+  roundRect(ctx, -14, -17, 28, 12, 5);
+  ctx.fill();
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillRect(-9, -15, 18, 8);
+  ctx.fillStyle = "#111827";
+  ctx.beginPath(); ctx.arc(-18, 13, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(18, 13, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 11px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("AI", 0, 5);
+  return canvas.toDataURL();
+}
 
-  ctx.fillStyle = "#ffffff"; ctx.beginPath();
-  ctx.moveTo(26, 0); ctx.lineTo(17, -6); ctx.lineTo(17, 6);
-  ctx.closePath(); ctx.fill();
-
+function createBottleneckCanvas(isOptimized) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 236;
+  canvas.height = 84;
+  const ctx = canvas.getContext("2d");
+  const bg = isOptimized ? "rgba(22,101,52,0.92)" : "rgba(127,29,29,0.92)";
+  const bd = isOptimized ? "#22c55e" : "#ef4444";
+  roundRect(ctx, 4, 4, 228, 76, 16);
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = bd;
+  ctx.stroke();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 24px Malgun Gothic";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(isOptimized ? "병목 완화" : "병목 구간", 118, 32);
+  ctx.font = "bold 17px Malgun Gothic";
+  ctx.fillStyle = isOptimized ? "#bbf7d0" : "#fecaca";
+  ctx.fillText(isOptimized ? "신호제어 적용" : "속도 저하", 118, 58);
   return canvas.toDataURL();
 }
 
