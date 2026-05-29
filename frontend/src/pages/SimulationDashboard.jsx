@@ -4,6 +4,7 @@ import SignalSimPanel from "../components/map/SignalSimPanel";
 import AppHeader from "../components/common/AppHeader";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
+const CHAT_W = 480;
 
 const SIM_PRESETS = [
   { label: "현재 현시", q: "지금 몇 번 현시가 켜져 있어?" },
@@ -36,17 +37,25 @@ const smallLabel = {
   marginBottom: 5,
 };
 
-function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
-  const [isOpen, setIsOpen] = useState(false);
+function SimulationChatBot({ intNo, intNm, simulation, autoTrigger, onClose }) {
   const [messages, setMessages] = useState([
     { role: "ai", text: "교차로를 클릭하면 신호계획 분석을 도와드립니다.\n현재 현시, 최적화 방안 등 자유롭게 질문하세요." },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
 
   useEffect(() => {
     if (!autoTrigger || !autoTrigger.question) return;
-    setIsOpen(true);
     const { question, intNo: aIntNo, simulation: aSim } = autoTrigger;
     setMessages(prev => [...prev, { role: "user", text: question }]);
     setLoading(true);
@@ -88,7 +97,7 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   }, [input, loading, intNo, simulation]);
 
   const btn = (style) => ({
-    borderRadius: 2,
+    borderRadius: 5,
     border: "none",
     cursor: loading ? "default" : "pointer",
     fontFamily: "inherit",
@@ -96,103 +105,131 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-      <button onClick={() => setIsOpen(o => !o)} style={btn({
-        width: 52,
-        height: 52,
-        borderRadius: "50%",
-        background: isOpen ? "#4ea6ff" : "rgba(18,16,10,0.92)",
-        border: `2px solid ${isOpen ? "#4ea6ff" : "rgba(78,166,255,0.5)"}`,
-        fontSize: 22,
-        color: "#fff",
-      })} title="AI 신호 분석">
-        {isOpen ? "✕" : "🤖"}
-      </button>
+    <div style={{
+      display: "flex", flexDirection: "column", height: "100%",
+      background: "rgba(11,11,11,0.95)",
+      borderLeft: "1px solid rgba(255,255,255,0.07)",
+      fontFamily: "system-ui,-apple-system,sans-serif",
+      minHeight: 0,
+    }}>
+      <div style={{
+        padding: "12px 16px",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        display: "flex", alignItems: "center", gap: 8,
+        flexShrink: 0,
+      }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.72)" }}>
+          AI 신호 분석
+        </span>
+        {intNm && (
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            · {intNm}
+          </span>
+        )}
+        <button onClick={onClose} style={{
+          marginLeft: "auto",
+          background: "none", border: "none",
+          color: "rgba(255,255,255,0.3)", fontSize: 14,
+          cursor: "pointer", padding: "0 2px", lineHeight: 1,
+        }}>✕</button>
+      </div>
 
-      {isOpen && (
-        <div style={{
-          width: 360,
-          background: "rgba(18,16,10,0.94)",
-          border: "1px solid rgba(42,36,24,0.8)",
-          borderRadius: 4,
-          padding: "18px 20px",
-          backdropFilter: "blur(6px)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: "#4ea6ff" }}>🤖 AI 신호 분석</span>
-            {intNm && (
-              <span style={{ marginLeft: "auto", fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>● {intNm}</span>
-            )}
-          </div>
+      <div style={{
+        padding: "8px 16px",
+        borderBottom: "1px solid rgba(255,255,255,0.04)",
+        display: "flex", gap: 5, flexWrap: "wrap",
+        flexShrink: 0,
+      }}>
+        {SIM_PRESETS.map(({ label, q }) => (
+          <button key={label} onClick={() => send(q)} disabled={loading} style={btn({
+            padding: "4px 10px", fontSize: 11,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: loading ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)",
+            color: loading ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.5)",
+          })}>{label}</button>
+        ))}
+      </div>
 
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            {SIM_PRESETS.map(({ label, q }) => (
-              <button key={label} onClick={() => send(q)} disabled={loading} style={btn({
-                padding: "5px 12px",
-                fontSize: 12,
-                border: "1px solid #2a3a5a",
-                background: loading ? "transparent" : "rgba(78,166,255,0.1)",
-                color: loading ? "#3a3a3a" : "#4ea6ff",
-              })}>{label}</button>
-            ))}
-          </div>
-
-          <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-            {messages.map((m, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-                <div style={{
-                  maxWidth: "92%",
-                  padding: "9px 13px",
-                  borderRadius: 2,
-                  background: m.role === "user" ? "rgba(78,166,255,0.15)" : "rgba(255,255,255,0.04)",
-                  border: `1px solid ${m.role === "user" ? "#2a3a5a" : "#1a1a1a"}`,
-                  fontSize: 13,
-                  lineHeight: 1.7,
-                  whiteSpace: "pre-line",
-                  color: "#e7ecf5",
-                }}>
-                  {m.role === "ai" && <div style={{ fontSize: 11, color: "#4ea6ff", marginBottom: 3 }}>Qwen3 분석</div>}
-                  {m.text}
-                </div>
-              </div>
-            ))}
-            {loading && (
-              <div style={{ padding: "9px 13px", borderRadius: 2, background: "rgba(255,255,255,0.04)", border: "1px solid #1a1a1a", fontSize: 12, color: "#4ea6ff" }}>
-                신호계획 분석 중...
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 8 }}>
-            <input value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && !loading && send()}
-              placeholder={intNo ? "신호 최적화, 현시 구성 등 질문..." : "교차로를 먼저 선택하세요"}
-              disabled={loading}
-              style={{
-                flex: 1,
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid #1a1a1a",
-                borderRadius: 2,
+      <div style={{
+        flex: 1, overflowY: "auto",
+        padding: "14px 16px",
+        display: "flex", flexDirection: "column", gap: 12,
+        minHeight: 0,
+      }}>
+        {messages.map((m, i) => (
+          m.role === "user" ? (
+            <div key={i} style={{ display: "flex", justifyContent: "flex-end" }}>
+              <div style={{
+                maxWidth: "80%",
                 padding: "9px 13px",
-                color: "#e7ecf5",
-                fontSize: 13,
-                outline: "none",
-                fontFamily: "inherit",
-                opacity: loading ? 0.6 : 1,
-              }} />
-            <button onClick={() => send()} disabled={loading} style={btn({
-              padding: "9px 18px",
-              background: loading ? "#1a1a1a" : "#4ea6ff",
-              color: loading ? "#3a3a3a" : "#000",
-              fontSize: 14,
-              fontWeight: 700,
-            })}>전송</button>
+                borderRadius: "12px 12px 3px 12px",
+                background: "rgba(255,255,255,0.08)",
+                border: "1px solid rgba(255,255,255,0.07)",
+                fontSize: 13, lineHeight: 1.7,
+                color: "rgba(255,255,255,0.82)",
+                whiteSpace: "pre-line",
+              }}>{m.text}</div>
+            </div>
+          ) : (
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: "92%" }}>
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", paddingLeft: 2 }}>AI</span>
+              <div style={{
+                padding: "9px 13px",
+                borderRadius: "3px 12px 12px 12px",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                fontSize: 13, lineHeight: 1.8,
+                color: "rgba(255,255,255,0.72)",
+                whiteSpace: "pre-line",
+              }}>{m.text}</div>
+            </div>
+          )
+        ))}
+        {loading && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: "92%" }}>
+            <span style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", paddingLeft: 2 }}>AI</span>
+            <div style={{
+              padding: "9px 13px",
+              borderRadius: "3px 12px 12px 12px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              fontSize: 13, color: "rgba(96,165,250,0.85)",
+            }}>신호계획 분석 중...</div>
           </div>
-        </div>
-      )}
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <div style={{
+        padding: "10px 16px 14px",
+        borderTop: "1px solid rgba(255,255,255,0.06)",
+        display: "flex", gap: 7, flexShrink: 0,
+      }}>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && !loading && send()}
+          placeholder={intNo ? "신호 최적화, 현시 구성 등 질문..." : "교차로를 먼저 선택하세요"}
+          disabled={loading}
+          style={{
+            flex: 1,
+            background: "rgba(255,255,255,0.05)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 8, padding: "9px 13px",
+            color: "rgba(255,255,255,0.82)", fontSize: 13,
+            outline: "none", fontFamily: "inherit",
+            opacity: loading ? 0.5 : 1,
+          }}
+        />
+        <button onClick={() => send()} disabled={loading} style={btn({
+          padding: "9px 16px", borderRadius: 8,
+          background: loading ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.09)",
+          border: "1px solid rgba(255,255,255,0.09)",
+          color: loading ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.7)",
+          fontSize: 13, fontWeight: 600,
+        })}>전송</button>
+      </div>
     </div>
   );
 }
@@ -328,10 +365,11 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk, autoAdjustKey = 0, au
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: autoAnimating ? "#22c55e" : "#94a3b8" }}>🎚 신호 시뮬레이션 조정</div>
-        {autoAnimating && <div style={{ fontSize: 10, color: "#22c55e", fontWeight: 800 }}>자동 조정 중...</div>}
-      </div>
+      {autoAnimating && (
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 2 }}>
+          <div style={{ fontSize: 10, color: "#22c55e", fontWeight: 800 }}>자동 조정 중...</div>
+        </div>
+      )}
       {phases.map(p => {
         const sec = sliders[p.no] ?? p.sec;
         const changed = sliders[p.no] != null && sliders[p.no] !== p.sec;
@@ -412,8 +450,10 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [destContext, setDestContext] = useState(null);
   const [autoWaypoints, setAutoWaypoints] = useState([]);
   const [autoTrigger, setAutoTrigger] = useState(null);
+  const [chatOpen, setChatOpen] = useState(false);
   const [sliderTarget, setSliderTarget] = useState("end");
   const [autoAdjustKey, setAutoAdjustKey] = useState(0);
+  const autoControlTargetRef = useRef("waypoint");
 
   const start = selectedList[0] ?? null;
   const end = selectedList[1] ?? null;
@@ -423,6 +463,12 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const sliderCrossroad = sliderTarget === "start" ? start : sliderTarget === "waypoint" ? bottleneckWaypoint : end;
   const activeChatCrossroad = sliderCrossroad ?? bottleneckWaypoint ?? end ?? start ?? null;
   const canOptimize = !!start && !!end && !!stats;
+
+  const getCrossroadByTarget = useCallback((target) => {
+    if (target === "start") return start;
+    if (target === "waypoint") return bottleneckWaypoint;
+    return end;
+  }, [start, bottleneckWaypoint, end]);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -470,6 +516,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setDestContext(null);
     setAutoWaypoints([]);
     setSliderTarget("end");
+    autoControlTargetRef.current = "waypoint";
     setAutoAdjustKey(0);
   };
 
@@ -481,18 +528,28 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
   const applySignalControl = () => {
     if (!canOptimize || isOptimized) return;
-    // 병목구간이 자동 경유지로 잡힌 경우, 해당 경유지 신호를 우선 제어하는 흐름으로 보여줍니다.
-    setSliderTarget(bottleneckWaypoint ? "waypoint" : "end");
+
+    // 관제사 제어 버튼은 목적지가 아니라 병목 경유지 신호를 우선 조정합니다.
+    // 병목 경유지가 아직 계산되지 않은 아주 짧은 경로에서만 목적지를 fallback으로 사용합니다.
+    const target = bottleneckWaypoint ? "waypoint" : "end";
+    autoControlTargetRef.current = target;
+    setSliderTarget(target);
+    setSimPhaseTarget(target);
     setIsOptimized(true);
     setAutoAdjustKey(key => key + 1);
   };
 
   const handleAutoApplied = (simulation) => {
+    const appliedTarget = autoControlTargetRef.current || sliderTarget;
+    const appliedCrossroad = getCrossroadByTarget(appliedTarget) ?? sliderCrossroad;
+
     setSimPhases(simulation);
-    setSimPhaseTarget(sliderTarget);
+    setSimPhaseTarget(appliedTarget);
+    setSliderTarget(appliedTarget);
+    setChatOpen(true);
     setAutoTrigger({
-      question: `관제사가 ${sliderCrossroad?.intNm || "선택 교차로"} 병목 완화를 위해 신호 시간을 자동 조정했습니다. 제어 전후 효과를 분석해주세요.`,
-      intNo: sliderCrossroad?.intNo ?? null,
+      question: `관제사가 ${appliedCrossroad?.intNm || "선택 교차로"} 병목 완화를 위해 신호 시간을 자동 조정했습니다. 제어 전후 효과를 분석해주세요.`,
+      intNo: appliedCrossroad?.intNo ?? null,
       simulation,
       _t: Date.now(),
     });
@@ -500,9 +557,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
   const panelTitle = sliderTarget === "start"
     ? "출발지 신호 조정"
-    : sliderTarget === "waypoint"
-      ? "병목 경유지 신호 조정"
-      : "목적지 신호 조정";
+    : "신호 시뮬레이션 조정";
 
   return (
     <div style={{ fontFamily: "'Noto Sans KR','Malgun Gothic',sans-serif", background: "#12100a", color: "#e2e8f0", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -519,7 +574,13 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
       />
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "minmax(0, 1fr) 330px 400px", minHeight: 0 }}>
+      <div style={{
+        flex: 1,
+        display: "grid",
+        gridTemplateColumns: chatOpen ? `minmax(0, 1fr) 330px 400px ${CHAT_W}px` : "minmax(0, 1fr) 330px 400px",
+        minHeight: 0,
+        transition: "grid-template-columns .28s ease",
+      }}>
         <div style={{ padding: "10px 6px 10px 10px", minHeight: 0, position: "relative" }}>
           <div style={{ height: "100%", borderRadius: 11, overflow: "hidden", border: `1px solid ${isOptimized ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.08)"}`, boxShadow: isOptimized ? "0 0 20px rgba(34,197,94,0.1)" : "none" }}>
             <SimulationMapView
@@ -531,14 +592,40 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
             />
           </div>
           <div style={{ position: "absolute", bottom: 24, right: 20, zIndex: 10 }}>
-            <SimulationChatBot intNo={activeChatCrossroad?.intNo} intNm={activeChatCrossroad?.intNm} simulation={simPhases} autoTrigger={autoTrigger} />
+            <button
+              onClick={() => setChatOpen(o => !o)}
+              title={chatOpen ? "AI 신호 분석 닫기" : "AI 신호 분석 열기"}
+              style={{
+                width: 54,
+                height: 54,
+                borderRadius: "50%",
+                background: chatOpen
+                  ? "linear-gradient(135deg, rgba(96,165,250,0.95), rgba(168,85,247,0.95))"
+                  : "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(59,130,246,0.9))",
+                border: `2px solid ${chatOpen ? "rgba(255,255,255,0.38)" : "rgba(147,197,253,0.55)"}`,
+                backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+                boxShadow: "0 4px 18px rgba(0,0,0,0.62), 0 0 16px rgba(96,165,250,0.28)",
+                transition: "all .2s",
+              }}
+            >
+              {chatOpen
+                ? <span style={{ fontSize: 16, color: "rgba(255,255,255,0.72)" }}>✕</span>
+                : <img src="/icons/chatbot.webp" alt="AI" style={{ width: 44, height: 44, objectFit: "contain", display: "block" }} />
+              }
+            </button>
           </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 6px 10px 4px", overflowY: "auto" }}>
           <div style={cardStyle}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div style={{ fontWeight: 800, color: "#60a5fa", fontSize: 15 }}>🚗 목적지 기반 시뮬레이션</div>
+              <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 15 }}>목적지 기반 시뮬레이션</div>
               <button onClick={resetSimulation} style={{ background: "transparent", border: "1px solid #334155", color: "#94a3b8", borderRadius: 4, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}>초기화</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
@@ -549,7 +636,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           </div>
 
           <div style={cardStyle}>
-            <div style={{ fontWeight: 800, color: "#fbbf24", fontSize: 14, marginBottom: 10 }}>📍 병목구간 분석</div>
+            <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 14, marginBottom: 10 }}>병목구간 분석</div>
             {stats ? (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
@@ -568,7 +655,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           </div>
 
           <div style={cardStyle}>
-            <div style={{ fontWeight: 800, color: "#22c55e", fontSize: 14, marginBottom: 10 }}>⏱ 도착시간 비교</div>
+            <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 14, marginBottom: 10 }}>도착시간 비교</div>
             {stats ? (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
@@ -600,7 +687,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               fontFamily: "inherit",
             }}
           >
-            {isOptimized ? "✓ 병목 신호제어 적용 완료" : "🚦 관제사 병목 신호제어 적용"}
+            {isOptimized ? "✓ 병목 신호제어 적용 완료" : "관제사 병목 신호제어 적용"}
           </button>
 
           <div style={{ ...cardStyle, flexShrink: 0 }}>
@@ -617,7 +704,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 10px 10px 4px", overflowY: "auto" }}>
           <div style={cardStyle}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontWeight: 900, color: "#93c5fd", fontSize: 15 }}>🚦 출발지/경유지/목적지 신호체계</div>
+              <div style={{ fontWeight: 900, color: "#ffffff", fontSize: 15 }}>출발지/경유지/목적지 신호체계</div>
               <div style={{ fontSize: 11, color: "#64748b" }}>동시 확인</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
@@ -634,7 +721,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           </div>
 
           <div style={cardStyle}>
-            <div style={{ fontWeight: 800, color: "#22c55e", fontSize: 13, marginBottom: 8 }}>🟢 출발지 신호체계</div>
+            <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 13, marginBottom: 8 }}>🟢 출발지 신호체계</div>
             {start ? (
               <SignalSimPanel
                 intNo={start.intNo}
@@ -649,7 +736,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           </div>
 
           <div style={cardStyle}>
-            <div style={{ fontWeight: 800, color: "#f59e0b", fontSize: 13, marginBottom: 8 }}>🟠 병목 경유지 신호체계</div>
+            <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 13, marginBottom: 8 }}>🟠 병목 경유지 신호체계</div>
             {bottleneckWaypoint ? (
               <SignalSimPanel
                 intNo={bottleneckWaypoint.intNo}
@@ -664,7 +751,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           </div>
 
           <div style={cardStyle}>
-            <div style={{ fontWeight: 800, color: "#ef4444", fontSize: 13, marginBottom: 8 }}>🔴 목적지 신호체계</div>
+            <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 13, marginBottom: 8 }}>🔴 목적지 신호체계</div>
             {end ? (
               <SignalSimPanel
                 intNo={end.intNo}
@@ -680,7 +767,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
           <div style={cardStyle}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontWeight: 800, color: "#c084fc", fontSize: 13 }}>🎚 {panelTitle}</div>
+              <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 13 }}> {panelTitle}</div>
               <div style={{ fontSize: 11, color: "#64748b" }}>
                 {sliderCrossroad?.intNm || "교차로 선택 필요"}
               </div>
@@ -690,16 +777,26 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 intNo={sliderCrossroad.intNo}
                 intNm={sliderCrossroad.intNm}
                 onSave={handleManualSave}
-                onAutoAsk={setAutoTrigger}
+                onAutoAsk={(payload) => { setChatOpen(true); setAutoTrigger(payload); }}
                 autoAdjustKey={autoAdjustKey}
                 autoAdjustEnabled={isOptimized}
                 onAutoApplied={handleAutoApplied}
               />
             ) : (
-              <EmptySignalBox text="출발지 또는 목적지를 선택하면 슬라이더를 사용할 수 있습니다" />
+              <EmptySignalBox text="출발지 또는 병목 경유지를 선택하면 슬라이더를 사용할 수 있습니다" />
             )}
           </div>
         </div>
+
+        {chatOpen && (
+          <SimulationChatBot
+            intNo={activeChatCrossroad?.intNo}
+            intNm={activeChatCrossroad?.intNm}
+            simulation={simPhases}
+            autoTrigger={autoTrigger}
+            onClose={() => setChatOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
