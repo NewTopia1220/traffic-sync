@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { domColor } from "../../utils/signalUtils";
+import { calcDistKm } from "../../constants/seoulGeoData";
 
 // 지도 기본 중심 좌표 (잠실역) — initialCenter prop 없을 때 사용
 const DEFAULT_LAT = 37.5133;
@@ -8,6 +9,28 @@ const DEFAULT_LON = 127.1002;
 // 스프링 REST API 주소 — CCTV 목록 조회용
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 const CLUSTER_LEVEL = 5; // 카카오맵 level 값이 클수록 줌아웃 상태
+
+function toNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function markerLat(item) {
+  return toNum(item?.lat ?? item?.latitude);
+}
+
+function markerLon(item) {
+  return toNum(item?.lon ?? item?.lng ?? item?.longitude);
+}
+
+function isWithinSelectedGu(item, selectedGu, radiusKm = 2.5) {
+  if (!selectedGu) return true;
+  const lat = markerLat(item);
+  const lon = markerLon(item);
+  if (lat == null || lon == null) return false;
+  return calcDistKm(lat, lon, selectedGu.lat, selectedGu.lon) <= radiusKm;
+}
+
 
 /**
  * KakaoMapView 컴포넌트
@@ -44,6 +67,21 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
   const [showTraffic, setShowTraffic] = useState(false); // 교통량 마커 토글 상태
   const [activeStation, setActiveStation] = useState(null); // 클릭된 지점 상세 정보
   const stationDetailOverlay = useRef(null); // 상세정보 오버레이 관리용
+
+  const areaCctvList = useMemo(
+    () => cctvList.filter(cctv => isWithinSelectedGu(cctv, selectedGu, 2.5)),
+    [cctvList, selectedGu]
+  );
+
+  const areaStations = useMemo(
+    () => stations.filter(st => isWithinSelectedGu(st, selectedGu, 2.5)),
+    [stations, selectedGu]
+  );
+
+  useEffect(() => {
+    setActiveStation(null);
+  }, [selectedGu?.name]);
+
 
   // ── useEffect 1: 카카오맵 SDK 동적 로드 ────────────────────────────────────
   // 카카오맵 SDK는 index.html에 미리 넣지 않고 컴포넌트 마운트 시 동적으로 삽입.
@@ -287,7 +325,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     if (zoom >= CLUSTER_LEVEL) {
       // 줌아웃 상태: CCTV를 클러스터로 묶어서 표시
       const image = makeCctvMarkerImage();
-      const markers = cctvList.map(cctv => {
+      const markers = areaCctvList.map(cctv => {
         const marker = new kakao.maps.Marker({
           position: new kakao.maps.LatLng(cctv.lat, cctv.lon),
           image,
@@ -299,7 +337,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       return;
     }
 
-    cctvList.forEach(cctv => {
+    areaCctvList.forEach(cctv => {
       const pos = new kakao.maps.LatLng(cctv.lat, cctv.lon);
 
       // CCTV 마커: DOM 요소 직접 생성 (innerHTML로 SVG + 텍스트 삽입)
@@ -336,7 +374,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       ov.setMap(mapObj.current);
       cctvOverlays.current.push(ov);
     });
-  }, [ready, showCctv, cctvList, onCctvClick, zoom]);
+  }, [ready, showCctv, areaCctvList, onCctvClick, zoom]);
 
   
   // ── useEffect 7: 교통량 지점(AI Station) 마커 표시 ─────────────────────────────
@@ -366,7 +404,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     if (zoom >= CLUSTER_LEVEL) {
       // 줌아웃 상태: 교통량 지점을 클러스터로 묶어서 표시
       const image = makeTrafficMarkerImage();
-      const markers = stations.map(st => {
+      const markers = areaStations.map(st => {
         const marker = new kakao.maps.Marker({
           position: new kakao.maps.LatLng(st.latitude, st.longitude),
           image,
@@ -381,7 +419,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       return;
     }
 
-    stations.forEach(st => {
+    areaStations.forEach(st => {
       const pos = new kakao.maps.LatLng(st.latitude, st.longitude);
 
       // 마커 디자인: 파란 교차로 마커와 같은 핀 형태, 색상만 갈색으로 표시
@@ -416,7 +454,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       ov.setMap(mapObj.current);
       trafficOverlays.current.push(ov);
     });
-  }, [ready, showTraffic, stations, zoom, onStationSelect]);
+  }, [ready, showTraffic, areaStations, zoom, onStationSelect]);
 
   // ── useEffect 7-1: 상세 정보 팝업(오버레이) Fetch 및 표시 ──────────────────────
   // 상세 정보 팝업(오버레이) 관리 useEffect
@@ -443,7 +481,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         // ForecastResult 모델 내부의 예측 데이터 리스트 추출
         console.log("받은 데이터:", data);
 
-        const st = stations.find(s => s.stationId === activeStation);
+        const st = areaStations.find(s => s.stationId === activeStation);
         if (!st) return;
 
         const currentHour = new Date().getHours();
@@ -511,7 +549,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         setActiveStation(null);
       });
 
-  }, [activeStation, ready, stations]);
+  }, [activeStation, ready, areaStations]);
 
   // ── useEffect 8: 교차로 마커 클릭 이벤트 ───────────────────────────────────
   // CustomOverlay는 카카오맵 이벤트 시스템 밖의 일반 DOM이라
@@ -592,7 +630,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
             color: showCctv ? "#22c55e" : "#aab4c8",
             cursor: "pointer", fontFamily: "inherit", backdropFilter: "blur(4px)",
           }}>
-          CCTV {cctvList.length > 0 ? `${cctvList.length}개` : ""}
+          CCTV {areaCctvList.length > 0 ? `${areaCctvList.length}개` : ""}
         </button>
 
         {/* 교통량 지점 토글 버튼 */}
@@ -605,7 +643,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
             color: showTraffic ? "#d8b48a" : "#aab4c8",
             cursor: "pointer", backdropFilter: "blur(4px)",
           }}>
-          교통량 지점 {stations.length}개
+          교통량 지점 {areaStations.length}개
         </button>
       </div>
 

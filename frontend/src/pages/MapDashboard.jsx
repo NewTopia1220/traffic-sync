@@ -126,7 +126,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
                 >
                   {chatOpen
                     ? <span style={{ fontSize: 16, color: "rgba(255,255,255,0.55)" }}>✕</span>
-                    : <span style={{ fontSize: 25, lineHeight: 1 }}>🤖</span>
+                    : <span style={{ fontSize: 27, lineHeight: 1 }}>🧑‍💼</span>
                   }
                 </button>
               </div>
