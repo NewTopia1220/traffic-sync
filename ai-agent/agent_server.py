@@ -10,13 +10,16 @@ AI 에이전트 서버 — FastAPI + LangGraph ReAct + Ollama (qwen3:30b-a3b) + 
 
 import sys
 import os
+import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+import httpx
+from ollama import AsyncClient as OllamaAsyncClient
 from langchain_ollama import ChatOllama
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage
@@ -27,15 +30,20 @@ from langgraph.prebuilt import create_react_agent
 OLLAMA_URL  = "http://localhost:11434"
 OLLAMA_MODEL = "qwen3:30b-a3b"
 MCP_SERVER_PATH = os.path.join(os.path.dirname(__file__), "mcp_server.py")
-PYTHON_BIN  = sys.executable  # ai-env 가상환경 python
+PYTHON_BIN  = sys.executable
+
+# ── Ollama httpx 클라이언트 (stop 시 직접 닫기 위해 공유) ──────────────────────────
+
+_ollama_client = OllamaAsyncClient(host=OLLAMA_URL)
 
 # ── LLM & 에이전트 초기화 ────────────────────────────────────────────────────────
 
 llm = ChatOllama(
     model=OLLAMA_MODEL,
+    async_client=_ollama_client,   # 우리가 만든 클라이언트 주입
     base_url=OLLAMA_URL,
     temperature=0.3,
-    num_predict=4096,   # 복잡한 멀티툴 요청(5단계+) 대응
+    num_predict=4096,
     num_ctx=8192,       # 도구 결과 누적되는 컨텍스트 창 확장
 )
 
@@ -64,6 +72,56 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Traffic AI Agent", lifespan=lifespan)
+
+
+async def agent_stream_with_cancel(request: Request, prompt: str):
+    """에이전트 스트리밍 — 클라이언트 disconnect 시 aclose()로 Ollama 연결까지 완전 차단"""
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run():
+        # generator를 변수에 담아 취소 시 aclose() 명시 호출 가능하게
+        gen = agent.astream_events(
+            {"messages": [{"role": "user", "content": prompt}]},
+            version="v2",
+            config={"recursion_limit": 10},
+        )
+        try:
+            async for event in gen:
+                await queue.put(("event", event))
+        except asyncio.CancelledError:
+            # aclose() 명시 호출 → httpx → Ollama 소켓 강제 종료
+            await gen.aclose()
+        except Exception as e:
+            await queue.put(("error", e))
+        finally:
+            await queue.put(("done", None))
+
+    task = asyncio.create_task(_run())
+    try:
+        while True:
+            if await request.is_disconnected():
+                task.cancel()
+                # task가 완전히 끝날 때까지 대기 (aclose 포함)
+                try:
+                    await asyncio.wait_for(task, timeout=3.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                return
+            try:
+                kind, value = await asyncio.wait_for(queue.get(), timeout=0.3)
+            except asyncio.TimeoutError:
+                continue
+            if kind == "done":
+                break
+            yield kind, value
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(task, timeout=3.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -134,6 +192,23 @@ async def health():
     return {"status": "ok", "model": OLLAMA_MODEL, "mcp": "connected"}
 
 
+@app.post("/api/agent/stop")
+async def stop_agent():
+    """진행 중인 Ollama 요청 즉시 차단 — httpx 소켓 강제 종료 후 재생성"""
+    global _ollama_client
+    try:
+        await _ollama_client._client.aclose()
+        print("[STOP] Ollama 연결 강제 종료", flush=True)
+    except Exception as e:
+        print(f"[STOP] 오류: {e}", flush=True)
+    # 다음 요청을 위해 새 httpx 클라이언트로 교체
+    _ollama_client._client = httpx.AsyncClient(
+        base_url=OLLAMA_URL,
+        timeout=httpx.Timeout(None),
+    )
+    return {"status": "stopped"}
+
+
 @app.post("/api/agent/chat", response_model=ChatResponse)
 async def free_chat(req: ChatRequest):
     """지도 페이지 자유 챗봇 — 에이전트가 교차로 검색 후 분석"""
@@ -177,7 +252,7 @@ TOOL_LABELS = {
 
 
 @app.post("/api/agent/chat/stream")
-async def free_chat_stream(req: ChatRequest):
+async def free_chat_stream(req: ChatRequest, request: Request):
     """ReAct 루프 단계별 SSE 스트리밍 — 프론트 팝업 시각화용"""
     import json as _json
 
@@ -202,10 +277,10 @@ async def free_chat_stream(req: ChatRequest):
 
     async def generate():
         try:
-            async for event in agent.astream_events(
-                {"messages": [{"role": "user", "content": prompt}]},
-                version="v2",
-            ):
+            async for msg_kind, event in agent_stream_with_cancel(request, prompt):
+                if msg_kind == "error":
+                    yield f"data: {_json.dumps({'type': 'error', 'content': str(event)}, ensure_ascii=False)}\n\n"
+                    return
                 kind = event["event"]
                 name = event.get("name", "")
 
@@ -349,7 +424,7 @@ async def bottleneck_email(req: DistrictRequest):
 
 
 @app.post("/api/agent/bottleneck-email/stream")
-async def bottleneck_email_stream(req: DistrictRequest):
+async def bottleneck_email_stream(req: DistrictRequest, request: Request):
     """병목 이메일 SSE 스트리밍 — 리포트 생성 후 Spring으로 메일 발송"""
     import json as _json
     import httpx as _httpx
@@ -372,10 +447,10 @@ async def bottleneck_email_stream(req: DistrictRequest):
     async def generate():
         report_text = ""
         try:
-            async for event in agent.astream_events(
-                {"messages": [{"role": "user", "content": prompt}]},
-                version="v2",
-            ):
+            async for msg_kind, event in agent_stream_with_cancel(request, prompt):
+                if msg_kind == "error":
+                    yield f"data: {_json.dumps({'type': 'error', 'content': str(event)}, ensure_ascii=False)}\n\n"
+                    return
                 kind = event["event"]
                 name = event.get("name", "")
 
@@ -453,7 +528,7 @@ async def bottleneck_email_stream(req: DistrictRequest):
 
 
 @app.post("/api/agent/district-report/stream")
-async def district_report_stream(req: DistrictRequest):
+async def district_report_stream(req: DistrictRequest, request: Request):
     """구 단위 리포트 SSE 스트리밍 — 메인 대시보드 토스트 시각화용"""
     import json as _json
 
@@ -470,10 +545,10 @@ async def district_report_stream(req: DistrictRequest):
 
     async def generate():
         try:
-            async for event in agent.astream_events(
-                {"messages": [{"role": "user", "content": prompt}]},
-                version="v2",
-            ):
+            async for msg_kind, event in agent_stream_with_cancel(request, prompt):
+                if msg_kind == "error":
+                    yield f"data: {_json.dumps({'type': 'error', 'content': str(event)}, ensure_ascii=False)}\n\n"
+                    return
                 kind = event["event"]
                 name = event.get("name", "")
 

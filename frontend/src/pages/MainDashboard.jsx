@@ -567,7 +567,7 @@ const CARD_COLORS = [V.red, V.org, V.grn];
  *   wsData    - App에서 관리하는 WebSocket 교차로 신호 데이터 배열
  */
 
-export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu }) {
+export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu, isMuted, onToggleMute }) {
   const [time, setTime] = useState(new Date());
   const [loading, setLoading] = useState(false);
   // "송파구 · 12개 교차로 수집됨" 같은 임시 메시지 (3초 후 사라짐)
@@ -674,12 +674,23 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
   }, [onSelectGu]);
 
   // ── 활성 데이터 계산 ────────────────────────────────────────────────────────
-  // 선택된 구 반경 2.5km 내 교차로만 필터한다. 결과가 없을 때 이전 구역 전체 데이터로 대체하면 화면이 섞여 보인다.
+  const lastNonEmptyDataRef = useRef([]);
+
   const guData = selectedGu
     ? wsData.filter(c => c.lat && c.lon && calcDistKm(c.lat, c.lon, selectedGu.lat, selectedGu.lon) <= 2.5)
     : wsData;
-  const activeData = selectedGu ? guData : wsData;
-  const isLive = wsData.length > 0; // WebSocket 연결 여부
+
+  // 새 구 데이터가 WebSocket으로 오기 전 빈 배열이 되는 순간을 이전 데이터로 커버
+  const activeData = useMemo(() => {
+    const filtered = selectedGu ? guData : wsData;
+    if (filtered.length > 0) {
+      lastNonEmptyDataRef.current = filtered;
+      return filtered;
+    }
+    return lastNonEmptyDataRef.current.length > 0 ? lastNonEmptyDataRef.current : wsData;
+  }, [guData, wsData, selectedGu]);
+
+  const isLive = wsData.length > 0;
 
 
   // ── 교통량 지점 구별 필터링 ────────────────────────────────────────────────
@@ -904,6 +915,19 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
         )}
         {selectedGu && (
           <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
+        )}
+        {/* 음소거 토글 버튼 */}
+        {onToggleMute && (
+          <button onClick={onToggleMute} title={isMuted ? '소리 켜기' : 'TTS 음소거'} style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '5px 11px', borderRadius: 2,
+            background: isMuted ? '#1a0a0a' : '#1a1206',
+            border: `1px solid ${isMuted ? '#5a1a1a' : '#3a2a14'}`,
+            color: isMuted ? '#e05555' : '#888',
+            fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            {isMuted ? '🔇 음소거 중' : '🔊 소리 켜짐'}
+          </button>
         )}
         {/* 데이터 수집 결과 메시지 (3초 표시) */}
         {fetchMsg && (

@@ -109,7 +109,9 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
       <div style={{
         flex: 1, display: "grid",
         gridTemplateColumns: chatOpen ? `1fr 360px ${CHAT_W}px` : "1fr 360px",
+        gridTemplateRows: "1fr",
         minHeight: 0,
+        overflow: "hidden",
         transition: "grid-template-columns .28s ease",
       }}>
 
@@ -188,10 +190,12 @@ export default function MapDashboard({ onGoMain, onGoCctv, wsData, setWsData, in
 
         {/* 챗봇 패널 — chatOpen일 때만 그리드 컬럼에 렌더링 */}
         {chatOpen && (
-          <AIChatBot
-            selected={selected}
-            onClose={() => setChatOpen(false)}
-          />
+          <div style={{ overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <AIChatBot
+              selected={selected}
+              onClose={() => setChatOpen(false)}
+            />
+          </div>
         )}
       </div>
 
