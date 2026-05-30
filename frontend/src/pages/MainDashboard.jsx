@@ -39,7 +39,7 @@ function makeSpark(base) {
   return Number.isFinite(base) ? [base] : [];
 }
 
-export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu, isMuted, onToggleMute }) {
+export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu, onRegisterSelectGu, isMuted, onToggleMute }) {
   const [time, setTime] = useState(new Date());
   const [loading, setLoading] = useState(false);
   // "송파구 · 12개 교차로 수집됨" 같은 임시 메시지 (3초 후 사라짐)
@@ -133,6 +133,10 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
       setTimeout(() => setFetchMsg(null), 3000);
     }
   }, [onSelectGu]);
+
+  // App.jsx의 selectGuRef에 fetch-area 포함 핸들러 등록
+  useEffect(() => { onRegisterSelectGu?.(handleSelectGu) }, [handleSelectGu, onRegisterSelectGu])
+
 
   // ── 활성 데이터 계산 ────────────────────────────────────────────
   const lastNonEmptyDataRef = useRef([]);

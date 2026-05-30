@@ -34,7 +34,7 @@ function readUser() {
   try { return JSON.parse(localStorage.getItem('ts_user') || '{}') } catch { return {} }
 }
 
-export function useAssistant({ page }) {
+export function useAssistant({ page, onNavIntent }) {
   // ── 상태 ─────────────────────────────────────────────────────────
   // 캐시 로그인으로 바로 진입했을 때도 시작 확인 팝업을 띄움
   const [pendingBriefing, setPendingBriefing] = useState(() => {
@@ -236,6 +236,38 @@ export function useAssistant({ page }) {
       setVoiceUI(prev => ({ ...prev, status: 'idle' }))
       return
     }
+
+    // 네비게이션 명령이면 AI 에이전트 대신 바로 처리
+    if (onNavIntent) {
+      try {
+        const res = await fetch(`${PYTHON_BASE}/api/nav/intent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: question }),
+        })
+        const intent = await res.json()
+        if (intent.action !== 'unknown') {
+          setVoiceUI(prev => ({
+            ...prev,
+            messages: [...prev.messages, { role: 'user', text: question }],
+            status: 'idle',
+          }))
+          const feedbackMsg = {
+            navigate: { map: '지도로 이동합니다.', simulation: '시뮬레이션으로 이동합니다.', cctv: 'CCTV 페이지로 이동합니다.', news: '뉴스 페이지로 이동합니다.' },
+            select_gu: `${intent.gu}을 선택했습니다.`,
+            mypage: '마이페이지로 이동합니다.',
+            logout: '로그아웃합니다.',
+          }
+          const msg = intent.action === 'navigate'
+            ? feedbackMsg.navigate[intent.page]
+            : feedbackMsg[intent.action]
+          if (msg) await speakAsync(msg)
+          if (!sessionAbortedRef.current) onNavIntent(intent)
+          return
+        }
+      } catch { /* 의도 분류 실패 시 그냥 AI로 넘김 */ }
+    }
+
     setVoiceUI(prev => ({
       ...prev,
       messages: [...prev.messages, { role: 'user', text: question }],

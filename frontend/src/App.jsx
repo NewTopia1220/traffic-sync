@@ -18,7 +18,7 @@
  * AI 음성 어시스턴트 / 구 브리핑 관련 로직은 모두 useAssistant 훅에 있고,
  * App은 그 상태를 받아 메인 화면 위에 팝업 컴포넌트들을 띄우기만 한다.
  */
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 import LoginPage from './pages/LoginPage'
 import MyPage from './pages/mypage/MyPage'
@@ -50,9 +50,31 @@ export default function App() {
   const [mapCenter, setMapCenter] = useState(null)             // 지도 초기 중심 좌표
   const [selectedGu, setSelectedGu] = useState(() => GU_LIST.find(g => g.name === '강남구'))
   const [stations, setStations] = useState([])                // 메인에서 fetch한 교통량 지점
+  // MainDashboard의 handleSelectGu(fetch-area 포함)를 받아두는 ref
+  const selectGuRef = useRef(null)
 
   // AI 어시스턴트 / 브리핑 로직 일체
-  const assistant = useAssistant({ page })
+  const assistant = useAssistant({
+    page,
+    onNavIntent: (intent) => {
+      switch (intent.action) {
+        case 'navigate':
+          if (intent.page === 'map')             { if (selectedGu) setMapCenter(selectedGu); setPage('map') }
+          else if (intent.page === 'simulation') setPage('simulation')
+          else if (intent.page === 'cctv')       setPage('cctv')
+          else if (intent.page === 'news')       setPage('news')
+          break
+        case 'select_gu': {
+          const gu = GU_LIST.find(g => g.name === intent.gu || intent.gu?.includes(g.name))
+          // fetch-area 포함된 MainDashboard 핸들러 우선 사용
+          if (gu) selectGuRef.current ? selectGuRef.current(gu) : (setSelectedGu(gu), setMapCenter(gu))
+          break
+        }
+        case 'mypage': setPage('mypage'); break
+        case 'logout':  setPage('login'); break
+      }
+    },
+  })
 
   // 구 클릭 → 지도 페이지로 이동 (분석 중이면 차단)
   const goMap = (center) => assistant.tryNav(() => {
@@ -167,6 +189,7 @@ export default function App() {
         setStations={setStations}
         selectedGu={selectedGu}
         onSelectGu={handleSelectGu}
+        onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
         isMuted={assistant.isMuted}
         onToggleMute={assistant.toggleMute}
       />

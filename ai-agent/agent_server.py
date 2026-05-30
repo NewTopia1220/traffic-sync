@@ -134,6 +134,9 @@ app.add_middleware(
 
 # ── 요청/응답 모델 ───────────────────────────────────────────────────────────────
 
+class NavIntentRequest(BaseModel):
+    text: str
+
 class ChatRequest(BaseModel):
     question: str
     crsrdId: str | None = None       # 선택된 교차로 ID (없으면 에이전트가 검색)
@@ -192,6 +195,52 @@ def extract_answer(result: dict) -> str:
 @app.get("/health")
 async def health():
     return {"status": "ok", "model": OLLAMA_MODEL, "mcp": "connected"}
+
+
+@app.post("/api/nav/intent")
+async def nav_intent(req: NavIntentRequest):
+    """음성 명령 의도 분류 — 데이터 조회 없이 텍스트만 파싱해서 JSON 반환"""
+    import json as _json
+
+    SEOUL_GU = [
+        "종로구","중구","용산구","성동구","광진구","동대문구","중랑구","성북구",
+        "강북구","도봉구","노원구","은평구","서대문구","마포구","양천구","강서구",
+        "구로구","금천구","영등포구","동작구","관악구","서초구","강남구","송파구","강동구",
+    ]
+
+    prompt = f"""너는 교통 관제 시스템의 음성 명령 분류기야.
+아래 사용자 명령을 분석해서 반드시 JSON 한 줄만 출력해. 다른 말은 절대 하지 마.
+
+분류 규칙:
+1. 페이지 이동 명령 → {{"action":"navigate","page":"map|simulation|cctv|news"}}
+   - 지도/맵/실시간 지도 → map
+   - 시뮬레이션/신호/신호등 → simulation
+   - CCTV/씨씨티비/카메라 → cctv
+   - 뉴스/감성 → news
+2. 구 선택 명령 → {{"action":"select_gu","gu":"구이름"}}
+   - 서울 25개 구 중 하나가 포함되면: {', '.join(SEOUL_GU)}
+3. 마이페이지 → {{"action":"mypage"}}
+   - 마이페이지/내 정보/프로필/설정
+4. 로그아웃 → {{"action":"logout"}}
+   - 로그아웃/나가기/종료
+5. 위 어디에도 해당 없으면 → {{"action":"unknown"}}
+
+명령: {req.text}
+JSON:"""
+
+    try:
+        response = await llm.ainvoke(prompt)
+        raw = response.content if hasattr(response, "content") else str(response)
+        # <think> 블록 제거
+        if "<think>" in raw:
+            raw = raw.split("</think>")[-1].strip()
+        # JSON 추출 (중괄호만)
+        start, end = raw.find("{"), raw.rfind("}") + 1
+        if start == -1 or end == 0:
+            return {"action": "unknown"}
+        return _json.loads(raw[start:end])
+    except Exception:
+        return {"action": "unknown"}
 
 
 @app.post("/api/agent/stop")
