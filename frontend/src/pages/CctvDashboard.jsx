@@ -77,8 +77,7 @@ function CctvModal({ cctv, onClose }) {
               key={cctv.cctvId}
               src={
                 `https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp`
-                + `?key=${UTIC_KEY}`
-                + `&cctvid=${encodeURIComponent(cctv.cctvId)}`
+                + `?cctvid=${encodeURIComponent(cctv.cctvId)}`
                 + `&cctvName=${encodeURIComponent(encodeURIComponent(cctv.cctvNm))}`
                 + `&kind=Seoul&cctvip=undefined`
                 + `&cctvch=${cctv.cctvCh ?? 51}`

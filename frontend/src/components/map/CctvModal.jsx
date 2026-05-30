@@ -7,8 +7,7 @@ export default function CctvModal({ cctv, onClose }) {
 
   // UTIC iframe URL: streamId(id=), cctvCh(cctvch=) 포함
   const iframeSrc = `https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp`
-    + `?key=${UTIC_KEY}`
-    + `&cctvid=${encodeURIComponent(cctv.cctvId)}`
+    + `?cctvid=${encodeURIComponent(cctv.cctvId)}`
     + `&cctvName=${encodeURIComponent(encodeURIComponent(cctv.cctvNm))}`
     + `&kind=Seoul`
     + `&cctvip=undefined`
