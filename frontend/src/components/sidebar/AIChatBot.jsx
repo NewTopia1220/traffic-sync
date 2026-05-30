@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useClapDetection } from "../../hooks/useClapDetection";
+import { ThinkingBlock, InlineSteps } from "./ChatSteps";
 
 const PYTHON_BASE    = import.meta.env.VITE_PYTHON_URL    || "http://localhost:8001";
 const GOOGLE_TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_KEY || "";
@@ -18,13 +19,7 @@ const PRESETS = [
   { label: "날씨 현황",   q: "현재 날씨 상황이 교통에 어떤 영향을 미치고 있어?" },
 ];
 
-const STEP_LABEL = {
-  thought:     "생각",
-  action:      "도구 사용",
-  observation: "결과 확인",
-};
-
-// 마크다운 기호 제거 (TTS 읽기 전처리)
+// 마크다운 기호 제거 (TTS 읽기 전처리 — 링크 텍스트도 풀어줌)
 function stripMarkdown(text) {
   return text
     .replace(/#{1,6}\s/g, "")
@@ -33,85 +28,6 @@ function stripMarkdown(text) {
     .replace(/`(.*?)`/g, "$1")
     .replace(/\[(.*?)\]\(.*?\)/g, "$1")
     .trim();
-}
-
-function ThinkingDots() {
-  return (
-    <span style={{ display: "inline-flex", gap: 2, alignItems: "center" }}>
-      {[0, 1, 2].map(i => (
-        <span key={i} style={{
-          width: 3, height: 3, borderRadius: "50%",
-          background: "rgba(255,255,255,0.45)",
-          display: "inline-block",
-          animation: `chatDotBlink 1.2s ease ${i * 0.2}s infinite`,
-        }} />
-      ))}
-    </span>
-  );
-}
-
-function StepRows({ steps }) {
-  return (
-    <div style={{ padding: "6px 12px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
-      {steps.map((step, i) => {
-        const label = STEP_LABEL[step.type] ?? step.type;
-        const text = step.type === "action"
-          ? (step.tool ? `${step.tool}${step.args ? `(${step.args})` : ""}` : step.content ?? "")
-          : (step.content ?? "");
-        return (
-          <div key={i} style={{ display: "flex", gap: 10, animation: "chatFadeIn .15s ease" }}>
-            <span style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", minWidth: 54, flexShrink: 0, paddingTop: 1, fontFamily: "system-ui,sans-serif" }}>
-              {label}
-            </span>
-            <span style={{ fontSize: 10, color: "rgba(255,255,255,0.48)", lineHeight: 1.55, wordBreak: "break-all", fontFamily: "system-ui,sans-serif" }}>
-              {text.length > 140 ? text.slice(0, 140) + "…" : text}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function InlineSteps({ steps, collapsed, onToggle }) {
-  if (!steps || steps.length === 0) return null;
-  return (
-    <div style={{ border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6, overflow: "hidden", marginBottom: 4 }}>
-      <button onClick={onToggle} style={{
-        width: "100%", display: "flex", alignItems: "center", gap: 6,
-        padding: "7px 12px",
-        background: "rgba(255,255,255,0.025)",
-        border: "none", cursor: "pointer",
-        color: "rgba(255,255,255,0.38)", fontSize: 11,
-        textAlign: "left", fontFamily: "system-ui,sans-serif",
-      }}>
-        <span style={{ fontSize: 8, transition: "transform .2s", transform: collapsed ? "rotate(-90deg)" : "none", display: "inline-block" }}>▾</span>
-        추론 과정 · {steps.length}단계
-      </button>
-      {!collapsed && <StepRows steps={steps} />}
-    </div>
-  );
-}
-
-function ThinkingBlock({ steps }) {
-  return (
-    <div style={{ border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6, overflow: "hidden" }}>
-      <div style={{
-        display: "flex", alignItems: "center", gap: 6,
-        padding: "7px 12px",
-        background: "rgba(255,255,255,0.025)",
-        color: "rgba(255,255,255,0.38)", fontSize: 11,
-        fontFamily: "system-ui,sans-serif",
-      }}>
-        <ThinkingDots />
-        <span style={{ marginLeft: 2 }}>추론 중{steps.length > 0 ? ` · ${steps.length}단계` : ""}</span>
-      </div>
-      {steps.length > 0 && <StepRows steps={steps} />}
-      <div style={{ height: 1, background: "rgba(255,255,255,0.04)" }}>
-        <div style={{ height: "100%", background: "rgba(255,255,255,0.14)", animation: "chatProgressBar 2.4s ease infinite" }} />
-      </div>
-    </div>
-  );
 }
 
 const MSG_STORAGE_KEY       = 'ts_chatbot_messages';
@@ -143,7 +59,6 @@ export default function AIChatBot({ selected, onClose }) {
   });
   const [listening,      setListening]      = useState(false);
   const [speaking,       setSpeaking]       = useState(false);
-  const [voiceMode,      setVoiceMode]      = useState(false);
 
   const bottomRef       = useRef(null);
   const inputRef        = useRef(null);
@@ -257,9 +172,8 @@ export default function AIChatBot({ selected, onClose }) {
     rec.onend    = () => setListening(false);
     rec.onerror  = () => setListening(false);
     rec.onresult = (e) => {
-      const transcript = e.results[0][0].transcript;
-      setInput(transcript);
-      setVoiceMode(true);
+      // 인식 결과를 입력창에 채우기만 함 (전송은 사용자가 직접)
+      setInput(e.results[0][0].transcript);
     };
 
     recognitionRef.current = rec;
@@ -292,17 +206,10 @@ export default function AIChatBot({ selected, onClose }) {
   const sendChat = useCallback(async (preset) => {
     const q = (preset ?? input).trim();
     if (!q || loading) return;
-    setVoiceMode(false);
     await _send(q);
   }, [input, loading]);
 
-  // 음성 입력 전용 (voiceMode=true → 응답 자동 TTS 재생)
-  async function sendChatVoice(q) {
-    if (!q || loading) return;
-    await _send(q, true);
-  }
-
-  async function _send(q, autoSpeak = false, retryCount = 0) {
+  async function _send(q, retryCount = 0) {
     const MAX_RETRY = 2;
     // 최초 시도일 때만 유저 메시지 추가 (재시도 시 중복 방지)
     if (retryCount === 0) {
@@ -385,7 +292,7 @@ export default function AIChatBot({ selected, onClose }) {
         setLiveSteps([]);
         setLoading(false);
         await new Promise(r => setTimeout(r, 1000));
-        await _send(q, autoSpeak, attempt);
+        await _send(q, attempt);
         return;
       }
       const msg = err.name === "AbortError"

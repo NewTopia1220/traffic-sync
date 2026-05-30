@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import { speakAsync } from "../../lib/tts";
 
-const PYTHON_BASE    = import.meta.env.VITE_PYTHON_URL    || "http://localhost:8001";
-const GOOGLE_TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_KEY || "";
+const PYTHON_BASE = import.meta.env.VITE_PYTHON_URL || "http://localhost:8001";
 
 // 도구별 아이콘
 const TOOL_ICON = {
@@ -16,36 +16,8 @@ const TOOL_ICON = {
   search_project_docs:     "📚",
 };
 
-function stripMd(t) {
-  return t.replace(/#{1,6}\s/g,"").replace(/\*\*(.*?)\*\*/g,"$1").replace(/\*(.*?)\*/g,"$1").replace(/`(.*?)`/g,"$1").trim();
-}
-
-// ── 순차 TTS ─────────────────────────────────────────────────────────
-async function ttsPlay(text, rate = 1.1) {
-  if (!GOOGLE_TTS_KEY || !text) return;
-  try {
-    const res = await fetch(
-      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          input: { text: stripMd(text).slice(0, 4500) },
-          voice: { languageCode: "ko-KR", name: "ko-KR-Neural2-C", ssmlGender: "MALE" },
-          audioConfig: { audioEncoding: "MP3", speakingRate: rate },
-        }),
-      }
-    );
-    const data = await res.json();
-    if (!data.audioContent) return;
-    await new Promise(resolve => {
-      const audio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
-      audio.onended = resolve;
-      audio.onerror = resolve;
-      audio.play();
-    });
-  } catch { /* 무시 */ }
-}
+// TTS는 전역 큐(lib/tts.js)를 공유한다.
+// → 음소거 토글이 적용되고, 박수 감지가 "재생 중"으로 인식해 새 세션을 안 연다.
 
 // ── 점 애니메이션 ─────────────────────────────────────────────────────
 function ThinkingDots() {
@@ -166,11 +138,6 @@ function ToastCard({ id, endpoint, body, onDone, onRemove }) {
   const [status,  setStatus]  = useState("loading");
   const [visible, setVisible] = useState(true);
   const bottomRef  = useRef(null);
-  const ttsQueue   = useRef(Promise.resolve());
-
-  const enqueueSpeak = useCallback((text, rate = 1.1) => {
-    ttsQueue.current = ttsQueue.current.then(() => ttsPlay(text, rate));
-  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -208,14 +175,14 @@ function ToastCard({ id, endpoint, body, onDone, onRemove }) {
             if (data.type === "answer") {
               setSteps(prev => [...prev, data]);
               setStatus("done");
-              enqueueSpeak(data.content, 1.0);
+              speakAsync(data.content, 1.0);
               onDone?.(data.content);
             } else if (data.type === "error") {
               setSteps(prev => [...prev, { ...data, type: "error" }]);
               setStatus("error");
             } else {
               if (data.type === "action" && data.label) {
-                enqueueSpeak(`${data.label} 중`, 1.3);
+                speakAsync(`${data.label} 중`, 1.3);
               }
               setSteps(prev => [...prev, data]);
             }
@@ -369,7 +336,8 @@ export default function ReActToastContainer() {
 
   return (
     <div style={{
-      position: "fixed", bottom: 28, right: 28, zIndex: 9900,
+      // AI 플로팅 버튼(bottom 28)에 가리지 않도록 위로 띄움
+      position: "fixed", bottom: 96, right: 28, zIndex: 10001,
       display: "flex", flexDirection: "column", gap: 10,
       alignItems: "flex-end",
     }}>

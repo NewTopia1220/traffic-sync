@@ -100,12 +100,14 @@ async def agent_stream_with_cancel(request: Request, prompt: str):
     try:
         while True:
             if await request.is_disconnected():
+                print("[DISCONNECT] 클라이언트 연결 끊김 — 에이전트 취소", flush=True)
                 task.cancel()
                 # task가 완전히 끝날 때까지 대기 (aclose 포함)
                 try:
                     await asyncio.wait_for(task, timeout=3.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
+                print("[DISCONNECT] 에이전트 취소 완료", flush=True)
                 return
             try:
                 kind, value = await asyncio.wait_for(queue.get(), timeout=0.3)

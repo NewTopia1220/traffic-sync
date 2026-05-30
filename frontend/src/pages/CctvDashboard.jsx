@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { GU_LIST, calcDistKm } from "../constants/seoulGeoData";
+import { V } from "../constants/theme";  // MainDashboard와 동일한 색상 체계 공유
 
 // UTIC CCTV 스트림 인증키 (.env의 VITE_UTIC_KEY)
 // 기관 계약 후 발급받은 키를 .env에 설정하면 iframe 영상 활성화
@@ -7,16 +8,6 @@ const UTIC_KEY = import.meta.env.VITE_UTIC_KEY || "";
 
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
-
-// ── 전역 디자인 토큰 ─────────────────────────────────────────────────────────
-// MainDashboard와 동일한 색상 체계 사용 (일관성 유지)
-const V = {
-  bg0: "#000", bg1: "#0a0a0a", line: "#1a1a1a",
-  ink0: "#e7ecf5", ink1: "#aab4c8", ink2: "#7a7a7a", ink3: "#3a3a3a",
-  grn: "#2ee07a", red: "#ff5566", org: "#ffaa33", blu: "#4ea6ff",
-  mono: "'IBM Plex Mono',ui-monospace,Menlo,monospace",
-  sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
-};
 
 // ── assignGu ─────────────────────────────────────────────────────────────────
 /**
