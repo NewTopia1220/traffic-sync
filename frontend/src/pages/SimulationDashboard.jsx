@@ -98,7 +98,13 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
+    <div style={{
+      display: "flex",
+      flexDirection: "column-reverse",
+      alignItems: "flex-end",
+      gap: 8,
+    }}>
+
       <button onClick={() => setIsOpen(o => !o)} style={btn({
         width: 54,
         height: 54,
@@ -137,18 +143,23 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
 
       {isOpen && (
         <div style={{
-          width: 360,
+          width: 340,
+          maxHeight: "calc(100vh - 310px)",
+          minHeight: 360,
           background: "rgba(18,16,10,0.94)",
           border: "1px solid rgba(42,36,24,0.8)",
-          borderRadius: 4,
-          padding: "18px 20px",
-          backdropFilter: "blur(6px)",
+          borderRadius: 8,
+          padding: "16px 18px",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
           display: "flex",
           flexDirection: "column",
           gap: 10,
+          boxShadow: "0 14px 38px rgba(0,0,0,0.45)",
+          overflow: "hidden",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: "#4ea6ff" }}>🤖 AI 신호 분석</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: "#4ea6ff" }}> AI 신호 분석</span>
             {intNm && (
               <span style={{ marginLeft: "auto", fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>● {intNm}</span>
             )}
@@ -166,7 +177,7 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
             ))}
           </div>
 
-          <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ flex: 1, minHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
             {messages.map((m, i) => (
               <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
                 <div style={{
@@ -453,10 +464,21 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const bottleneckWaypoint = waypointList.length
     ? [...waypointList].sort((a, b) => Math.abs((a.routeProgress ?? 0.5) - 0.54) - Math.abs((b.routeProgress ?? 0.5) - 0.54))[0]
     : null;
-  const sliderCrossroad = sliderTarget === "start" ? start : sliderTarget === "waypoint" ? selectedWaypoint : end;
+
+  const sliderCrossroad = sliderTarget === "start"
+    ? start
+    : sliderTarget === "waypoint"
+      ? selectedWaypoint
+      : sliderTarget === "bottleneck"
+        ? bottleneckWaypoint
+        : end;
+
   const activeSignalKey = sliderTarget === "waypoint" && sliderCrossroad
     ? `waypoint:${sliderCrossroad.intNo}`
-    : sliderTarget;
+    : sliderTarget === "bottleneck" && sliderCrossroad
+      ? `bottleneck:${sliderCrossroad.intNo}`
+      : sliderTarget;
+
   const activeChatCrossroad = sliderCrossroad ?? selectedWaypoint ?? bottleneckWaypoint ?? end ?? start ?? null;
   const canOptimize = !!start && !!end && !!stats;
 
@@ -481,6 +503,18 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       onPhaseChange: setWaypointPhaseIdx,
       onContextChange: setWaypointContext,
     },
+
+    bottleneck: {
+      icon: "🟡",
+      label: "병목지",
+      signalTitle: "병목지 신호체계",
+      adjustTitle: "병목지 신호 조정",
+      crossroad: bottleneckWaypoint,
+      emptyText: "병목지가 탐색되면 신호체계가 표시됩니다",
+      onPhaseChange: setWaypointPhaseIdx,
+      onContextChange: setWaypointContext,
+    },
+
     end: {
       icon: "🔴",
       label: "목적지",
@@ -514,6 +548,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     }
 
     if (!waypointList.length && sliderTarget === "waypoint") setSliderTarget(end ? "end" : "start");
+    if (!bottleneckWaypoint && sliderTarget === "bottleneck") setSliderTarget(end ? "end" : start ? "start" : "end");
     if (!end && sliderTarget === "end") setSliderTarget(start ? "start" : "end");
     if (!start) setSliderTarget("end");
   }, [start?.intNo, end?.intNo, waypointList.map(item => item.intNo).join("|")]);
@@ -600,11 +635,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   };
 
   const panelTitle = activeSignal.adjustTitle;
-  const activeSignalPhaseOverride =
-    simPhaseTarget === activeSignalKey ||
-    (simPhaseTarget === bottleneckSignalKey && sliderCrossroad?.intNo === bottleneckWaypoint?.intNo)
-      ? simPhases
-      : null;
+  const activeSignalPhaseOverride = simPhaseTarget === activeSignalKey ? simPhases : null;
 
   return (
     <div style={{ fontFamily: "'Noto Sans KR','Malgun Gothic',sans-serif", background: "#12100a", color: "#e2e8f0", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -632,75 +663,14 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               onAutoWaypointsChange={setAutoWaypoints}
             />
           </div>
-          {bottleneckWaypoint && (
-            <div style={{
-              position: "absolute",
-              top: 22,
-              right: 20,
-              zIndex: 11,
-              width: 360,
-              maxHeight: "calc(100% - 120px)",
-              overflowY: "auto",
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              padding: 12,
-              borderRadius: 10,
-              background: "rgba(18,16,10,0.92)",
-              border: `1px solid ${isOptimized ? "rgba(34,197,94,0.45)" : "rgba(245,158,11,0.35)"}`,
-              boxShadow: "0 12px 35px rgba(0,0,0,0.35)",
-              backdropFilter: "blur(8px)",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: "#fbbf24" }}>🟠 병목구간 신호 패널</div>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3 }}>
-                    {bottleneckWaypoint.intNm}
-                  </div>
-                </div>
-                <div style={{
-                  fontSize: 10,
-                  fontWeight: 800,
-                  color: isOptimized ? "#22c55e" : "#f97316",
-                  border: `1px solid ${isOptimized ? "rgba(34,197,94,0.45)" : "rgba(249,115,22,0.45)"}`,
-                  borderRadius: 999,
-                  padding: "4px 8px",
-                  background: isOptimized ? "rgba(34,197,94,0.12)" : "rgba(249,115,22,0.10)",
-                  whiteSpace: "nowrap",
-                }}>
-                  {isOptimized ? "제어 적용 중" : "병목 감지"}
-                </div>
-              </div>
+          <div style={{
+            position: "absolute",
+            right: 18,
+            bottom: 78,
+            zIndex: 30,
+            pointerEvents: "auto",
+          }}>
 
-              <div style={{ padding: 10, borderRadius: 8, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: "#ffffff", marginBottom: 8 }}>병목구간 신호체계</div>
-                <SignalSimPanel
-                  key={`map-bottleneck-signal-${bottleneckSignalKey}`}
-                  intNo={bottleneckWaypoint.intNo}
-                  intNm={bottleneckWaypoint.intNm}
-                  onPhaseChange={setWaypointPhaseIdx}
-                  phaseOverride={simPhaseTarget === bottleneckSignalKey ? simPhases : null}
-                  onContextChange={setWaypointContext}
-                />
-              </div>
-
-              <div style={{ padding: 10, borderRadius: 8, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: "#ffffff", marginBottom: 8 }}>병목구간 신호 조정</div>
-                <SimSliderPanel
-                  key={`map-bottleneck-slider-${bottleneckSignalKey}`}
-                  intNo={bottleneckWaypoint.intNo}
-                  intNm={bottleneckWaypoint.intNm}
-                  onSave={handleBottleneckManualSave}
-                  onAutoAsk={setAutoTrigger}
-                  autoAdjustKey={autoAdjustKey}
-                  autoAdjustEnabled={isOptimized}
-                  onAutoApplied={handleBottleneckAutoApplied}
-                />
-              </div>
-            </div>
-          )}
-
-          <div style={{ position: "absolute", bottom: 24, left: 20, zIndex: 10 }}>
             <SimulationChatBot intNo={activeChatCrossroad?.intNo} intNm={activeChatCrossroad?.intNm} simulation={simPhases} autoTrigger={autoTrigger} />
           </div>
         </div>
@@ -779,7 +749,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               <li>지도에서 첫 번째 마커를 클릭해 출발지를 선택합니다.</li>
               <li>두 번째 마커를 클릭하면 목적지와 경로가 생성됩니다.</li>
               <li>가운데 패널에서 병목구간과 도착시간 단축 효과를 확인합니다.</li>
-              <li>오른쪽 패널에서 출발지/경유지/목적지별 신호를 확인하고, 지도 오른쪽 상단에서 병목구간 신호를 바로 제어합니다.</li>
+              <li>오른쪽 패널에서 출발지/경유지/목적지/병목지별 신호를 확인하고 바로 제어합니다.</li>
             </ol>
           </div>
         </div>
@@ -787,10 +757,11 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 10px 10px 4px", overflowY: "auto" }}>
           <div style={cardStyle}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontWeight: 900, color: "#ffffff", fontSize: 15 }}>출발지/경유지/목적지 신호체계</div>
+              <div style={{ fontWeight: 900, color: "#ffffff", fontSize: 15 }}>출발지/경유지/목적지/병목지 신호체계</div>
+
               <div style={{ fontSize: 11, color: "#64748b" }}>선택 확인</div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
               <button onClick={() => setSliderTarget("start")} disabled={!start} style={tabButtonStyle(sliderTarget === "start", !!start)}>
                 출발지
               </button>
@@ -799,6 +770,9 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               </button>
               <button onClick={() => setSliderTarget("end")} disabled={!end} style={tabButtonStyle(sliderTarget === "end", !!end)}>
                 목적지
+              </button>
+              <button onClick={() => setSliderTarget("bottleneck")} disabled={!bottleneckWaypoint} style={tabButtonStyle(sliderTarget === "bottleneck", !!bottleneckWaypoint)}>
+                병목지
               </button>
             </div>
           </div>
@@ -849,7 +823,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 onSave={handleManualSave}
                 onAutoAsk={setAutoTrigger}
                 autoAdjustKey={autoAdjustKey}
-                autoAdjustEnabled={false}
+                autoAdjustEnabled={sliderTarget === "bottleneck" && isOptimized}
                 onAutoApplied={handleAutoApplied}
               />
             </div>
