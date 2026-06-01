@@ -110,20 +110,33 @@ export default function App() {
       onGoMap={goMap}
       onGoCctv={() => setPage('cctv')}
       onGoSimulation={() => setPage('simulation')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
     />
   )
 
   if (page === 'simulation') return (
     <SimulationDashboard
       onGoMain={() => setPage('main')}
-      onGoMap={() => setPage('map')}
+      onGoMap={goMap}
+      onGoNews={() => setPage('news')}
+      onGoCctv={() => setPage('cctv')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
     />
   )
 
   if (page === 'cctv') return (
     <CctvDashboard
       onGoMain={() => setPage('main')}
-      onGoMap={() => setPage('map')}
+      onGoMap={goMap}
+      onGoNews={() => setPage('news')}
+      onGoSimulation={() => setPage('simulation')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
     />
   )
 
@@ -131,6 +144,11 @@ export default function App() {
     <MapDashboard
       onGoMain={() => setPage('main')}
       onGoCctv={() => setPage('cctv')}
+      onGoNews={() => setPage('news')}
+      onGoSimulation={() => setPage('simulation')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
       wsData={wsData}
       setWsData={setWsData}
       initialCenter={mapCenter}

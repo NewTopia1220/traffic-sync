@@ -31,6 +31,632 @@ import { StationPredictDropdown, SpeedDropdown, RiskDropdown } from "../componen
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
+// ── 전역 색상/폰트 디자인 토큰 ──────────────────────────────────────────────
+// 컴포넌트 인라인 스타일에서 일관된 색상을 쓰기 위한 상수 맵
+const V = {
+  bg0: "#000", bg1: "#0a0a0a", line: "#1a1a1a",       // 배경/구분선
+  ink0: "#e7ecf5", ink1: "#aab4c8", ink2: "#7a7a7a", ink3: "#3a3a3a",  // 텍스트 단계
+  grn: "#2ee07a", yel: "#facc15", red: "#ff5566", org: "#ffaa33", blu: "#4ea6ff",       // 상태 색상
+  mono: "'IBM Plex Mono',ui-monospace,Menlo,monospace",
+  sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
+};
+
+// 위험도 API 점수는 100점을 넘을 수 있으므로 300점을 기준으로 게이지를 환산한다.
+// 300점 이상은 게이지를 100%로 표시한다.
+const RISK_MAX_SCORE = 300;
+
+// ── BottleneckEmailBtn ──────────────────────────────────────────────────────
+function BottleneckEmailBtn({ district, apiBase }) {
+  const [status, setStatus] = useState("idle"); // idle | loading | done | error
+
+  const handleClick = () => {
+    if (status === "loading") return;
+    setStatus("loading");
+    const userEmail = JSON.parse(localStorage.getItem("ts_user") || "{}").email || null;
+
+    triggerReActToast({
+      endpoint: "/api/agent/bottleneck-email/stream",
+      body: { district, userEmail },
+      onDone: () => {
+        setStatus("done");
+        setTimeout(() => setStatus("idle"), 3000);
+      },
+    });
+  };
+
+  const label = status === "loading" ? "⏳" : status === "done" ? "📨" : status === "error" ? "❌" : "📧";
+  const title = status === "loading" ? "병목 메일 분석 중" : status === "done" ? "병목 메일 전송 완료" : status === "error" ? "병목 메일 전송 실패" : "병목 메일 보내기";
+  const borderColor = status === "done" ? "#1a3a24" : status === "error" ? "#3a1820" : "#1a1a1a";
+  const background = status === "done" ? "#0d1f14" : status === "error" ? "#1a0a10" : "transparent";
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={status === "loading"}
+      title={title}
+      aria-label={title}
+      style={{
+        width: 38,
+        height: 32,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 17,
+        padding: 0,
+        borderRadius: 999,
+        fontWeight: 500,
+        border: `1px solid ${borderColor}`,
+        background,
+        color: "#fff",
+        cursor: status === "loading" ? "wait" : "pointer",
+        fontFamily: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
+        transition: "all 0.2s",
+        boxShadow: status === "done" ? "0 0 10px rgba(46,224,122,0.18)" : "none",
+        letterSpacing: "0"
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+// ── makeSpark ───────────────────────────────────────────────────────────────
+/**
+ * 실시간 속도 히스토리 초기 배열 생성
+ * 더미 랜덤값을 만들지 않고, 실제 API 속도가 들어온 경우에만 같은 값으로 시작한다.
+ * @param {number} base  - 기준 속도값 (km/h)
+ * @param {number} len   - 생성할 데이터 포인트 수 (기본 40)
+ * @returns {number[]}   - 실제 속도 기반 초기 배열
+ */
+function makeSpark(base, len = 40) {
+  return Number.isFinite(base) ? [base] : [];
+}
+
+// ── makeForecast ─────────────────────────────────────────────────────────────
+/**
+ * 교차로별 24시간 교통량 예측 더미 데이터 생성
+ * crsrdId를 seed로 사용해 같은 교차로는 항상 같은 패턴이 나오도록 재현 가능
+ * 실제 /api/forecast API가 없거나 실패하면 이 더미를 그대로 표시
+ *
+ * @param {number} seed - crsrdId 숫자 부분 또는 인덱스
+ * @returns {{ up: number[], down: number[] }} - 상행/하행 0~23시 대/시 배열
+ */
+
+// ── Sparkline ────────────────────────────────────────────────────────────────
+/**
+ * 미니 라인 차트 컴포넌트 (SVG polyline + 그라데이션 영역)
+ * LivCard 하단에 삽입되어 속도 히스토리를 시각화
+ *
+ * @param {number[]} values - 속도 배열
+ * @param {string}   color  - 선/영역 색상 hex
+ */
+function Sparkline({ values, color }) {
+  if (!values || values.length < 2) return null;
+  const W = 300, H = 100;
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  // 각 값을 SVG 좌표로 변환
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * W;
+    const y = H - ((v - min) / range) * (H - 6) - 3; // 위아래 3px 여백
+    return `${x},${y}`;
+  }).join(" ");
+  const gradId = `sg${color.replace("#", "")}`; // 색상별 고유 gradient id
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "100%", display: "block" }} preserveAspectRatio="none">
+      <defs>
+        {/* 선 아래 반투명 영역 채우기 */}
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {/* 채움 영역: 좌하단 → 데이터 포인트 → 우하단 */}
+      <polygon points={`0,${H} ${pts} ${W},${H}`} fill={`url(#${gradId})`} />
+      {/* 실선 */}
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// ── KpiCard ──────────────────────────────────────────────────────────────────
+/**
+ * 상단 KPI 수치 카드
+ * 큰 숫자 + 단위 + 라벨 + 상태 배지로 구성
+ * status에 따라 배지 색상 자동 결정: 위험=빨강, 서행/피크=주황, 나머지=회색
+ *
+ * @param {number|string} value  - 표시할 수치
+ * @param {string}        unit   - 단위 (개, km/h, 점 등)
+ * @param {string}        label  - 항목 이름
+ * @param {string}        sub    - 보조 설명
+ * @param {string}        status - 상태 배지 텍스트 (위험|서행|피크|정상)
+ */
+function KpiCard({ value, unit, label, sub, status }) {
+  // 상태별 배지 스타일
+  const s = status === "심각" ? { c: V.red, bg: "#1a0a10", bd: "#3a1820" }
+    : status === "위험" || status === "서행" || status === "피크" || status === "주의" ? { c: V.org, bg: "#1a1206", bd: "#3a2a14" }
+    : { c: V.ink1, bg: V.bg0, bd: V.line };
+  return (
+    <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "18px 22px", position: "relative", minHeight: 118 }}>
+      {/* 우측 상단 상태 배지 */}
+      {status && (
+        <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 2, background: s.bg, border: `1px solid ${s.bd}`, color: s.c, position: "absolute", top: 14, right: 16 }}>
+          {status}
+        </span>
+      )}
+      {/* 큰 숫자 */}
+      <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 52, color: "#fff", letterSpacing: "-1.8px", lineHeight: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
+        {value}<span style={{ fontSize: 16, color: V.ink2, fontWeight: 500 }}>{unit}</span>
+      </div>
+      <div style={{ fontSize: 17, color: V.ink0, fontWeight: 600, marginTop: 8 }}>{label}</div>
+      <div style={{ fontSize: 14, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>{sub}</div>
+    </div>
+  );
+}
+
+// ── statusOf ─────────────────────────────────────────────────────────────────
+// 속도값 → 혼잡 상태 문자열 변환 유틸
+// 20 미만: 혼잡, 20~40: 서행, 40 이상: 원활
+function statusOf(v) {
+  if (v < 20) return "혼잡";
+  if (v < 40) return "서행";
+  return "원활";
+}
+
+function riskScoreValue(score) {
+  const n = Number.parseFloat(score);
+  return Number.isFinite(n) ? n : null;
+}
+
+function hasRiskScore(score) {
+  return riskScoreValue(score) != null;
+}
+
+function riskGradeValue(grade) {
+  const n = Number.parseInt(String(grade ?? "").trim(), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function hasRiskGrade(grade) {
+  return riskGradeValue(grade) != null;
+}
+
+function riskPercent(score, maxScore = RISK_MAX_SCORE) {
+  const value = riskScoreValue(score);
+  if (value == null) return 0;
+  return Math.max(0, Math.min(100, (value / maxScore) * 100));
+}
+
+function riskColor(score, grade) {
+  switch (riskGradeValue(grade)) {
+    case 1: return V.grn;
+    case 2: return V.yel;
+    case 3: return V.org;
+    case 4: return V.red;
+    default: return V.ink2;
+  }
+}
+
+function riskLevel(score, grade) {
+  switch (riskGradeValue(grade)) {
+    case 1: return "안전";
+    case 2: return "주의";
+    case 3: return "위험";
+    case 4: return "심각";
+    default: return hasRiskScore(score) ? "등급 대기" : "수집 대기";
+  }
+}
+
+function riskRank(item) {
+  const grade = riskGradeValue(item?.riskGrade ?? item?.grade);
+  const score = riskScoreValue(item?.riskScore ?? item?.score) ?? -1;
+  return grade == null ? -1 : grade * 100000 + score;
+}
+
+// ── LivCard ──────────────────────────────────────────────────────────────────
+/**
+ * 실시간 구간 속도 카드
+ * 현재 속도 + 추세(▲▼) + Sparkline 히스토리 + 통계(관측수·윈도우평균·최소최대)
+ *
+ * @param {string}   name      - 교차로 이름
+ * @param {string}   color     - 카드 고유 색상 (CARD_COLORS 배열에서 할당)
+ * @param {number}   speed     - 현재 속도 (km/h)
+ * @param {number[]} sparkData - 속도 히스토리 배열 (sparkRef에서 가져옴)
+ */
+function LivCard({ name, color, speed, sparkData }) {
+  const st = speed != null ? statusOf(speed) : "—";
+  const stColor = st === "혼잡" ? V.red : st === "서행" ? V.org : st === "원활" ? V.grn : V.ink2;
+  const cnt = sparkData?.length ?? 0;
+  // 최근 10개 평균 (슬라이딩 윈도우)
+  const winAvg = cnt > 0 ? Math.round(sparkData.slice(-10).reduce((a, b) => a + b, 0) / Math.min(10, cnt)) : null;
+  const mn = cnt > 0 ? Math.round(Math.min(...sparkData)) : null;
+  const mx = cnt > 0 ? Math.round(Math.max(...sparkData)) : null;
+  // 최근 6포인트 대비 현재값의 변화량 (추세 화살표용)
+  const trend = cnt >= 2 ? Math.round(sparkData[cnt - 1] - sparkData[Math.max(0, cnt - 6)]) : null;
+
+  return (
+    <div style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "16px 18px 12px", display: "flex", flexDirection: "column", gap: 10, minHeight: 200 }}>
+      {/* 헤더: 색상 막대 + 교차로명 + 상태 배지 */}
+      <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+        <span style={{ display: "inline-block", width: 14, height: 3, background: color, borderRadius: 1, marginRight: 9 }} />
+        <span style={{ color: "#fff", fontSize: 17, fontWeight: 600 }}>{name}</span>
+        <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11, color: stColor, padding: "3px 8px", border: `1px solid ${stColor}44`, borderRadius: 2 }}>{st}</span>
+      </div>
+      {/* 속도 수치 + 추세 */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontFamily: V.mono, flexShrink: 0 }}>
+        <span style={{ fontSize: 54, fontWeight: 700, color: "#fff", lineHeight: 1, letterSpacing: "-1px" }}>{speed ?? "—"}</span>
+        <span style={{ fontSize: 16, color: V.ink2 }}>km/h</span>
+        {trend !== null && (
+          <span style={{ marginLeft: "auto", fontSize: 13, color: trend >= 0 ? V.grn : V.red }}>
+            {trend >= 0 ? "▲" : "▼"} {Math.abs(trend)} km/h
+          </span>
+        )}
+      </div>
+      {/* Sparkline — flex:1로 남은 공간 꽉 채움 */}
+      <div style={{ flex: 1, minHeight: 64 }}>
+        {sparkData && sparkData.length > 1
+          ? <Sparkline values={sparkData} color={color} />
+          : <div style={{ height: "100%", border: `1px dashed ${V.line}`, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", color: "#5a6378", fontFamily: V.mono, fontSize: 11 }}>SPARKLINE · 대기 중</div>
+        }
+      </div>
+      {/* 하단 통계 바 */}
+      <div style={{ display: "flex", gap: 12, fontFamily: V.mono, fontSize: 11, color: V.ink2, paddingTop: 6, borderTop: `1px solid #141414`, flexShrink: 0 }}>
+        <span>{cnt}관측</span>
+        <span>윈도우 평균 <b style={{ color: V.ink1 }}>{winAvg ?? "—"} km/h</b></span>
+        <span>최소·최대 <b style={{ color: V.ink1 }}>{mn ?? "—"} / {mx ?? "—"} km/h</b></span>
+      </div>
+    </div>
+  );
+}
+
+// ── DonutChart ───────────────────────────────────────────────────────────────
+/**
+ * 위험도 도넛 차트
+ * SVG strokeDasharray 기법으로 원형 진행률 표시
+ * 색상은 위험도 API 등급(anals_grd), 숫자는 점수(anals_value)를 그대로 사용
+ *
+ * @param {string} name  - 교차로 이름 (중앙 표시)
+ * @param {number} score - 위험도 API 점수
+ * @param {string} grade - 위험도 API 등급
+ */
+function DonutChart({ name, score, grade }) {
+  const ready = hasRiskScore(score);
+  const color = riskColor(score, grade);
+  const level = riskLevel(score, grade);
+  const r = 80, sw = 18; // 반지름, 선 굵기
+  const circ = 2 * Math.PI * r; // 원 둘레
+  const dash = ready ? (riskPercent(score) / 100) * circ : 0; // 채워질 길이
+
+  return (
+    <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 10, minHeight: 300 }}>
+      <svg viewBox="0 0 220 220" style={{ width: "100%", maxHeight: 260, display: "block" }}>
+        {/* 배경 트랙 (회색 원) */}
+        <circle cx="110" cy="110" r={r} fill="none" stroke="#141414" strokeWidth={sw} />
+        {/* 진행률 원: -90도 회전해서 12시 방향부터 시작 */}
+        <circle cx="110" cy="110" r={r} fill="none" stroke={color} strokeWidth={sw}
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+          transform="rotate(-90 110 110)" />
+      </svg>
+      {/* 중앙 텍스트 오버레이 */}
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", pointerEvents: "none" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 6 }}>{name || "—"}</div>
+        <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 72, color: "#fff", letterSpacing: "-3px", lineHeight: 1 }}>
+          {ready ? score : "—"}<span style={{ fontSize: 15, color: V.ink2, fontWeight: 500, marginLeft: 3 }}>점</span>
+        </div>
+        <div style={{ marginTop: 8, fontFamily: V.mono, fontSize: 13, padding: "4px 12px", borderRadius: 2, border: `1px solid ${color}`, color, background: `${color}20`, fontWeight: 700 }}>{level}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── ForecastChart ─────────────────────────────────────────────────────────────
+/**
+ * 24시간 상행/하행 교통량 예측 막대 차트
+ * 피크 시간대(최대값)만 선명하게 표시하고, 나머지 막대는 낮은 채도의 색으로 표시
+ * 좌측 Y축 + 하단 시간 라벨(00~23)
+ *
+ * @param {number[]} up   - 상행 0~23시 교통량 배열 (대/시)
+ * @param {number[]} down - 하행 0~23시 교통량 배열 (대/시)
+ * @param {string}   name - 교차로 이름
+ */
+function ForecastChart({ up = [], down = [], name }) {
+  const [selectedHour, setSelectedHour] = useState(null);
+  const all = [...up, ...down];
+  const maxVal = all.length ? Math.max(...all, 1) : 1;
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  const peakUp = up.length ? up.indexOf(Math.max(...up)) : -1;   // 상행 피크 시간
+  const peakDn = down.length ? down.indexOf(Math.max(...down)) : -1; // 하행 피크 시간
+  const activeUpHour = selectedHour ?? peakUp;
+  const activeDnHour = selectedHour ?? peakDn;
+  const selectedUpValue = selectedHour != null ? (up[selectedHour] ?? 0) : null;
+  const selectedDnValue = selectedHour != null ? (down[selectedHour] ?? 0) : null;
+  const axisVals = [maxVal, Math.round(maxVal * 0.75), Math.round(maxVal * 0.5), Math.round(maxVal * 0.25), 0];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+      {/* 헤더: 교차로명 + 피크 정보 */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "12px 14px" }}>
+        <div>
+          <div style={{ fontSize: 15, color: "#fff", fontWeight: 700 }}>
+            <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>{name || "—"}
+          </div>
+          <div style={{ fontSize: 11, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>상행/하행 0시–23시 예측 (대/시)</div>
+        </div>
+        {/* 상행/하행 피크 요약 */}
+        <div style={{ display: "flex", gap: 16 }}>
+          {[
+            { label: selectedHour != null ? "선택 상행" : "상행 피크", sw: V.blu, val: selectedHour != null ? selectedUpValue : (up.length ? Math.max(...up) : "—"), h: selectedHour != null ? `${selectedHour}시` : (peakUp >= 0 ? `${peakUp}시` : "") },
+            { label: selectedHour != null ? "선택 하행" : "하행 피크", sw: "#ff8e55", val: selectedHour != null ? selectedDnValue : (down.length ? Math.max(...down) : "—"), h: selectedHour != null ? `${selectedHour}시` : (peakDn >= 0 ? `${peakDn}시` : "") }
+          ].map(s => (
+            <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: V.ink1 }}>
+              <span style={{ width: 14, height: 3, borderRadius: 1, background: s.sw, display: "inline-block" }} />
+              <span style={{ fontSize: 11, color: V.ink2 }}>{s.label}</span>
+              <b style={{ fontFamily: V.mono, color: "#fff", fontSize: 14, fontWeight: 700 }}>{s.val}</b>
+              {s.h && <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2 }}>· {s.h}</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 차트 본체 */}
+      <div style={{ display: "flex", flex: 1, minHeight: 200 }}>
+        {/* Y축 레이블 */}
+        <div style={{ width: 44, display: "flex", flexDirection: "column", justifyContent: "space-between", padding: "6px 8px 28px 0", fontFamily: V.mono, fontSize: 11, color: V.ink2, borderRight: `1px dashed ${V.line}`, textAlign: "right" }}>
+          {axisVals.map((v, i) => <span key={i}>{v}</span>)}
+        </div>
+        <div style={{ flex: 1, position: "relative", paddingTop: 6 }}>
+          {/* 수평 그리드 라인 */}
+          {[0, 25, 50, 75].map(p => (
+            <div key={p} style={{ position: "absolute", left: 0, right: 0, height: 1, background: "#141414", top: `${p}%`, pointerEvents: "none" }} />
+          ))}
+          <div style={{ position: "absolute", left: 0, right: 0, height: 1, background: V.line, bottom: 28 }} />
+          {/* 막대 그리드: 24시간 × 상행/하행 2개 막대 */}
+          <div style={{ position: "absolute", left: 0, right: 0, top: 6, bottom: 28, display: "grid", gridTemplateColumns: "repeat(24,1fr)", alignItems: "flex-end" }}>
+            {hours.map(h => {
+              const u = up[h] ?? 0, d = down[h] ?? 0;
+              const uH = (u / maxVal) * 100, dH = (d / maxVal) * 100;
+              const isActiveUp = h === activeUpHour;
+              const isActiveDn = h === activeDnHour;
+              const isSelected = selectedHour === h;
+              const upColor = isActiveUp ? V.blu : "rgba(78,166,255,0.55)";
+              const downColor = isActiveDn ? "#ff8e55" : "rgba(255,142,85,0.55)";
+              return (
+                <div
+                  key={h}
+                  onClick={() => setSelectedHour(prev => prev === h ? null : h)}
+                  title={`${String(h).padStart(2, "0")}시 · 상행 ${u.toLocaleString()}대 / 하행 ${d.toLocaleString()}대`}
+                  style={{
+                    display: "flex", flexDirection: "row", alignItems: "flex-end", justifyContent: "center", gap: 1,
+                    height: "100%", padding: "0 1px", cursor: "pointer", position: "relative",
+                    background: isSelected ? "rgba(255,255,255,0.035)" : "transparent",
+                    borderRadius: 2,
+                  }}
+                >
+                  {/* 상행 막대: 선택한 시간 또는 피크 시간만 선명하게 강조 */}
+                  <div style={{
+                    width: 6, height: `${uH}%`, minHeight: uH > 0 ? 2 : 0,
+                    background: upColor, borderRadius: "1px 1px 0 0",
+                    outline: isActiveUp ? "1px solid #fff" : "none",
+                    boxShadow: isActiveUp ? `0 0 12px ${V.blu}99` : "none",
+                    opacity: isActiveUp ? 1 : 0.75,
+                    transition: "opacity .15s ease, box-shadow .15s ease, background .15s ease",
+                  }} />
+                  {/* 하행 막대: 선택한 시간 또는 피크 시간만 선명하게 강조 */}
+                  <div style={{
+                    width: 6, height: `${dH}%`, minHeight: dH > 0 ? 2 : 0,
+                    background: downColor, borderRadius: "1px 1px 0 0",
+                    outline: isActiveDn ? "1px solid #fff" : "none",
+                    boxShadow: isActiveDn ? "0 0 12px rgba(255,142,85,0.75)" : "none",
+                    opacity: isActiveDn ? 1 : 0.75,
+                    transition: "opacity .15s ease, box-shadow .15s ease, background .15s ease",
+                  }} />
+                </div>
+              );
+            })}
+          </div>
+          {/* X축 시간 레이블 (00~23) */}
+          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 24, display: "grid", gridTemplateColumns: "repeat(24,1fr)", fontFamily: V.mono, fontSize: 10, color: V.ink2, textAlign: "center" }}>
+            {hours.map(h => {
+              const isActive = h === activeUpHour || h === activeDnHour;
+              const isSelected = selectedHour === h;
+              return (
+                <span
+                  key={h}
+                  onClick={() => setSelectedHour(prev => prev === h ? null : h)}
+                  style={{
+                    paddingTop: 4, color: isActive ? "#fff" : V.ink2, fontWeight: isActive ? 700 : 400,
+                    cursor: "pointer", borderTop: isSelected ? `1px solid ${V.blu}` : "1px solid transparent",
+                    background: isSelected ? "rgba(78,166,255,0.08)" : "transparent",
+                  }}
+                >
+                  {String(h).padStart(2, "0")}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StationPredictDropdown({ stations, selectedId, onSelect }) {
+  return (
+    <select 
+      value={selectedId} 
+      onChange={(e) => onSelect(e.target.value)}
+      style={{ 
+        background: "#0a1020", 
+        border: `1px solid ${V.line}`, 
+        borderRadius: 4, 
+        color: "#fff",
+        fontSize: 13, 
+        padding: "6px 12px", 
+        fontFamily: V.sans,
+        outline: "none",
+        cursor: "pointer",
+        minWidth: "220px"
+      }}
+    >
+      {stations.map((st) => (
+        <option key={st.stationId} value={st.stationId}>
+          {st.stationName}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// ── SpeedDropdown ─────────────────────────────────────────────────────────────
+/**
+ * 속도 모니터링 교차로 선택 드롭다운
+ * 최대 3개 교차로를 토글 선택, 검색 기능 포함
+ * 3개 초과 선택 시 가장 오래된 항목 자동 제거 (FIFO)
+ *
+ * @param {Array}    options    - 전체 교차로 목록 [{ id, name, speed }]
+ * @param {Array}    selected   - 현재 선택된 교차로 목록
+ * @param {Function} onToggle   - 교차로 토글 콜백 (opt 전달)
+ */
+function SpeedDropdown({ options, selected, onToggle }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef();
+  const inputRef = useRef();
+
+  // 외부 클릭 시 드롭다운 닫기
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQuery(""); } };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const filtered = options.filter(o => o.name.includes(query));
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      {/* 토글 버튼: 선택된 교차로명 표시 */}
+      <button onClick={() => { setOpen(o => !o); setTimeout(() => inputRef.current?.focus(), 50); }} style={{
+        background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, color: "#fff",
+        fontFamily: V.sans, fontSize: 13, fontWeight: 600, padding: "7px 30px 7px 14px",
+        cursor: "pointer", minWidth: 220, textAlign: "left", position: "relative",
+      }}>
+        {selected.length > 0 ? selected.map(s => s.name).join(", ") : "교차로 선택 (최대 3개)"}
+        <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: V.ink2 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "110%", left: 0, zIndex: 200, background: "#0d0d0d", border: `1px solid ${V.line}`, borderRadius: 2, minWidth: 280, boxShadow: "0 8px 32px rgba(0,0,0,.8)" }}>
+          {/* 검색 입력 */}
+          <div style={{ padding: "8px 10px", borderBottom: `1px solid ${V.line}` }}>
+            <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="교차로 검색..."
+              style={{ width: "100%", background: "#141414", border: `1px solid ${V.line}`, borderRadius: 2, color: "#fff", fontSize: 13, padding: "6px 10px", fontFamily: V.sans, outline: "none" }} />
+          </div>
+          {/* 교차로 목록 */}
+          <div style={{ maxHeight: 260, overflowY: "auto" }}>
+            {filtered.length === 0
+              ? <div style={{ padding: "14px", fontSize: 13, color: V.ink2, textAlign: "center" }}>검색 결과 없음</div>
+              : filtered.map((opt, i) => {
+                  const isSel = selected.some(s => s.id === opt.id);
+                  return (
+                    <div key={opt.id} onClick={() => onToggle(opt)}
+                      style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10,
+                        background: isSel ? "#141414" : "transparent", borderBottom: `1px solid ${V.line}`,
+                        color: isSel ? "#fff" : V.ink1, fontSize: 13, fontWeight: isSel ? 600 : 400 }}>
+                      <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, minWidth: 28 }}>#{i + 1}</span>
+                      <span style={{ flex: 1 }}>{opt.name}</span>
+                      {isSel && <span style={{ color: V.blu, fontSize: 11 }}>✓</span>}
+                    </div>
+                  );
+                })
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── RiskDropdown ──────────────────────────────────────────────────────────────
+/**
+ * 관심 교차로 검색/등록 드롭다운
+ * selectedIdx === -1 이면 "등록 모드" (+ / ✓ 토글 표시)
+ * selectedIdx >= 0 이면 "선택 모드" (클릭 시 바로 닫힘)
+ *
+ * @param {Array}    options     - 교차로 목록 [{ id, name, score, speed, congestion }]
+ * @param {number}   selectedIdx - 현재 선택 인덱스 (-1이면 등록 모드)
+ * @param {Function} onChange    - 인덱스 변경 콜백
+ * @param {string[]} watchIds    - 현재 관심 등록된 교차로 ID 배열
+ */
+function RiskDropdown({ options, selectedIdx, onChange, watchIds = [] }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef();
+  const inputRef = useRef();
+
+  // 외부 클릭 시 닫기
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQuery(""); } };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const levelLabel = riskLevel;
+  const isRegisterMode = watchIds.length > 0 || selectedIdx === -1;
+  const filtered = options.map((o, i) => ({ ...o, origIdx: i })).filter(o => o.name.includes(query));
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => { setOpen(o => !o); setTimeout(() => inputRef.current?.focus(), 50); }} style={{
+        background: "#0a1020", border: `1px solid ${V.line}`, borderRadius: 999, color: "#fff",
+        fontFamily: V.sans, fontSize: 13, fontWeight: 600, padding: "8px 32px 8px 14px",
+        cursor: "pointer", minWidth: 220, textAlign: "left", position: "relative",
+      }}>
+        {isRegisterMode ? "교차로 검색 후 등록" : options[selectedIdx] ? `${options[selectedIdx].name}` : "교차로 선택"}
+        <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: V.ink2 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "110%", left: 0, zIndex: 200, background: "#0d0d0d", border: `1px solid ${V.line}`, borderRadius: 2, minWidth: 300, boxShadow: "0 8px 32px rgba(0,0,0,.8)" }}>
+          <div style={{ padding: "8px 10px", borderBottom: `1px solid ${V.line}` }}>
+            <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="교차로 검색..."
+              style={{ width: "100%", background: "#141414", border: `1px solid ${V.line}`, borderRadius: 2, color: "#fff", fontSize: 13, padding: "6px 10px", fontFamily: V.sans, outline: "none" }} />
+          </div>
+          <div style={{ maxHeight: 280, overflowY: "auto" }}>
+            {filtered.length === 0
+              ? <div style={{ padding: "14px", fontSize: 13, color: V.ink2, textAlign: "center" }}>검색 결과 없음</div>
+              : filtered.map((opt) => {
+                  const color = riskColor(opt.score, opt.grade);
+                  const isWatched = watchIds.includes(opt.id);
+                  const isSel = opt.origIdx === selectedIdx;
+                  return (
+                    <div key={opt.name + opt.origIdx}
+                      onClick={() => { onChange(opt.origIdx); if (!isRegisterMode) { setOpen(false); setQuery(""); } }}
+                      style={{ padding: "11px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10,
+                        background: isSel || isWatched ? "#141414" : "transparent", borderBottom: `1px solid ${V.line}`,
+                        color: isSel || isWatched ? "#fff" : V.ink1, fontSize: 13 }}>
+                      <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, minWidth: 28 }}>#{opt.origIdx + 1}</span>
+                      <span style={{ flex: 1, fontWeight: 600 }}>{opt.name}</span>
+                      <span style={{ fontFamily: V.mono, fontSize: 13, color, fontWeight: 700 }}>{hasRiskScore(opt.score) ? `${opt.score}점` : "—"}</span>
+                      <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, minWidth: 36 }}>({levelLabel(opt.score, opt.grade)})</span>
+                      {/* 등록 모드: + 또는 ✓ 표시 */}
+                      {isRegisterMode && (
+                        <span style={{ fontFamily: V.mono, fontSize: 11, color: isWatched ? V.grn : V.ink3, minWidth: 18, textAlign: "center" }}>
+                          {isWatched ? "✓" : "+"}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 상수 ─────────────────────────────────────────────────────────────────────
 // 속도 카드 3개에 순서대로 할당되는 색상 (빨강 → 주황 → 초록)
 const CARD_COLORS = [V.red, V.org, V.grn];
 
@@ -279,7 +905,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
   // ── 위험도 breakdown 아이템 ─────────────────────────────────────
   // 선택된 교차로의 위험도·속도·혼잡도를 수평 프로그레스 바로 표시
   const bdItems = selectedRisk ? [
-    { label: "도로 위험도", sub: "교차로 구조 · 사고 이력 종합", value: hasRiskScore(selectedRisk.score) ? selectedRisk.score : "—", unit: "점", color: riskColor(selectedRisk.score, selectedRisk.grade), pct: riskPercent(selectedRisk.score) },
+    { label: "도로 위험도", sub: `교차로 구조 · 사고 이력 종합 · ${RISK_MAX_SCORE}점 기준`, value: hasRiskScore(selectedRisk.score) ? selectedRisk.score : "—", unit: "점", color: riskColor(selectedRisk.score, selectedRisk.grade), pct: riskPercent(selectedRisk.score) },
     { label: "실시간 평균 속도", sub: "TOPIS 수집 · 낮을수록 위험", value: selectedRisk.speed ?? "—", unit: "km/h", color: V.org, pct: selectedRisk.speed == null ? 0 : Math.min((selectedRisk.speed / 80) * 100, 100) },
     { label: "혼잡 상태", sub: "현재 구간 추정", value: selectedRisk.congestion, unit: "", color: V.blu, pct: 50 },
   ] : [];
@@ -303,9 +929,9 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
           </div>
         </div>
 
-        {/* 페이지 탭 */}
-        <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 3 }}>
-          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스 감성 분석", "news"], ["CCTV 관제", "cctv"], ["🚦 신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
+        {/* 페이지 탭: 통합 대시보드(현재) / 실시간 지도 / CCTV 관제 */}
+        <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3 }}>
+          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스", "news"], ["CCTV 관제", "cctv"], ["신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
             const isActive = tab === "main";
             const onClick = tab === "map" ? () => onGoMap(selectedGu)
               : tab === "cctv" ? onGoCctv
@@ -313,8 +939,9 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
               : tab === "simulation" ? onGoSimulation
               : undefined;
             return (
-              <button key={tab} onClick={onClick}
-                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? "#fff" : tab === "simulation" ? "#60a5fa" : tab === "news" ? V.org : V.ink1, padding: "7px 15px", borderRadius: 2, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
+              <button key={tab}
+                onClick={onClick}
+                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "7px 15px", borderRadius: 999, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink3, display: "inline-block" }} />
                 {label}
               </button>
@@ -341,6 +968,13 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
           }}>
             {isMuted ? '🔇 음소거 중' : '🔊 소리 켜짐'}
           </button>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 13px", borderRadius: 2, background: "#1a1206", border: "1px solid #3a2a14", color: V.org, fontSize: 12, fontWeight: 600 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
+              {selectedGu.name} 선택됨
+            </div>
+            <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
+          </div>
         )}
 
         {/* 데이터 수집 결과 메시지 (3초 표시) */}
@@ -360,10 +994,10 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             <span style={{ color: V.ink2, marginRight: 6 }}>{time.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}</span>
             {time.toLocaleTimeString("ko-KR")}
           </span>
-          <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, padding: "5px 12px", color: V.ink2, fontSize: 12, cursor: "pointer", fontFamily: V.mono, letterSpacing: ".3px" }}>
-            👤 마이페이지
+          <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 999, padding: "7px 15px", color: "#fff", fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>
+            마이페이지
           </button>
-          <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: `1px solid #3a1820`, borderRadius: 2, padding: "5px 12px", color: "#ff5566", fontSize: 12, cursor: "pointer", fontFamily: V.mono, letterSpacing: ".3px" }}>
+          <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: `1px solid #3a1820`, borderRadius: 999, padding: "7px 15px", color: V.red, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>
             로그아웃
           </button>
         </div>
@@ -414,7 +1048,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
               실시간 지도 →
             </button>
           </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
             <SeoulSvgMap onGoMap={onGoMap} selectedGu={selectedGu} onSelectGu={handleSelectGu} loading={loading} />
           </div>
         </div>
@@ -489,8 +1123,9 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
                     <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 28, color: "#fff", textAlign: "right", alignSelf: "end" }}>
                       {b.value}<em style={{ fontStyle: "normal", fontSize: 13, color: V.ink2, marginLeft: 3 }}>{b.unit}</em>
                     </div>
-                    <div style={{ gridColumn: "1/3", height: 6, background: "#141414" }}>
-                      <div style={{ height: "100%", width: `${b.pct}%`, background: b.color }} />
+                    {/* 수평 프로그레스 바 */}
+                    <div style={{ gridColumn: "1/3", height: 8, background: "#141414", borderRadius: 999, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${b.pct}%`, background: b.color, borderRadius: 999, transition: "width .25s ease" }} />
                     </div>
                   </div>
                 ))}
@@ -518,7 +1153,11 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
           {/* DB 지점 드롭다운 */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: `1px solid ${V.line}`, background: "#060606" }}>
             <span style={{ fontSize: 12, color: V.ink2, fontFamily: V.mono }}>지점 선택</span>
-            <StationPredictDropdown stations={filteredStations} selectedId={predictStationId} onSelect={setPredictStationId} />
+            <StationPredictDropdown
+              stations={filteredStations}
+              selectedId={predictStationId}
+              onSelect={setPredictStationId}
+            />
           </div>
 
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>

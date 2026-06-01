@@ -27,7 +27,7 @@ export default function CctvModal({ cctv, onClose }) {
       >
         {/* 헤더 */}
         <div style={{ background: "rgba(8,13,26,0.95)", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#fbbf24" }}>📹 {cctv.cctvNm} — CCTV 실시간</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#fbbf24" }}>{cctv.cctvNm}</span>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={() => setReloadKey(k => k + 1)}
@@ -36,7 +36,7 @@ export default function CctvModal({ cctv, onClose }) {
             <button
               onClick={onClose}
               style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 5, color: "#94a3b8", fontSize: 13, cursor: "pointer", padding: "3px 9px", fontFamily: "inherit" }}
-            >✕ 닫기</button>
+            >✕</button>
           </div>
         </div>
 

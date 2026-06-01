@@ -7,15 +7,16 @@ const GU_COORDS = {
   "성북구":   { cx:218, cy:106 }, "중랑구":   { cx:320, cy:100 },
   "종로구":   { cx:170, cy:124 }, "서대문구": { cx:130, cy:140 },
   "동대문구": { cx:282, cy:130 }, "마포구":   { cx:92,  cy:160 },
-  "중구":     { cx:220, cy:148 }, "성동구":   { cx:262, cy:158 },
+  "중구":   { cx:210, cy:150 }, "성동구":   { cx:262, cy:158 },
   "강서구":   { cx:56,  cy:220 }, "영등포구": { cx:140, cy:218 },
   "광진구":   { cx:320, cy:148 }, "강동구":   { cx:412, cy:230 },
   "양천구":   { cx:100, cy:226 }, "동작구":   { cx:190, cy:220 },
   "강남구":   { cx:260, cy:234 }, "구로구":   { cx:64,  cy:252 },
-  "금천구":   { cx:80,  cy:290 }, "관악구":   { cx:180, cy:270 },
+  "금천구": { cx:120, cy:270 }, "관악구":   { cx:180, cy:270 },
   "서초구":   { cx:250, cy:282 }, "송파구":   { cx:370, cy:240 },
-  "용산구":   { cx:200, cy:150 },
+  "용산구": { cx:190, cy:178 },
 };
+
 
 // 서울 전체 외곽선 (큰 틀 하나)
 const SEOUL_OUTLINE = "64,52 158,52 204,52 220,20 292,20 350,20 390,42 424,76 446,154 446,226 400,240 388,270 344,278 248,294 168,284 108,274 66,276 40,272 16,220 16,196 62,108 64,52";
@@ -108,8 +109,16 @@ export default function SeoulSvgMap({ onGoMap, selectedGu, onSelectGu, loading }
             const { cx, cy } = gu.coord;
             const isSel = selectedGu?.name === gu.name;
             const isHov = hoveredGu === gu.name;
+            const customTextOffset = {
+              "용산구": -16,
+            };
             const onRiver = cy >= 165 && cy <= 202;
-            const textY = onRiver ? cy + 13 : cy - 7;
+            const textY =
+              customTextOffset[gu.name] !== undefined
+                ? cy + customTextOffset[gu.name]
+                : onRiver
+                  ? cy + 13
+                  : cy - 7;
 
             return (
               <g key={gu.name} style={{ cursor: "pointer" }}
