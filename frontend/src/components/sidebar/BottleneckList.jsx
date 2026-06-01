@@ -1,3 +1,9 @@
+function speedColor(speed) {
+  if (!Number.isFinite(speed) || speed < 20) return "#ff5566";
+  if (speed < 40) return "#ffaa33";
+  return "#2ee07a";
+}
+
 export default function BottleneckList({ bottlenecks, selected, onSelect, crossroadsCount }) {
   return (
     <div style={{ background: "#1a1710", border: "1px solid #2a2418", borderRadius: 2, padding: "14px 16px" }}>
@@ -13,6 +19,7 @@ export default function BottleneckList({ bottlenecks, selected, onSelect, crossr
         bottlenecks.map(cr => {
           const isSelected = selected?.crsrdId === cr.crsrdId;
           const speed = Number.isFinite(cr.speed) ? cr.speed : "-";
+          const color = speedColor(cr.speed);
           return (
             <div
               key={cr.crsrdId}
@@ -20,15 +27,15 @@ export default function BottleneckList({ bottlenecks, selected, onSelect, crossr
               style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 padding: "9px 10px", borderRadius: 2, marginBottom: 6,
-                background: isSelected ? "rgba(255,85,102,0.08)" : "transparent",
-                border: `1px solid ${isSelected ? "rgba(255,85,102,0.45)" : "#2a2418"}`,
+                background: isSelected ? `${color}14` : "transparent",
+                border: `1px solid ${isSelected ? `${color}72` : "#2a2418"}`,
                 cursor: "pointer",
               }}
               onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#2a2418"; }}
               onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#ff5566", flexShrink: 0 }} />
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, color: "#e7ecf5", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 190 }}>
                     {cr.crsrdNm}
@@ -40,7 +47,7 @@ export default function BottleneckList({ bottlenecks, selected, onSelect, crossr
               </div>
 
               <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontSize: 14, color: "#ff5566", fontWeight: 800, fontFamily: "monospace" }}>
+                <div style={{ fontSize: 14, color: color, fontWeight: 800, fontFamily: "monospace" }}>
                   {speed}<span style={{ fontSize: 11 }}>km/h</span>
                 </div>
                 <div style={{ fontSize: 11, color: "#7a7a7a", marginTop: 2 }}>
