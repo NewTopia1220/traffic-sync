@@ -91,6 +91,13 @@ export default function ComplaintManagePage({ onBack }) {
     loadAll();
   };
 
+  const deleteComplaint = async (id) => {
+    if (!window.confirm("민원을 삭제하시겠습니까? 첨부 사진도 함께 삭제됩니다.")) return;
+    await fetch(`${API_BASE}/api/complaints/${id}`, { method: "DELETE" });
+    load();
+    loadAll();
+  };
+
   const reload = () => { load(); loadAll(); };
 
   // 구별 미처리(접수+처리중) 건수 맵
@@ -260,14 +267,22 @@ export default function ComplaintManagePage({ onBack }) {
                           ) : <span style={{ color: V.ink3, fontSize: 11 }}>—</span>}
                         </td>
                         <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, textAlign: "center", whiteSpace: "nowrap" }}>
-                          {meta.next ? (
-                            <button onClick={() => patchStatus(c.id, meta.next)}
-                              style={{ padding: "4px 12px", background: "transparent", border: `1px solid ${V.ink3}`, borderRadius: 2, color: V.ink2, fontSize: 11, cursor: "pointer", fontFamily: V.mono, transition: "all .15s" }}
-                              onMouseEnter={e => { e.currentTarget.style.borderColor = meta.color; e.currentTarget.style.color = meta.color; }}
-                              onMouseLeave={e => { e.currentTarget.style.borderColor = V.ink3; e.currentTarget.style.color = V.ink2; }}>
-                              → {meta.next}
+                          <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
+                            {meta.next ? (
+                              <button onClick={() => patchStatus(c.id, meta.next)}
+                                style={{ padding: "4px 12px", background: "transparent", border: `1px solid ${V.ink3}`, borderRadius: 2, color: V.ink2, fontSize: 11, cursor: "pointer", fontFamily: V.mono, transition: "all .15s" }}
+                                onMouseEnter={e => { e.currentTarget.style.borderColor = meta.color; e.currentTarget.style.color = meta.color; }}
+                                onMouseLeave={e => { e.currentTarget.style.borderColor = V.ink3; e.currentTarget.style.color = V.ink2; }}>
+                                → {meta.next}
+                              </button>
+                            ) : <span style={{ fontFamily: V.mono, fontSize: 11, color: V.grn }}>✓ 완료</span>}
+                            <button onClick={() => deleteComplaint(c.id)}
+                              style={{ padding: "4px 10px", background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink3, fontSize: 11, cursor: "pointer", fontFamily: V.mono, transition: "all .15s" }}
+                              onMouseEnter={e => { e.currentTarget.style.borderColor = V.red; e.currentTarget.style.color = V.red; }}
+                              onMouseLeave={e => { e.currentTarget.style.borderColor = V.line; e.currentTarget.style.color = V.ink3; }}>
+                              삭제
                             </button>
-                          ) : <span style={{ fontFamily: V.mono, fontSize: 11, color: V.grn }}>✓ 완료</span>}
+                          </div>
                         </td>
                       </tr>
                     );

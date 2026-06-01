@@ -257,7 +257,9 @@ export default function CivilDashboard({ civilUser, onLogout }) {
       fd.append("content",  form.content);
       fd.append("lat",      selectedLoc.lat);
       fd.append("lng",      selectedLoc.lng);
-      fd.append("address",  selectedLoc.address);
+      fd.append("address",    selectedLoc.address);
+      if (department) fd.append("department", department);
+      if (aiReason)   fd.append("aiReason",   aiReason);
       photos.forEach(p => fd.append("photos", p));
 
       const res = await fetch(`${API}/api/complaints`, { method: "POST", body: fd });

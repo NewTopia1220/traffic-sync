@@ -1,6 +1,8 @@
 package com.example.demo.service;
 
 import com.example.demo.entity.ComplaintEntity;
+import com.example.demo.entity.ComplaintPhotoEntity;
+import com.example.demo.repository.ComplaintPhotoRepository;
 import com.example.demo.repository.ComplaintRepository;
 import com.example.demo.repository.UserRepository;
 import jakarta.annotation.PostConstruct;
@@ -24,6 +26,7 @@ import java.util.stream.Collectors;
 public class ComplaintService {
 
     private final ComplaintRepository complaintRepo;
+    private final ComplaintPhotoRepository photoRepo;
     private final UserRepository userRepo;
     private final EmailService emailService;
 
@@ -55,16 +58,8 @@ public class ComplaintService {
             String userId, String userName,
             String title, String category, String content,
             Double lat, Double lng, String address,
+            String department, String aiReason,
             List<MultipartFile> photos) {
-
-        List<String> savedUrls = new ArrayList<>();
-        if (photos != null) {
-            for (MultipartFile photo : photos) {
-                if (photo.isEmpty()) continue;
-                try { savedUrls.add(savePhoto(photo)); }
-                catch (IOException e) { log.warn("[민원] 사진 저장 실패: {}", e.getMessage()); }
-            }
-        }
 
         ComplaintEntity c = new ComplaintEntity();
         c.setUserId(userId);
@@ -75,11 +70,31 @@ public class ComplaintService {
         c.setLat(lat);
         c.setLng(lng);
         c.setAddress(address);
-        c.setGuName(extractGuName(address));   // 주소에서 구 자동 추출
-        c.setPhotoUrls(savedUrls.isEmpty() ? null : String.join(",", savedUrls));
+        c.setGuName(extractGuName(address));
+        c.setDepartment(department);
+        c.setAiReason(aiReason);
         c.setStatus("접수");
         c.setCreatedAt(LocalDateTime.now());
+        complaintRepo.save(c);
 
+        // 사진 BLOB 저장
+        List<String> photoUrls = new ArrayList<>();
+        if (photos != null) {
+            for (MultipartFile photo : photos) {
+                if (photo.isEmpty()) continue;
+                try {
+                    ComplaintPhotoEntity p = new ComplaintPhotoEntity();
+                    p.setComplaintId(c.getId());
+                    p.setData(photo.getBytes());
+                    p.setMimeType(photo.getContentType() != null ? photo.getContentType() : "image/jpeg");
+                    photoRepo.save(p);
+                    photoUrls.add("/api/complaints/photos/" + p.getId());
+                } catch (IOException e) {
+                    log.warn("[민원] 사진 BLOB 저장 실패: {}", e.getMessage());
+                }
+            }
+        }
+        c.setPhotoUrls(photoUrls.isEmpty() ? null : String.join(",", photoUrls));
         complaintRepo.save(c);
         return Map.of("success", true, "id", c.getId(),
                       "guName", c.getGuName() != null ? c.getGuName() : "",
@@ -139,16 +154,16 @@ public class ComplaintService {
         return m.find() ? m.group(1) : null;
     }
 
-    private String savePhoto(MultipartFile file) throws IOException {
-        File dir = new File(uploadDir);
-        if (!dir.exists()) dir.mkdirs();
-        String ext = Optional.ofNullable(file.getOriginalFilename())
-            .filter(n -> n.contains("."))
-            .map(n -> n.substring(n.lastIndexOf(".")))
-            .orElse(".jpg");
-        String fileName = UUID.randomUUID() + ext;
-        file.transferTo(new File(dir, fileName));
-        return "/uploads/complaints/" + fileName;
+    public Optional<ComplaintPhotoEntity> getPhoto(Long photoId) {
+        return photoRepo.findById(photoId);
+    }
+
+    public Map<String, Object> delete(Long id) {
+        if (!complaintRepo.existsById(id))
+            return Map.of("success", false, "message", "민원을 찾을 수 없습니다.");
+        photoRepo.findByComplaintId(id).forEach(p -> photoRepo.delete(p));
+        complaintRepo.deleteById(id);
+        return Map.of("success", true);
     }
 
     private Map<String, Object> toMap(ComplaintEntity c) {
@@ -165,8 +180,10 @@ public class ComplaintService {
         m.put("lng",       c.getLng());
         m.put("address",   c.getAddress());
         m.put("guName",    c.getGuName());
-        m.put("photoUrls", photoList);
-        m.put("status",    c.getStatus());
+        m.put("photoUrls",  photoList);
+        m.put("department", c.getDepartment());
+        m.put("aiReason",   c.getAiReason());
+        m.put("status",     c.getStatus());
         m.put("createdAt", c.getCreatedAt() != null ? c.getCreatedAt().toString() : null);
         return m;
     }

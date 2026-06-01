@@ -145,7 +145,7 @@ function CctvModal({ cctv, onClose }) {
  *   onGoMain - "← 대시보드" 버튼 콜백
  *   onGoMap  - "🗺️ 지도 보기" 버튼 콜백
  */
-export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulation, onGoMyPage, onLogout, selectedGu }) {
+export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulation, onGoComplaints, onGoMyPage, onLogout, selectedGu }) {
   const [time,     setTime]     = useState(new Date());
   // 스프링에서 받아온 전체 CCTV 배열 (CctvInfo DTO 배열)
   const [cctvList, setCctvList] = useState([]);
@@ -220,6 +220,7 @@ export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulat
         onGoNews={onGoNews}
         onGoCctv={() => {}}
         onGoSimulation={onGoSimulation}
+        onGoComplaints={onGoComplaints}
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
       />

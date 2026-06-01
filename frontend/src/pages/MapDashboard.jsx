@@ -31,6 +31,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
   const [signalPanelOpen, setSignalPanelOpen] = useState(true);
   const [complaints,       setComplaints]     = useState([]);
   const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [complaintMapCenter, setComplaintMapCenter] = useState(null);
   const prevComplaintIdsRef = useRef(new Set());
 
   useEffect(() => {
@@ -145,10 +146,10 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
 
           {activeTab === "map" && (
             <div style={{ flex: 1, position: "relative", minHeight: 0, borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} selectedGu={selectedGu} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} complaints={complaints} onComplaintClick={setSelectedComplaint} />
+              <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} selectedGu={selectedGu} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} complaints={complaints.filter(c => c.status !== "완료")} onComplaintClick={setSelectedComplaint} complaintCenter={complaintMapCenter} />
 
-              {/* ── 구별 민원 현황 배지 ── */}
-              {selectedGu && (
+              {/* ── 구별 민원 현황 배지 — 활성 민원 1건 이상일 때만 표시 ── */}
+              {selectedGu && complaints.filter(c => c.status !== "완료").length > 0 && (
                 <div style={{
                   position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)",
                   zIndex: 20, display: "flex", alignItems: "center", gap: 10,
@@ -161,24 +162,18 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#aab4c8", display: "flex", alignItems: "center", gap: 8 }}>
                     <b style={{ color: "#e7ecf5" }}>{selectedGu.name}</b>
                     <span>현재 민원</span>
-                    <b style={{ color: "#ffaa33" }}>{complaints.length}건</b>
+                    <b style={{ color: "#ffaa33" }}>{complaints.filter(c => c.status !== "완료").length}건</b>
                   </span>
-                  {complaints.length > 0 && (
-                    <div style={{ display: "flex", gap: 10 }}>
-                      {[
-                        ["접수",   complaints.filter(c => c.status === "접수").length,   "#ffaa33"],
-                        ["처리중", complaints.filter(c => c.status === "처리중").length, "#4ea6ff"],
-                        ["완료",   complaints.filter(c => c.status === "완료").length,   "#2ee07a"],
-                      ].filter(([, cnt]) => cnt > 0).map(([label, cnt, color]) => (
-                        <span key={label} style={{ fontSize: 14, fontWeight: 700, color }}>
-                          {label} {cnt}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {complaints.length === 0 && (
-                    <span style={{ fontSize: 14, color: "#4a4a4a" }}>민원 없음</span>
-                  )}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    {[
+                      ["접수",   complaints.filter(c => c.status === "접수").length,   "#ffaa33"],
+                      ["처리중", complaints.filter(c => c.status === "처리중").length, "#4ea6ff"],
+                    ].filter(([, cnt]) => cnt > 0).map(([label, cnt, color]) => (
+                      <span key={label} style={{ fontSize: 14, fontWeight: 700, color }}>
+                        {label} {cnt}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -260,14 +255,14 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
               </div>
             ))}
           </div>
-          <BottleneckList bottlenecks={bottlenecks} selected={selected} onSelect={selectCr} crossroadsCount={wsData.length} />
-          <RiskList risks={risks} onSelect={selectCr} crossroadsCount={wsData.length} />
           <ComplaintList
             complaints={complaints}
             selected={selectedComplaint}
-            onSelect={c => { setSelectedComplaint(c); }}
+            onSelect={c => { setSelectedComplaint(c); setComplaintMapCenter({ ...c, _t: Date.now() }); }}
             onStatusChange={fetchComplaints}
           />
+          <BottleneckList bottlenecks={bottlenecks} selected={selected} onSelect={selectCr} crossroadsCount={wsData.length} />
+          <RiskList risks={risks} onSelect={selectCr} crossroadsCount={wsData.length} />
         </div>
 
         {/* 챗봇 패널 — chatOpen일 때만 그리드 컬럼에 렌더링 */}

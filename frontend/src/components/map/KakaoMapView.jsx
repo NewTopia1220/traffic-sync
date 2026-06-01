@@ -44,7 +44,7 @@ function isWithinSelectedGu(item, selectedGu, radiusKm = 2.5) {
  * @param {Object}   initialCenter - 최초 지도 중심 좌표 { lat, lon } (구 클릭 시 전달)
  * @param {Function} onCctvClick   - CCTV 마커 클릭 시 CCTV 객체 전달 콜백 → CctvModal 열기
  */
-export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter, selectedGu, onCctvClick, stations = [], onStationSelect, complaints = [], onComplaintClick }) {
+export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter, selectedGu, onCctvClick, stations = [], onStationSelect, complaints = [], onComplaintClick, complaintCenter }) {
 
   // ── Ref: 재렌더링 없이 값 유지 ──────────────────────────────────────────────
   const mapRef            = useRef(null); // 카카오맵이 실제로 렌더링될 DOM div 요소
@@ -282,6 +282,16 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     // panTo: 즉시 이동이 아닌 부드러운 애니메이션 이동
     mapObj.current.panTo(new window.kakao.maps.LatLng(selected.lat, selected.lon));
   }, [ready, selected?.crsrdId]); // crsrdId가 바뀔 때만 실행
+
+  // 민원 클릭 시 해당 위치로 이동
+  useEffect(() => {
+    console.log('[민원이동] lat:', complaintCenter?.lat, 'lng:', complaintCenter?.lng);
+    if (!ready || !mapObj.current || !complaintCenter?.lat || !complaintCenter?.lng) return;
+    const pos = new window.kakao.maps.LatLng(complaintCenter.lat, complaintCenter.lng);
+    console.log('[민원이동] panTo 실행', pos);
+    mapObj.current.setCenter(pos);
+    mapObj.current.setLevel(4);
+  }, [ready, complaintCenter?._t]);
 
   // ── useEffect 5: CCTV 목록 로드 ────────────────────────────────────────────
   // 마운트 시 1회: 스프링 /api/cctv → Oracle DB CCTV3 테이블 전체 조회

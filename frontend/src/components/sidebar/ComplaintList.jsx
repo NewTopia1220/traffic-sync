@@ -44,7 +44,7 @@ export default function ComplaintList({ complaints, onSelect, selected, onStatus
 
       {/* 헤더 */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <span style={{ fontSize: 14, fontWeight: 700, color: V.ink0 }}>⚠ 민원 현황</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: V.ink0 }}>민원 현황</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           {[["접수", pending, V.org], ["처리중", progress, V.blu], ["완료", done, V.grn]].map(([label, cnt, color]) => (
             <span key={label} style={{ fontFamily: V.mono, fontSize: 10, color, fontWeight: 700 }}>
@@ -55,10 +55,10 @@ export default function ComplaintList({ complaints, onSelect, selected, onStatus
       </div>
 
       {/* 목록 */}
-      {complaints.length === 0 ? (
+      {complaints.filter(c => c.status !== "완료").length === 0 ? (
         <div style={{ fontSize: 13, color: V.ink3, textAlign: "center", padding: "10px 0" }}>접수된 민원 없음</div>
       ) : (
-        complaints.map(c => {
+        complaints.filter(c => c.status !== "완료").map(c => {
           const meta = STATUS_META[c.status] || STATUS_META["접수"];
           const isSel = selected?.id === c.id;
           return (
@@ -85,8 +85,11 @@ export default function ComplaintList({ complaints, onSelect, selected, onStatus
                   <span style={{ fontSize: 11, color: V.ink2, fontFamily: V.mono }}>{c.category?.substring(0, 7)}</span>
                 </div>
                 <div style={{ fontSize: 13, color: V.ink0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>
+                {c.content && (
+                  <div style={{ fontSize: 11, color: V.ink1, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.4 }}>{c.content}</div>
+                )}
                 <div style={{ fontSize: 11, color: V.ink2, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  📍 {c.address}
+                  {c.address}
                 </div>
                 <div style={{ fontSize: 10, color: V.ink3, fontFamily: V.mono, marginTop: 2 }}>{c.userName} · {fmt(c.createdAt)}</div>
               </div>

@@ -2,6 +2,8 @@ package com.example.demo.controller;
 
 import com.example.demo.service.ComplaintService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -32,11 +34,13 @@ public class ComplaintController {
             @RequestParam("content")  String content,
             @RequestParam("lat")      Double lat,
             @RequestParam("lng")      Double lng,
-            @RequestParam("address")  String address,
-            @RequestParam(value = "photos", required = false) List<MultipartFile> photos) {
+            @RequestParam("address")                          String address,
+            @RequestParam(value = "department", required = false) String department,
+            @RequestParam(value = "aiReason",   required = false) String aiReason,
+            @RequestParam(value = "photos",     required = false) List<MultipartFile> photos) {
 
         return ResponseEntity.ok(
-            complaintService.create(userId, userName, title, category, content, lat, lng, address, photos)
+            complaintService.create(userId, userName, title, category, content, lat, lng, address, department, aiReason, photos)
         );
     }
 
@@ -46,5 +50,21 @@ public class ComplaintController {
             @PathVariable Long id,
             @RequestBody Map<String, String> body) {
         return ResponseEntity.ok(complaintService.updateStatus(id, body.get("status")));
+    }
+
+    // 민원 삭제 (사진 포함)
+    @DeleteMapping("/api/complaints/{id}")
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable Long id) {
+        return ResponseEntity.ok(complaintService.delete(id));
+    }
+
+    // 사진 BLOB 조회
+    @GetMapping("/api/complaints/photos/{photoId}")
+    public ResponseEntity<byte[]> getPhoto(@PathVariable Long photoId) {
+        return complaintService.getPhoto(photoId)
+            .map(p -> ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, p.getMimeType() != null ? p.getMimeType() : "image/jpeg")
+                .body(p.getData()))
+            .orElse(ResponseEntity.notFound().build());
     }
 }

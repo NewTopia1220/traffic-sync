@@ -50,6 +50,12 @@ public class ComplaintEntity {
     @Column(name = "PHOTO_URLS", length = 1000)
     private String photoUrls;
 
+    @Column(name = "DEPARTMENT", length = 50)
+    private String department;
+
+    @Column(name = "AI_REASON", length = 500)
+    private String aiReason;
+
     // 접수 | 처리중 | 완료
     @Column(name = "STATUS", length = 20)
     private String status = "접수";
