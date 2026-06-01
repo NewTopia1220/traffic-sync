@@ -156,7 +156,7 @@ export default function CivilLoginPage({ onLogin, onBack }) {
     <div style={{ fontFamily: V.sans, background: V.bg, color: V.ink, height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
       {/* status bar */}
-      <header style={{ height: 28, display: "flex", alignItems: "center", gap: 16, padding: "0 16px", background: "#0a0a0a", borderBottom: `1px solid ${V.bd}`, fontFamily: V.mono, fontSize: 11, color: V.ink3, letterSpacing: ".3px", zIndex: 30, flexShrink: 0 }}>
+      <header style={{ height: 28, display: window.innerWidth <= 768 ? "none" : "flex", alignItems: "center", gap: 16, padding: "0 16px", background: "#0a0a0a", borderBottom: `1px solid ${V.bd}`, fontFamily: V.mono, fontSize: 11, color: V.ink3, letterSpacing: ".3px", zIndex: 30, flexShrink: 0 }}>
         <span style={{ width: 8, height: 8, background: V.pri, display: "inline-block" }} />
         <span>TRAFFICSYNC · 민원 시스템</span>
         <span style={{ color: V.ink4 }}>│</span>
@@ -177,9 +177,9 @@ export default function CivilLoginPage({ onLogin, onBack }) {
         </div>
 
         {/* 카드 */}
-        <div style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, overflowY: "auto" }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-            <div style={{ width: screen === "signup" ? 500 : 480, maxWidth: "100%", background: V.card, backdropFilter: "blur(20px) saturate(1.05)", WebkitBackdropFilter: "blur(20px) saturate(1.05)", border: "1px solid rgba(255,170,51,.22)", borderRadius: 2, padding: screen === "signup" ? "32px 40px" : "44px 50px" }}>
+        <div style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, overflowY: "auto" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, width: "100%" }}>
+            <div style={{ width: screen === "signup" ? 500 : 480, maxWidth: "100%", background: V.card, backdropFilter: "blur(20px) saturate(1.05)", WebkitBackdropFilter: "blur(20px) saturate(1.05)", border: "1px solid rgba(255,170,51,.22)", borderRadius: 2, padding: "clamp(20px, 5vw, 44px) clamp(16px, 6vw, 50px)" }}>
 
               {/* 헤더 */}
               <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", border: `1px solid ${V.pri}`, background: "rgba(255,170,51,.12)", color: V.pri, borderRadius: 2, fontFamily: V.mono, fontSize: 11, fontWeight: 700, letterSpacing: ".8px", marginBottom: 14 }}>

@@ -53,6 +53,14 @@ const inpStyle = {
 };
 
 export default function CivilDashboard({ civilUser, onLogout }) {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handler);
+    handler();
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
   const mapRef    = useRef(null);
   const mapObj    = useRef(null);
   const markerRef = useRef(null);
@@ -165,7 +173,10 @@ export default function CivilDashboard({ civilUser, onLogout }) {
         setConfirmOpen(true);
         setLocating(false);
       });
-    }, () => setLocating(false));
+    }, (err) => {
+      setLocating(false);
+      alert("위치를 가져올 수 없습니다.\n지도를 직접 클릭해서 위치를 선택해 주세요.");
+    });
   };
 
   // ── HEIC → JPEG 변환 헬퍼 ─────────────────────────────────────────────────
@@ -273,40 +284,55 @@ export default function CivilDashboard({ civilUser, onLogout }) {
 
   // ── 렌더링 ──────────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, height: "100vh", display: "flex", flexDirection: "column" }}>
 
       {/* ── 헤더 ── */}
-      <div style={{ height: 56, display: "flex", alignItems: "center", gap: 12, padding: "0 20px", background: V.bg1, borderBottom: `1px solid ${V.line}`, flexShrink: 0 }}>
-        <span style={{ width: 8, height: 8, background: V.org, borderRadius: "50%", display: "inline-block" }} />
-        <span style={{ fontWeight: 700, fontSize: 15 }}>TrafficSync 민원 신청</span>
-        <div style={{ width: 1, height: 18, background: V.line }} />
-        <span style={{ fontFamily: V.mono, fontSize: 12, color: V.ink2 }}>{civilUser.name} 님</span>
-
-        {/* 검색 */}
-        <div style={{ display: "flex", gap: 6, marginLeft: 16, flex: 1, maxWidth: 360 }}>
-          <input
-            value={searchQ}
-            onChange={e => setSearchQ(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleSearch()}
-            placeholder="위치 검색 (Enter)"
-            style={{ flex: 1, height: 34, padding: "0 12px", background: "rgba(255,255,255,.05)", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink0, fontSize: 13, fontFamily: V.sans, outline: "none" }}
-          />
-          <button onClick={handleSearch} style={{ height: 34, padding: "0 14px", background: V.org, border: "none", borderRadius: 2, color: "#000", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>검색</button>
+      {isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", background: V.bg1, borderBottom: `1px solid ${V.line}`, flexShrink: 0 }}>
+          {/* 모바일 1행: 타이틀 + 로그아웃 */}
+          <div style={{ height: 44, display: "flex", alignItems: "center", gap: 8, padding: "0 14px" }}>
+            <span style={{ width: 7, height: 7, background: V.org, borderRadius: "50%", display: "inline-block", flexShrink: 0 }} />
+            <span style={{ fontWeight: 700, fontSize: 13, flex: 1 }}>TrafficSync 민원 신청</span>
+            {submitOk && <span style={{ fontFamily: V.mono, fontSize: 10, color: V.grn }}>✓ 접수완료</span>}
+            <button onClick={onLogout} style={{ height: 30, padding: "0 12px", background: "transparent", border: "1px solid #3a1820", borderRadius: 2, color: V.red, fontSize: 12, cursor: "pointer", fontFamily: V.sans, flexShrink: 0 }}>로그아웃</button>
+          </div>
+          {/* 모바일 2행: 검색 */}
+          <div style={{ display: "flex", gap: 6, padding: "0 14px 10px" }}>
+            <input
+              value={searchQ}
+              onChange={e => setSearchQ(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSearch()}
+              placeholder="위치 검색"
+              style={{ flex: 1, height: 34, padding: "0 12px", background: "rgba(255,255,255,.05)", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink0, fontSize: 13, fontFamily: V.sans, outline: "none" }}
+            />
+            <button onClick={handleSearch} style={{ height: 34, padding: "0 16px", background: V.org, border: "none", borderRadius: 2, color: "#000", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>검색</button>
+          </div>
         </div>
-
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          {submitOk && (
-            <span style={{ fontFamily: V.mono, fontSize: 12, color: V.grn, padding: "4px 10px", border: "1px solid #1a3a24", background: "#0c1a12", borderRadius: 2 }}>✓ 민원이 접수되었습니다</span>
-          )}
-          <button onClick={onLogout} style={{ height: 32, padding: "0 14px", background: "transparent", border: "1px solid #3a1820", borderRadius: 2, color: V.red, fontSize: 13, cursor: "pointer", fontFamily: V.sans }}>로그아웃</button>
+      ) : (
+        <div style={{ height: 56, display: "flex", alignItems: "center", gap: 8, padding: "0 16px", background: V.bg1, borderBottom: `1px solid ${V.line}`, flexShrink: 0 }}>
+          <span style={{ width: 8, height: 8, background: V.org, borderRadius: "50%", display: "inline-block", flexShrink: 0 }} />
+          <span style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap" }}>TrafficSync 민원 신청</span>
+          <div style={{ width: 1, height: 18, background: V.line }} />
+          <span style={{ fontFamily: V.mono, fontSize: 12, color: V.ink2, whiteSpace: "nowrap" }}>{civilUser.name} 님</span>
+          <div style={{ display: "flex", gap: 6, marginLeft: 8, flex: 1, maxWidth: 360 }}>
+            <input value={searchQ} onChange={e => setSearchQ(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSearch()} placeholder="위치 검색 (Enter)"
+              style={{ flex: 1, height: 34, padding: "0 12px", background: "rgba(255,255,255,.05)", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink0, fontSize: 13, fontFamily: V.sans, outline: "none" }} />
+            <button onClick={handleSearch} style={{ height: 34, padding: "0 14px", background: V.org, border: "none", borderRadius: 2, color: "#000", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>검색</button>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            {submitOk && <span style={{ fontFamily: V.mono, fontSize: 11, color: V.grn, padding: "4px 8px", border: "1px solid #1a3a24", background: "#0c1a12", borderRadius: 2 }}>✓ 민원이 접수되었습니다</span>}
+            <button onClick={onLogout} style={{ height: 32, padding: "0 14px", background: "transparent", border: "1px solid #3a1820", borderRadius: 2, color: V.red, fontSize: 13, cursor: "pointer", fontFamily: V.sans }}>로그아웃</button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ── 안내 배너 ── */}
-      <div style={{ padding: "7px 20px", background: "#050510", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 12, color: V.ink2, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        <span style={{ color: V.org }}>▸</span>
-        지도를 클릭하여 민원 위치를 선택하세요 · 위치 검색 또는 현재 위치 버튼을 사용할 수 있습니다
-      </div>
+      {/* ── 안내 배너 — 모바일에서 숨김 */}
+      {!isMobile && (
+        <div style={{ padding: "7px 20px", background: "#050510", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 12, color: V.ink2, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <span style={{ color: V.org }}>▸</span>
+          지도를 클릭하여 민원 위치를 선택하세요 · 위치 검색 또는 현재 위치 버튼을 사용할 수 있습니다
+        </div>
+      )}
 
       {/* ── 지도 ── */}
       <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
@@ -318,18 +344,22 @@ export default function CivilDashboard({ civilUser, onLogout }) {
           )}
         </div>
 
-        {/* 현재 위치로 민원 신청 버튼 */}
-        <button onClick={goCurrentLocation} disabled={locating} title="현재 위치에 민원 신청"
-          style={{ position: "absolute", bottom: 24, right: 16, zIndex: 10, height: 54, padding: "0 20px", background: locating ? "#1a1a1a" : V.org, border: "none", borderRadius: 6, color: locating ? V.ink2 : "#000", fontSize: 14, fontWeight: 700, cursor: locating ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 8, boxShadow: "0 4px 16px rgba(0,0,0,.6)", fontFamily: V.sans, whiteSpace: "nowrap" }}>
-          <span style={{ fontSize: 18 }}>{locating ? "⏳" : "📍"}</span>
-          {locating ? "위치 확인 중..." : "현재 위치로 신청"}
-        </button>
+        {/* 현재 위치로 민원 신청 버튼 — 모바일에서 숨김 */}
+        {!isMobile && (
+          <button onClick={goCurrentLocation} disabled={locating} title="현재 위치에 민원 신청"
+            style={{ position: "absolute", bottom: 24, right: 16, zIndex: 10, height: 54, padding: "0 20px", background: locating ? "#1a1a1a" : V.org, border: "none", borderRadius: 6, color: locating ? V.ink2 : "#000", fontSize: 14, fontWeight: 700, cursor: locating ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 8, boxShadow: "0 4px 16px rgba(0,0,0,.6)", fontFamily: V.sans, whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: 18 }}>{locating ? "⏳" : "📍"}</span>
+            {locating ? "위치 확인 중..." : "현재 위치로 신청"}
+          </button>
+        )}
 
-        {/* 범례 */}
-        <div style={{ position: "absolute", top: 12, left: 12, zIndex: 10, background: "rgba(0,0,0,0.88)", border: `1px solid ${V.line}`, borderRadius: 2, padding: "10px 14px" }}>
-          <div style={{ fontFamily: V.mono, fontSize: 11, color: V.ink0, fontWeight: 700, marginBottom: 4 }}>민원 신청 방법</div>
-          <div style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2 }}>① 지도 클릭 → ② 위치 확인 → ③ 내용 입력</div>
-        </div>
+        {/* 범례 — 모바일에서 숨김 */}
+        {!isMobile && (
+          <div style={{ position: "absolute", top: 12, left: 12, zIndex: 10, background: "rgba(0,0,0,0.88)", border: `1px solid ${V.line}`, borderRadius: 2, padding: "10px 14px" }}>
+            <div style={{ fontFamily: V.mono, fontSize: 11, color: V.ink0, fontWeight: 700, marginBottom: 4 }}>민원 신청 방법</div>
+            <div style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2 }}>① 지도 클릭 → ② 위치 확인 → ③ 내용 입력</div>
+          </div>
+        )}
 
         {/* ── 위치 확인 — 마커 위 플로팅 카드 ── */}
         {confirmOpen && selectedLoc && (
@@ -374,7 +404,7 @@ export default function CivilDashboard({ civilUser, onLogout }) {
       {formOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end" }}>
           <div onClick={() => setFormOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-          <div style={{ position: "relative", width: 480, background: V.bg1, borderLeft: `1px solid ${V.line}`, display: "flex", flexDirection: "column", height: "100%", overflowY: "auto", boxShadow: "-8px 0 32px rgba(0,0,0,0.7)" }}>
+          <div style={{ position: "relative", width: isMobile ? "100%" : 480, background: V.bg1, borderLeft: `1px solid ${V.line}`, display: "flex", flexDirection: "column", height: "100%", overflowY: "auto", boxShadow: "-8px 0 32px rgba(0,0,0,0.7)" }}>
 
             {/* 패널 헤더 */}
             <div style={{ padding: "14px 20px", borderBottom: `1px solid ${V.line}`, background: "#080808", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
