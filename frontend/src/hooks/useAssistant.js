@@ -156,7 +156,7 @@ export function useAssistant({ page, onNavIntent }) {
 
   // ── 전역 박수 감지 → 음성 세션 시작/중단 ────────────────────────
   useClapDetection({
-    enabled: page === 'main',
+    enabled: page === 'main' && !(voiceUI.active && !voiceMinimized),
     onDoubleClap: useCallback(() => {
       if (window.__chatbotSpeaking) return
       if (page === 'map') return  // 지도 페이지는 지도 챗봇 훅이 처리

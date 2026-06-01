@@ -20,7 +20,7 @@ export default function KpiCard({ value, unit, label, sub, status }) {
   return (
     <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "18px 22px", position: "relative", minHeight: 118 }}>
       {status && (
-        <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 2, background: s.bg, border: `1px solid ${s.bd}`, color: s.c, position: "absolute", top: 14, right: 16 }}>
+        <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: s.c, position: "absolute", top: 14, right: 16 }}>
           {status}
         </span>
       )}

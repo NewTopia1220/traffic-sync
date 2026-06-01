@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.entity.ComplaintEntity;
 import com.example.demo.repository.ComplaintRepository;
+import com.example.demo.repository.UserRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +24,8 @@ import java.util.stream.Collectors;
 public class ComplaintService {
 
     private final ComplaintRepository complaintRepo;
+    private final UserRepository userRepo;
+    private final EmailService emailService;
 
     @Value("${complaint.upload.dir:uploads/complaints}")
     private String uploadDir;
@@ -87,8 +90,42 @@ public class ComplaintService {
         return complaintRepo.findById(id).map(c -> {
             c.setStatus(status);
             complaintRepo.save(c);
+            sendStatusEmail(c, status);
             return Map.<String, Object>of("success", true);
         }).orElse(Map.of("success", false, "message", "민원을 찾을 수 없습니다."));
+    }
+
+    private void sendStatusEmail(ComplaintEntity c, String status) {
+        if (c.getUserId() == null) return;
+        userRepo.findById(c.getUserId()).ifPresent(user -> {
+            String email = user.getEmail();
+            if (email == null || email.isBlank()) return;
+            try {
+                String subject = "[TrafficSync 민원] '" + c.getTitle() + "' 처리 현황 안내";
+                String body = String.format(
+                    "%s 님, 신청하신 민원의 처리 현황을 알려드립니다.\n\n" +
+                    "■ 민원 제목: %s\n" +
+                    "■ 민원 분류: %s\n" +
+                    "■ 접수 위치: %s\n" +
+                    "■ 현재 상태: %s\n\n" +
+                    "%s\n\n" +
+                    "TrafficSync 서울시 교통 관제 시스템",
+                    user.getName(),
+                    c.getTitle(),
+                    c.getCategory() != null ? c.getCategory() : "—",
+                    c.getAddress() != null ? c.getAddress() : "—",
+                    status,
+                    "처리중".equals(status)
+                        ? "담당 부서에서 민원을 검토 중입니다. 처리 완료 시 다시 안내드리겠습니다."
+                        : "완료".equals(status)
+                        ? "민원 처리가 완료되었습니다. 이용해 주셔서 감사합니다."
+                        : ""
+                );
+                emailService.send(email, subject, body);
+            } catch (Exception e) {
+                log.warn("[민원 이메일] 발송 실패 userId={}: {}", c.getUserId(), e.getMessage());
+            }
+        });
     }
 
     // ── 내부 유틸 ────────────────────────────────────────────────────────────────

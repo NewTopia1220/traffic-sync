@@ -29,7 +29,7 @@ export default function LivCard({ name, color, speed, sparkData }) {
       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
         <span style={{ display: "inline-block", width: 14, height: 3, background: color, borderRadius: 1, marginRight: 9 }} />
         <span style={{ color: "#fff", fontSize: 17, fontWeight: 600 }}>{name}</span>
-        <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11, color: stColor, padding: "3px 8px", border: `1px solid ${stColor}44`, borderRadius: 2 }}>{st}</span>
+        <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11, color: stColor, fontWeight: 700 }}>{st}</span>
       </div>
       {/* 속도 수치 + 추세 */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontFamily: V.mono, flexShrink: 0 }}>

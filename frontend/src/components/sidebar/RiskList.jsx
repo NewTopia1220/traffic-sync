@@ -19,8 +19,7 @@ export default function RiskList({ risks, onSelect, crossroadsCount }) {
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}
             >
               <div>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 2,
-                  background: color + "22", color, marginRight: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color, marginRight: 8 }}>
                   {riskLabelByGrade(cr.riskGrade)} {scoreText === "수집 대기" ? scoreText : `${scoreText}점`}
                 </span>
                 <span style={{ fontSize: 13, color: "#e7ecf5" }}>{cr.crsrdNm}</span>

@@ -22,9 +22,9 @@ export default function ComplaintPopup({ complaint, onClose }) {
 
         {/* 헤더 */}
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${V.line}`, background: "#080808", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <span style={{ fontFamily: V.mono, fontSize: 10, color: V.org, letterSpacing: ".5px", padding: "2px 8px", border: `1px solid ${V.org}`, borderRadius: 2 }}>민원</span>
+          <span style={{ fontFamily: V.mono, fontSize: 10, color: V.org, letterSpacing: ".5px", fontWeight: 700 }}>민원</span>
           <span style={{ fontSize: 14, fontWeight: 700, color: V.ink0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{complaint.title}</span>
-          <span style={{ fontFamily: V.mono, fontSize: 11, color: statusColor, padding: "2px 8px", border: `1px solid ${statusColor}`, borderRadius: 2 }}>{complaint.status || "접수"}</span>
+          <span style={{ fontFamily: V.mono, fontSize: 11, color: statusColor, fontWeight: 700 }}>{complaint.status || "접수"}</span>
           <button onClick={onClose} style={{ width: 28, height: 28, background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink2, cursor: "pointer", fontSize: 15, flexShrink: 0 }}>✕</button>
         </div>
 

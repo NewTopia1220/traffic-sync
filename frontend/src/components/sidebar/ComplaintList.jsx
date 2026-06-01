@@ -47,7 +47,7 @@ export default function ComplaintList({ complaints, onSelect, selected, onStatus
         <span style={{ fontSize: 14, fontWeight: 700, color: V.ink0 }}>⚠ 민원 현황</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           {[["접수", pending, V.org], ["처리중", progress, V.blu], ["완료", done, V.grn]].map(([label, cnt, color]) => (
-            <span key={label} style={{ fontFamily: V.mono, fontSize: 10, color, padding: "2px 7px", border: `1px solid ${color}44`, borderRadius: 2 }}>
+            <span key={label} style={{ fontFamily: V.mono, fontSize: 10, color, fontWeight: 700 }}>
               {label} {cnt}
             </span>
           ))}
@@ -81,7 +81,7 @@ export default function ComplaintList({ complaints, onSelect, selected, onStatus
               {/* 내용 */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                  <span style={{ fontSize: 11, fontFamily: V.mono, color: meta.color, padding: "1px 5px", border: `1px solid ${meta.color}44`, borderRadius: 2 }}>{c.status}</span>
+                  <span style={{ fontSize: 11, fontFamily: V.mono, color: meta.color, fontWeight: 700 }}>{c.status}</span>
                   <span style={{ fontSize: 11, color: V.ink2, fontFamily: V.mono }}>{c.category?.substring(0, 7)}</span>
                 </div>
                 <div style={{ fontSize: 13, color: V.ink0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>

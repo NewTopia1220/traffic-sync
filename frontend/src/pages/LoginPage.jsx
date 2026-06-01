@@ -103,6 +103,7 @@ function ScreenLogin({ onSuccess, onGo }) {
       });
       const data = await res.json();
       if (data.success) {
+        if (data.role === "CIVIL") { setErr("민원 계정은 민원 신청 화면에서 로그인하세요."); return; }
         localStorage.setItem("ts_user", JSON.stringify({ userId: data.userId, name: data.name, role: data.role, isTempPw: data.isTempPw, email: data.email || "" }));
         onSuccess(data);
       } else {

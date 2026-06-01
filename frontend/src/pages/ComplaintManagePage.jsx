@@ -1,19 +1,20 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { GU_LIST } from "../constants/seoulGeoData";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
 const V = {
   bg0: "#000", bg1: "#0a0a0a", line: "#1a1a1a",
   ink0: "#e7ecf5", ink1: "#aab4c8", ink2: "#7a7a7a", ink3: "#3a3a3a",
-  grn: "#2ee07a", yel: "#facc15", red: "#ff5566", org: "#ffaa33", blu: "#4ea6ff",
+  grn: "#2ee07a", red: "#ff5566", org: "#ffaa33", blu: "#4ea6ff",
   mono: "'IBM Plex Mono',ui-monospace,Menlo,monospace",
   sans: "'Pretendard','Noto Sans KR',system-ui,sans-serif",
 };
 
 const STATUS_META = {
-  "접수":   { color: V.org, bg: "#1a1206", bd: "#3a2a14", next: "처리중" },
-  "처리중": { color: V.blu, bg: "#0a1020", bd: "#1a2a40", next: "완료"  },
-  "완료":   { color: V.grn, bg: "#0c1a12", bd: "#1a3a24", next: null    },
+  "접수":   { color: V.org, next: "처리중" },
+  "처리중": { color: V.blu, next: "완료"   },
+  "완료":   { color: V.grn, next: null     },
 };
 
 const CATEGORIES = [
@@ -24,11 +25,10 @@ const CATEGORIES = [
 
 function PhotoModal({ urls, onClose }) {
   const [idx, setIdx] = useState(0);
-  if (!urls.length) return null;
-  const src = urls[idx].startsWith("http") ? urls[idx] : `${API_BASE}${urls[idx]}`;
+  const src = urls[idx]?.startsWith("http") ? urls[idx] : `${API_BASE}${urls[idx]}`;
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={e => e.stopPropagation()} style={{ position: "relative", maxWidth: "90vw", maxHeight: "85vh" }}>
+      <div onClick={e => e.stopPropagation()} style={{ position: "relative" }}>
         <img src={src} alt="" style={{ maxWidth: "80vw", maxHeight: "75vh", objectFit: "contain", borderRadius: 2, display: "block" }} />
         {urls.length > 1 && (
           <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 12 }}>
@@ -45,44 +45,83 @@ function PhotoModal({ urls, onClose }) {
 }
 
 export default function ComplaintManagePage({ onBack }) {
-  const [complaints, setComplaints]       = useState([]);
-  const [loading,    setLoading]          = useState(true);
+  const [complaints,     setComplaints]   = useState([]);
+  const [allComplaints,  setAllComplaints] = useState([]); // 사이드바 카운트용 전체
+  const [loading,        setLoading]      = useState(true);
+  const [selectedGu,     setSelectedGu]  = useState(null);
   const [filterStatus,   setFilterStatus] = useState("전체");
   const [filterCategory, setFilterCat]   = useState("전체");
-  const [search,     setSearch]           = useState("");
-  const [photoModal, setPhotoModal]       = useState(null); // urls array
-  const [now,        setNow]              = useState(new Date());
+  const [search,         setSearch]      = useState("");
+  const [photoModal,     setPhotoModal]  = useState(null);
+  const [now,            setNow]         = useState(new Date());
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
-
   const fmt  = n => String(n).padStart(2, "0");
   const time = `${now.getFullYear()}-${fmt(now.getMonth()+1)}-${fmt(now.getDate())} ${fmt(now.getHours())}:${fmt(now.getMinutes())}:${fmt(now.getSeconds())}`;
 
+  // 전체 민원 (사이드바 카운트용) — 마운트 시 1회 + 새로고침 시
+  const loadAll = useCallback(() => {
+    fetch(`${API_BASE}/api/complaints`)
+      .then(r => r.json())
+      .then(data => Array.isArray(data) && setAllComplaints(data))
+      .catch(() => {});
+  }, []);
+
+  // 선택된 구의 민원 (테이블용)
   const load = useCallback(() => {
     setLoading(true);
-    fetch(`${API_BASE}/api/complaints`)
+    const url = selectedGu
+      ? `${API_BASE}/api/complaints?guName=${encodeURIComponent(selectedGu)}`
+      : `${API_BASE}/api/complaints`;
+    fetch(url)
       .then(r => r.json())
       .then(data => { setComplaints(data); setLoading(false); })
       .catch(() => setLoading(false));
-  }, []);
+  }, [selectedGu]);
 
+  useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => { load(); }, [load]);
 
   const patchStatus = async (id, status) => {
     await fetch(`${API_BASE}/api/complaints/${id}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
     load();
+    loadAll();
   };
 
-  const filtered = complaints.filter(c => {
-    if (filterStatus   !== "전체" && c.status   !== filterStatus)   return false;
-    if (filterCategory !== "전체" && c.category !== filterCategory) return false;
-    if (search && !c.title?.includes(search) && !c.address?.includes(search) && !c.userName?.includes(search)) return false;
-    return true;
-  });
+  const reload = () => { load(); loadAll(); };
+
+  // 구별 미처리(접수+처리중) 건수 맵
+  const guPendingMap = useMemo(() => {
+    const map = {};
+    allComplaints.forEach(c => {
+      if (!c.guName) return;
+      if (!map[c.guName]) map[c.guName] = 0;
+      if (c.status !== "완료") map[c.guName]++;
+    });
+    return map;
+  }, [allComplaints]);
+
+  // 미처리 건수 내림차순 정렬된 GU_LIST
+  const sortedGuList = useMemo(() =>
+    [...GU_LIST].sort((a, b) => (guPendingMap[b.name] || 0) - (guPendingMap[a.name] || 0)),
+  [guPendingMap]);
+
+  // ── 필터 적용 (클라이언트 — 구 필터는 백엔드에서 처리) ──────
+  const filtered = useMemo(() => {
+    let list = complaints;
+    if (filterStatus   !== "전체") list = list.filter(c => c.status   === filterStatus);
+    if (filterCategory !== "전체") list = list.filter(c => c.category === filterCategory);
+    if (search.trim()) {
+      const q = search.trim();
+      list = list.filter(c =>
+        c.title?.includes(q) || c.address?.includes(q) || c.userName?.includes(q)
+      );
+    }
+    return list;
+  }, [complaints, filterStatus, filterCategory, search]);
 
   const counts = {
     전체: complaints.length,
@@ -91,129 +130,161 @@ export default function ComplaintManagePage({ onBack }) {
     완료: complaints.filter(c => c.status === "완료").length,
   };
 
-  const fmtDt = dt => dt ? new Date(dt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+  const fmtDt = dt => dt
+    ? new Date(dt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : "—";
 
   return (
     <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-      {/* ── 상단 헤더 ── */}
+      {/* ── 헤더 ── */}
       <div style={{ height: 54, display: "flex", alignItems: "center", gap: 16, padding: "0 20px", borderBottom: `1px solid ${V.line}`, background: V.bg1, flexShrink: 0 }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: V.ink0 }}>민원 관리</span>
         <span style={{ color: V.ink3, fontFamily: V.mono, fontSize: 11 }}>│</span>
         <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2 }}>Traffic-Sync 교통 관제 시스템</span>
-
-        {/* 상태 카운트 */}
-        <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
+        <div style={{ display: "flex", gap: 10, marginLeft: 8 }}>
           {[["접수", counts.접수, V.org], ["처리중", counts.처리중, V.blu], ["완료", counts.완료, V.grn]].map(([label, cnt, color]) => (
-            <span key={label} style={{ fontFamily: V.mono, fontSize: 11, color, padding: "3px 10px", border: `1px solid ${color}44`, borderRadius: 2 }}>
-              {label} <b>{cnt}</b>
-            </span>
+            <span key={label} style={{ fontFamily: V.mono, fontSize: 11, color, fontWeight: 700 }}>{label} {cnt}</span>
           ))}
         </div>
-
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
           <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2 }}>{time}</span>
-          <button onClick={load} style={{ height: 32, padding: "0 14px", background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 12, cursor: "pointer", fontFamily: V.mono }}>새로고침</button>
+          <button onClick={reload} style={{ height: 32, padding: "0 14px", background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 12, cursor: "pointer", fontFamily: V.mono }}>새로고침</button>
           <button onClick={onBack} style={{ height: 32, padding: "0 14px", background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink2, fontSize: 12, cursor: "pointer", fontFamily: V.sans }}>← 지도로</button>
         </div>
       </div>
 
-      {/* ── 필터 툴바 ── */}
-      <div style={{ height: 46, display: "flex", alignItems: "center", gap: 10, padding: "0 20px", borderBottom: `1px solid ${V.line}`, background: V.bg0, flexShrink: 0 }}>
-        {/* 상태 필터 */}
-        <span style={{ fontFamily: V.mono, fontSize: 10, color: V.ink3, letterSpacing: ".5px" }}>STATUS</span>
-        <div style={{ display: "flex", background: "#0a0a0a", border: `1px solid ${V.line}`, borderRadius: 2 }}>
-          {["전체", "접수", "처리중", "완료"].map(s => (
-            <button key={s} onClick={() => setFilterStatus(s)}
-              style={{ background: filterStatus === s ? "#141414" : "transparent", border: 0, borderRight: `1px solid ${V.line}`, color: filterStatus === s ? V.ink0 : V.ink3, padding: "5px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: V.mono }}>
-              {s}{s !== "전체" ? ` (${counts[s] ?? 0})` : ` (${counts.전체})`}
-            </button>
-          ))}
+      {/* ── 메인 (2컬럼) ── */}
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+
+        {/* ── 좌측 구 사이드바 ── */}
+        <div style={{ width: 200, borderRight: `1px solid ${V.line}`, overflowY: "auto", flexShrink: 0 }}>
+          <div style={{ padding: "12px 16px 8px", fontSize: 13, color: V.ink3, fontWeight: 600, letterSpacing: 1, fontFamily: V.mono }}>구 선택</div>
+
+          {/* 전체 */}
+          <div onClick={() => setSelectedGu(null)}
+            style={{ padding: "11px 16px", cursor: "pointer", background: !selectedGu ? "#0d0d0d" : "transparent", borderLeft: !selectedGu ? `2px solid ${V.blu}` : "2px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+            onMouseEnter={e => { if (selectedGu) e.currentTarget.style.background = "#080808"; }}
+            onMouseLeave={e => { if (selectedGu) e.currentTarget.style.background = "transparent"; }}>
+            <span style={{ fontSize: 15, fontWeight: !selectedGu ? 700 : 400, color: !selectedGu ? V.ink0 : V.ink1 }}>전체 보기</span>
+          </div>
+
+          {/* 25개 구 — 미처리 건수 내림차순 */}
+          {sortedGuList.map(g => {
+            const isSel = selectedGu === g.name;
+            const pending = guPendingMap[g.name] || 0;
+            return (
+              <div key={g.name} onClick={() => setSelectedGu(g.name)}
+                style={{ padding: "10px 16px", cursor: "pointer", background: isSel ? "#0d0d0d" : "transparent", borderLeft: isSel ? `2px solid ${V.blu}` : "2px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = "#080808"; }}
+                onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
+                <span style={{ fontSize: 14, fontWeight: isSel ? 700 : 400, color: isSel ? V.ink0 : pending > 0 ? V.ink1 : V.ink3 }}>{g.name}</span>
+                {pending > 0 && (
+                  <span style={{ fontFamily: V.mono, fontSize: 13, fontWeight: 700, color: V.org }}>{pending}</span>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        {/* 카테고리 필터 */}
-        <span style={{ fontFamily: V.mono, fontSize: 10, color: V.ink3, letterSpacing: ".5px", marginLeft: 8 }}>CATEGORY</span>
-        <select value={filterCategory} onChange={e => setFilterCat(e.target.value)}
-          style={{ height: 30, padding: "0 10px", background: "#0a0a0a", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 12, fontFamily: V.sans, outline: "none", cursor: "pointer" }}>
-          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        {/* ── 우측: 필터 + 테이블 ── */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
 
-        {/* 검색 */}
-        <div style={{ marginLeft: "auto", height: 30, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", background: "#0a0a0a", border: `1px solid ${V.line}`, borderRadius: 2, minWidth: 260 }}>
-          <span style={{ fontFamily: V.mono, color: V.ink3, fontSize: 11 }}>⌕</span>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="제목, 주소, 신청자 검색"
-            style={{ flex: 1, background: "transparent", border: 0, outline: 0, color: V.ink0, fontSize: 12, fontFamily: V.sans }} />
-        </div>
-      </div>
+          {/* 필터 툴바 */}
+          <div style={{ height: 46, display: "flex", alignItems: "center", gap: 10, padding: "0 20px", borderBottom: `1px solid ${V.line}`, flexShrink: 0 }}>
+            <span style={{ fontSize: 17, fontWeight: 700, color: V.ink0 }}>
+              {selectedGu ?? "전체"}
+              <span style={{ fontFamily: V.mono, fontSize: 14, color: V.ink2, fontWeight: 400, marginLeft: 8 }}>{filtered.length}건</span>
+            </span>
 
-      {/* ── 테이블 ── */}
-      <div style={{ flex: 1, overflow: "auto" }}>
-        {loading ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: V.ink2, fontFamily: V.mono, fontSize: 13 }}>로딩 중...</div>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr>
-                {["#", "상태", "분류", "제목", "주소", "신청자", "접수 일시", "사진", "처리"].map((h, i) => (
-                  <th key={h} style={{ position: "sticky", top: 0, background: "#0a0a0a", borderBottom: `1px solid ${V.line}`, textAlign: i >= 7 ? "center" : "left", fontFamily: V.mono, fontSize: 10, fontWeight: 700, color: V.ink2, letterSpacing: ".5px", textTransform: "uppercase", padding: "10px 14px", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign: "center", padding: 40, color: V.ink3, fontFamily: V.mono, fontSize: 13 }}>해당하는 민원이 없습니다</td></tr>
-              ) : filtered.map((c, i) => {
-                const meta = STATUS_META[c.status] || STATUS_META["접수"];
-                const photos = c.photoUrls || [];
-                return (
-                  <tr key={c.id} style={{ background: i % 2 === 0 ? "rgba(255,255,255,.015)" : V.bg0 }}>
-                    <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 11, color: V.ink3 }}>#{c.id}</td>
-                    <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}` }}>
-                      <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: meta.color, padding: "2px 8px", border: `1px solid ${meta.color}44`, borderRadius: 2, background: meta.bg }}>
-                        {c.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink2, fontSize: 12, whiteSpace: "nowrap" }}>{c.category}</td>
-                    <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink0, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</td>
-                    <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink2, fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.address}</td>
-                    <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink1, fontWeight: 600, whiteSpace: "nowrap" }}>{c.userName}</td>
-                    <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 11, color: V.ink2, whiteSpace: "nowrap" }}>{fmtDt(c.createdAt)}</td>
-                    <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, textAlign: "center" }}>
-                      {photos.length > 0 ? (
-                        <button onClick={() => setPhotoModal(photos)}
-                          style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 11, cursor: "pointer", padding: "3px 8px", fontFamily: V.mono }}>
-                          📷 {photos.length}
-                        </button>
-                      ) : (
-                        <span style={{ color: V.ink3, fontSize: 11 }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, textAlign: "center", whiteSpace: "nowrap" }}>
-                      {meta.next ? (
-                        <button onClick={() => patchStatus(c.id, meta.next)}
-                          style={{ padding: "4px 12px", background: "transparent", border: `1px solid ${V.ink3}`, borderRadius: 2, color: V.ink2, fontSize: 11, cursor: "pointer", fontFamily: V.mono, transition: "all .15s" }}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = meta.color; e.currentTarget.style.color = meta.color; }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = V.ink3; e.currentTarget.style.color = V.ink2; }}>
-                          → {meta.next}
-                        </button>
-                      ) : (
-                        <span style={{ fontFamily: V.mono, fontSize: 11, color: V.grn }}>✓ 완료</span>
-                      )}
-                    </td>
+            <span style={{ fontFamily: V.mono, fontSize: 10, color: V.ink3, letterSpacing: ".5px", marginLeft: 8 }}>STATUS</span>
+            <div style={{ display: "flex", background: "#0a0a0a", border: `1px solid ${V.line}`, borderRadius: 2 }}>
+              {["전체", "접수", "처리중", "완료"].map(s => (
+                <button key={s} onClick={() => setFilterStatus(s)}
+                  style={{ background: filterStatus === s ? "#141414" : "transparent", border: 0, borderRight: `1px solid ${V.line}`, color: filterStatus === s ? V.ink0 : V.ink3, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: V.mono }}>
+                  {s}{s !== "전체" ? ` (${counts[s] ?? 0})` : ` (${counts.전체})`}
+                </button>
+              ))}
+            </div>
+
+            <select value={filterCategory} onChange={e => setFilterCat(e.target.value)}
+              style={{ height: 30, padding: "0 10px", background: "#0a0a0a", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 12, fontFamily: V.sans, outline: "none", cursor: "pointer" }}>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+
+            <div style={{ marginLeft: "auto", height: 30, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", background: "#0a0a0a", border: `1px solid ${V.line}`, borderRadius: 2, minWidth: 240 }}>
+              <span style={{ fontFamily: V.mono, color: V.ink3, fontSize: 11 }}>⌕</span>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="제목, 주소, 신청자 검색"
+                style={{ flex: 1, background: "transparent", border: 0, outline: 0, color: V.ink0, fontSize: 12, fontFamily: V.sans }} />
+            </div>
+          </div>
+
+          {/* 테이블 */}
+          <div style={{ flex: 1, overflow: "auto" }}>
+            {loading ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: V.ink2, fontFamily: V.mono, fontSize: 13 }}>로딩 중...</div>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    {["#", "상태", "분류", "제목", "주소", "신청자", "접수 일시", "사진", "처리"].map((h, i) => (
+                      <th key={h} style={{ position: "sticky", top: 0, background: "#0a0a0a", borderBottom: `1px solid ${V.line}`, textAlign: i >= 7 ? "center" : "left", fontFamily: V.mono, fontSize: 10, fontWeight: 700, color: V.ink2, letterSpacing: ".5px", textTransform: "uppercase", padding: "10px 14px", whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {filtered.length === 0 ? (
+                    <tr><td colSpan={9} style={{ textAlign: "center", padding: 40, color: V.ink3, fontFamily: V.mono, fontSize: 13 }}>
+                      {loading ? "로딩 중..." : selectedGu ? `${selectedGu}에 접수된 민원이 없습니다` : "민원이 없습니다"}
+                    </td></tr>
+                  ) : filtered.map((c, i) => {
+                    const meta = STATUS_META[c.status] || STATUS_META["접수"];
+                    const photos = c.photoUrls || [];
+                    return (
+                      <tr key={c.id} style={{ background: i % 2 === 0 ? "rgba(255,255,255,.015)" : V.bg0 }}>
+                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 11, color: V.ink3 }}>#{c.id}</td>
+                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}` }}>
+                          <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: meta.color }}>{c.status}</span>
+                        </td>
+                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink2, fontSize: 12, whiteSpace: "nowrap" }}>{c.category}</td>
+                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink0, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</td>
+                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink2, fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.address}</td>
+                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink1, fontWeight: 600, whiteSpace: "nowrap" }}>{c.userName}</td>
+                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 11, color: V.ink2, whiteSpace: "nowrap" }}>{fmtDt(c.createdAt)}</td>
+                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, textAlign: "center" }}>
+                          {photos.length > 0 ? (
+                            <button onClick={() => setPhotoModal(photos)}
+                              style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 11, cursor: "pointer", padding: "3px 8px", fontFamily: V.mono }}>
+                              📷 {photos.length}
+                            </button>
+                          ) : <span style={{ color: V.ink3, fontSize: 11 }}>—</span>}
+                        </td>
+                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, textAlign: "center", whiteSpace: "nowrap" }}>
+                          {meta.next ? (
+                            <button onClick={() => patchStatus(c.id, meta.next)}
+                              style={{ padding: "4px 12px", background: "transparent", border: `1px solid ${V.ink3}`, borderRadius: 2, color: V.ink2, fontSize: 11, cursor: "pointer", fontFamily: V.mono, transition: "all .15s" }}
+                              onMouseEnter={e => { e.currentTarget.style.borderColor = meta.color; e.currentTarget.style.color = meta.color; }}
+                              onMouseLeave={e => { e.currentTarget.style.borderColor = V.ink3; e.currentTarget.style.color = V.ink2; }}>
+                              → {meta.next}
+                            </button>
+                          ) : <span style={{ fontFamily: V.mono, fontSize: 11, color: V.grn }}>✓ 완료</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
 
-      {/* ── 하단 ── */}
-      <div style={{ height: 36, display: "flex", alignItems: "center", padding: "0 20px", borderTop: `1px solid ${V.line}`, background: V.bg1, fontFamily: V.mono, fontSize: 11, color: V.ink3, gap: 12, flexShrink: 0 }}>
-        <span>총 {filtered.length}건</span>
-        <span style={{ color: V.line }}>·</span>
-        <span>민원 전체 {complaints.length}건</span>
-        <span style={{ marginLeft: "auto" }}>30초마다 자동 갱신 · TrafficSync 민원 관리 시스템</span>
+          {/* 하단 */}
+          <div style={{ height: 36, display: "flex", alignItems: "center", padding: "0 20px", borderTop: `1px solid ${V.line}`, background: V.bg1, fontFamily: V.mono, fontSize: 11, color: V.ink3, gap: 12, flexShrink: 0 }}>
+            <span>총 {filtered.length}건</span>
+            <span style={{ color: V.line }}>·</span>
+            <span>전체 {complaints.length}건</span>
+            <span style={{ marginLeft: "auto" }}>TrafficSync 민원 관리 시스템</span>
+          </div>
+        </div>
       </div>
 
       {photoModal && <PhotoModal urls={photoModal} onClose={() => setPhotoModal(null)} />}

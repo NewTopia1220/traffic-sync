@@ -1,7 +1,26 @@
 import { useState, useEffect, useRef } from "react";
 
-const API = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
-const KAKAO_KEY = import.meta.env.VITE_KAKAO_APP_KEY;
+const API        = (import.meta.env.VITE_API_URL       || "http://localhost:8080").replace(/\/+$/, "");
+const CIVIL_API  = (import.meta.env.VITE_CIVIL_API_URL || "http://localhost:8002").replace(/\/+$/, "");
+const KAKAO_KEY  = import.meta.env.VITE_KAKAO_APP_KEY;
+
+const DEPT_MAP = {
+  "도로 파손/균열":   "도로과",
+  "노면 침수/결빙":   "도로과",
+  "횡단보도 파손":    "도로과",
+  "신호등 오작동":    "교통과",
+  "교통표지판 훼손":  "교통과",
+  "공사구간 미표시":  "교통과",
+  "불법 주정차":      "주차과",
+  "가로등 불량/소등": "시설과",
+  "보행자 위험구간":  "시설과",
+  "도로 청결 불량":   "환경미화과",
+  "동물 사체":        "환경미화과",
+  "이륜차 불법 운행": "경찰서",
+  "과속/난폭운전":    "경찰서",
+  "소음/진동":        "환경과",
+  "기타":             "민원과",
+};
 
 export const CIVIL_CATEGORIES = [
   "도로 파손/균열",
@@ -47,6 +66,9 @@ export default function CivilDashboard({ civilUser, onLogout }) {
   const [photos, setPhotos]           = useState([]);
   const [previews, setPreviews]       = useState([]);
   const [submitting, setSubmitting]   = useState(false);
+  const [classifying, setClassifying] = useState(false);
+  const [department, setDepartment]   = useState(null);  // AI가 추천한 담당과
+  const [aiReason, setAiReason]       = useState("");
   const [submitOk, setSubmitOk]       = useState(false);
   const [err, setErr]                 = useState("");
   const [searchQ, setSearchQ]         = useState("");
@@ -117,30 +139,97 @@ export default function CivilDashboard({ civilUser, onLogout }) {
     });
   };
 
-  // ── 현재 위치 ───────────────────────────────────────────────────────────────
+  // ── 현재 위치 → 마커 + 민원 신청 ──────────────────────────────────────────
+  const [locating, setLocating] = useState(false);
+
   const goCurrentLocation = () => {
     if (!mapObj.current || !navigator.geolocation) return;
+    setLocating(true);
     navigator.geolocation.getCurrentPosition(pos => {
-      mapObj.current.setCenter(new window.kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude));
+      const { latitude: lat, longitude: lng } = pos.coords;
+      const latlng = new window.kakao.maps.LatLng(lat, lng);
+      mapObj.current.setCenter(latlng);
       mapObj.current.setLevel(4);
-    });
+
+      if (markerRef.current) markerRef.current.setMap(null);
+      const marker = new window.kakao.maps.Marker({ position: latlng });
+      marker.setMap(mapObj.current);
+      markerRef.current = marker;
+
+      geocRef.current.coord2Address(lng, lat, (result, status) => {
+        const address = status === window.kakao.maps.services.Status.OK
+          ? (result[0].road_address?.address_name || result[0].address.address_name)
+          : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        setSelectedLoc({ lat, lng, address });
+        setFormOpen(false);
+        setConfirmOpen(true);
+        setLocating(false);
+      });
+    }, () => setLocating(false));
   };
 
-  // ── 사진 첨부 ───────────────────────────────────────────────────────────────
-  const handlePhoto = e => {
-    const files = Array.from(e.target.files).slice(0, 3 - photos.length);
-    setPhotos(prev => [...prev, ...files].slice(0, 3));
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = ev => setPreviews(prev => [...prev, ev.target.result].slice(0, 3));
-      reader.readAsDataURL(file);
-    });
+  // ── HEIC → JPEG 변환 헬퍼 ─────────────────────────────────────────────────
+  // ── 사진 첨부 + AI 자동 분류 ──────────────────────────────────────────────
+  const handlePhoto = async e => {
+    const raw = Array.from(e.target.files).slice(0, 3 - photos.length);
+    if (!raw.length) return;
     e.target.value = "";
+
+    const files = raw;
+
+    const newPhotos = [...photos, ...files].slice(0, 3);
+    setPhotos(newPhotos);
+    files.forEach(file => {
+      const name = file.name.toLowerCase();
+      const isHeic = file.type === "image/heic" || file.type === "image/heif" || name.endsWith(".heic") || name.endsWith(".heif");
+      if (isHeic) {
+        // HEIC: objectURL로 시도 (Safari는 됨, Chrome은 onError에서 null 처리)
+        setPreviews(prev => [...prev, { url: URL.createObjectURL(file), isHeic: true }].slice(0, 3));
+      } else {
+        const reader = new FileReader();
+        reader.onload = ev => setPreviews(prev => [...prev, { url: ev.target.result, isHeic: false }].slice(0, 3));
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // 첫 번째 사진 첨부 시 AI 분류 자동 실행
+    if (photos.length === 0 && files[0]) {
+      setClassifying(true);
+      setDepartment(null);
+      setAiReason("");
+      try {
+        const fd = new FormData();
+        fd.append("image", files[0]);
+        fd.append("title", form.title);
+        const res = await fetch(`${CIVIL_API}/api/civil/classify`, { method: "POST", body: fd });
+        const data = await res.json();
+        if (data.success) {
+          setForm(f => ({ ...f, category: data.category }));
+          setDepartment(data.department);
+          setAiReason(data.reason);
+          if (data.convertedImage) {
+            setPreviews(prev => {
+              const next = [...prev];
+              if (next[0]?.isHeic) URL.revokeObjectURL(next[0].url);
+              next[0] = { url: data.convertedImage, isHeic: false };
+              return next;
+            });
+          }
+        }
+      } catch {
+        // AI 분류 실패 시 조용히 무시 (수동 선택 가능)
+      } finally {
+        setClassifying(false);
+      }
+    }
   };
 
   const removePhoto = i => {
+    setPreviews(p => {
+      if (p[i]?.isHeic) URL.revokeObjectURL(p[i].url);
+      return p.filter((_, j) => j !== i);
+    });
     setPhotos(p => p.filter((_, j) => j !== i));
-    setPreviews(p => p.filter((_, j) => j !== i));
   };
 
   // ── 민원 제출 ───────────────────────────────────────────────────────────────
@@ -166,6 +255,7 @@ export default function CivilDashboard({ civilUser, onLogout }) {
         setFormOpen(false);
         setForm({ title: "", category: CIVIL_CATEGORIES[0], content: "" });
         setPhotos([]); setPreviews([]);
+        setDepartment(null); setAiReason("");
         setTimeout(() => setSubmitOk(false), 5000);
       } else {
         const d = await res.json().catch(() => ({}));
@@ -228,10 +318,11 @@ export default function CivilDashboard({ civilUser, onLogout }) {
           )}
         </div>
 
-        {/* 현재 위치 버튼 */}
-        <button onClick={goCurrentLocation} title="현재 위치로 이동"
-          style={{ position: "absolute", bottom: 24, right: 16, zIndex: 10, width: 44, height: 44, background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink0, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,.5)" }}>
-          ◎
+        {/* 현재 위치로 민원 신청 버튼 */}
+        <button onClick={goCurrentLocation} disabled={locating} title="현재 위치에 민원 신청"
+          style={{ position: "absolute", bottom: 24, right: 16, zIndex: 10, height: 54, padding: "0 20px", background: locating ? "#1a1a1a" : V.org, border: "none", borderRadius: 6, color: locating ? V.ink2 : "#000", fontSize: 14, fontWeight: 700, cursor: locating ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 8, boxShadow: "0 4px 16px rgba(0,0,0,.6)", fontFamily: V.sans, whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 18 }}>{locating ? "⏳" : "📍"}</span>
+          {locating ? "위치 확인 중..." : "현재 위치로 신청"}
         </button>
 
         {/* 범례 */}
@@ -239,30 +330,45 @@ export default function CivilDashboard({ civilUser, onLogout }) {
           <div style={{ fontFamily: V.mono, fontSize: 11, color: V.ink0, fontWeight: 700, marginBottom: 4 }}>민원 신청 방법</div>
           <div style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2 }}>① 지도 클릭 → ② 위치 확인 → ③ 내용 입력</div>
         </div>
-      </div>
 
-      {/* ── 위치 확인 모달 ── */}
-      {confirmOpen && selectedLoc && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "28px 32px", maxWidth: 460, width: "90%", boxShadow: "0 8px 32px rgba(0,0,0,0.8)" }}>
-            <div style={{ fontFamily: V.mono, fontSize: 11, color: V.org, letterSpacing: ".5px", marginBottom: 10 }}>LOCATION CONFIRM</div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: V.ink0, marginBottom: 12 }}>이 위치에 민원을 신청하겠습니까?</div>
-            <div style={{ padding: "10px 14px", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink1, marginBottom: 22, lineHeight: 1.5 }}>
-              📍 {selectedLoc.address}
+        {/* ── 위치 확인 — 마커 위 플로팅 카드 ── */}
+        {confirmOpen && selectedLoc && (
+        <div style={{
+          position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)",
+          zIndex: 20, width: 360, maxWidth: "calc(100vw - 32px)",
+          background: "rgba(8,8,8,0.95)", border: `1px solid ${V.line}`,
+          borderRadius: 10, padding: "16px 18px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
+          backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+        }}>
+          {/* 말풍선 꼬리 */}
+          <div style={{
+            position: "absolute", bottom: -8, left: "50%", transform: "translateX(-50%)",
+            width: 14, height: 8,
+            clipPath: "polygon(0 0, 100% 0, 50% 100%)",
+            background: V.line,
+          }} />
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>📍</span>
+            <div>
+              <div style={{ fontFamily: V.sans, fontSize: 13, fontWeight: 700, color: V.ink0, marginBottom: 3 }}>이 위치에 민원을 신청할까요?</div>
+              <div style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, lineHeight: 1.5 }}>{selectedLoc.address}</div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => { setConfirmOpen(false); setFormOpen(true); }}
-                style={{ flex: 1, height: 46, background: V.org, border: "none", borderRadius: 2, color: "#000", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: V.sans }}>
-                민원 신청하기
-              </button>
-              <button onClick={cancelSelection}
-                style={{ flex: 1, height: 46, background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 14, cursor: "pointer", fontFamily: V.sans }}>
-                취소
-              </button>
-            </div>
+            <button onClick={cancelSelection} style={{ marginLeft: "auto", background: "transparent", border: "none", color: V.ink2, fontSize: 16, cursor: "pointer", flexShrink: 0, padding: 2 }}>✕</button>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => { setConfirmOpen(false); setFormOpen(true); }}
+              style={{ flex: 2, height: 42, background: V.org, border: "none", borderRadius: 6, color: "#000", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: V.sans }}>
+              민원 신청하기
+            </button>
+            <button onClick={cancelSelection}
+              style={{ flex: 1, height: 42, background: "transparent", border: `1px solid ${V.line}`, borderRadius: 6, color: V.ink2, fontSize: 13, cursor: "pointer", fontFamily: V.sans }}>
+              취소
+            </button>
           </div>
         </div>
-      )}
+        )}
+      </div>
 
       {/* ── 민원 입력 패널 (우측 슬라이드) ── */}
       {formOpen && (
@@ -293,10 +399,61 @@ export default function CivilDashboard({ civilUser, onLogout }) {
               {/* 민원 분류 */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <label style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, letterSpacing: ".4px" }}>민원 분류 <span style={{ color: V.red }}>*</span></label>
-                <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                  style={{ ...inpStyle, height: 42, cursor: "pointer" }}>
+                <select value={form.category} onChange={e => {
+                  setForm(f => ({ ...f, category: e.target.value }));
+                  setDepartment(DEPT_MAP[e.target.value] || "민원과");
+                  setAiReason("");
+                }} style={{ ...inpStyle, height: 42, cursor: "pointer" }}>
                   {CIVIL_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
+
+                {/* AI 분류 중 - 타이핑 애니메이션 */}
+                {classifying && (
+                  <div style={{ padding: "12px 14px", background: "#0d0d0d", border: `1px solid ${V.line}`, borderRadius: 6, marginTop: 2 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink1 }}>이미지 분석 중</span>
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        {[0, 1, 2].map(i => (
+                          <span key={i} style={{
+                            width: 5, height: 5, borderRadius: "50%", background: V.ink2,
+                            animation: "aiDot 1.2s ease-in-out infinite",
+                            animationDelay: `${i * 0.2}s`,
+                            display: "inline-block",
+                          }} />
+                        ))}
+                        <style>{`@keyframes aiDot { 0%,80%,100%{opacity:.2;transform:scale(0.8)} 40%{opacity:1;transform:scale(1.1)} }`}</style>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI 분류 결과 */}
+                {!classifying && department && aiReason && (
+                  <div style={{ padding: "14px", background: "#0d0d0d", border: `1px solid ${V.line}`, borderRadius: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <div style={{ flex: 1, padding: "8px 12px", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 4, display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ fontFamily: V.mono, fontSize: 9, color: V.ink2, letterSpacing: ".4px" }}>분류</span>
+                        <span style={{ fontFamily: V.sans, fontSize: 13, color: V.ink0, fontWeight: 700 }}>{form.category}</span>
+                      </div>
+                      <div style={{ flex: 1, padding: "8px 12px", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 4, display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ fontFamily: V.mono, fontSize: 9, color: V.ink2, letterSpacing: ".4px" }}>담당과</span>
+                        <span style={{ fontFamily: V.mono, fontSize: 13, color: V.ink0, fontWeight: 700 }}>{department}</span>
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: V.sans, fontSize: 12, color: V.ink1, lineHeight: 1.7, padding: "8px 10px", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 4 }}>
+                      · {aiReason}
+                    </div>
+                    <span style={{ fontFamily: V.mono, fontSize: 10, color: V.ink2 }}>분류가 맞지 않으면 위 드롭다운에서 직접 변경하세요.</span>
+                  </div>
+                )}
+
+                {/* 수동 선택 시 담당과만 표시 */}
+                {!classifying && !aiReason && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: "#0d0d0d", border: `1px solid ${V.line}`, borderRadius: 4 }}>
+                    <span style={{ fontFamily: V.mono, fontSize: 10, color: V.ink2 }}>담당과</span>
+                    <span style={{ fontFamily: V.mono, fontSize: 12, color: V.ink0, fontWeight: 700 }}>{DEPT_MAP[form.category] || "민원과"}</span>
+                  </div>
+                )}
               </div>
 
               {/* 민원 내용 */}
@@ -309,27 +466,69 @@ export default function CivilDashboard({ civilUser, onLogout }) {
               </div>
 
               {/* 사진 첨부 */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, letterSpacing: ".4px" }}>
-                  사진 첨부 <span style={{ color: V.ink2, fontWeight: 400 }}>(최대 3장)</span>
-                </label>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {previews.map((src, i) => (
-                    <div key={i} style={{ position: "relative", width: 80, height: 80 }}>
-                      <img src={src} alt="" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 2, border: `1px solid ${V.line}` }} />
-                      <button onClick={() => removePhoto(i)}
-                        style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, background: V.red, border: "none", borderRadius: "50%", color: "#fff", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                  {photos.length < 3 && (
-                    <label style={{ width: 80, height: 80, border: `1px dashed ${V.line}`, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: V.ink2, fontSize: 26, flexShrink: 0 }}>
-                      +
-                      <input type="file" accept="image/*" multiple onChange={handlePhoto} style={{ display: "none" }} />
-                    </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <label style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, letterSpacing: ".4px" }}>
+                    사진 첨부 <span style={{ fontWeight: 400 }}>(최대 3장)</span>
+                  </label>
+                  {photos.length === 0 && (
+                    <span style={{ fontFamily: V.mono, fontSize: 10, color: V.ink2 }}>사진 첨부 시 AI가 자동 분류합니다</span>
                   )}
                 </div>
+
+                {/* 사진이 없을 때 드래그앤드롭 스타일 업로드 영역 */}
+                {photos.length === 0 ? (
+                  <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: "24px 16px", border: `1px dashed ${V.line}`, borderRadius: 6, cursor: "pointer", background: "#0d0d0d", transition: "all .2s" }}
+                    onMouseEnter={e => { e.currentTarget.style.border = "1px dashed #3a3a3a"; e.currentTarget.style.background = "#111"; }}
+                    onMouseLeave={e => { e.currentTarget.style.border = `1px dashed ${V.line}`; e.currentTarget.style.background = "#0d0d0d"; }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontFamily: V.sans, fontSize: 13, color: V.ink1, fontWeight: 600 }}>사진을 클릭해서 첨부하세요</div>
+                      <div style={{ fontFamily: V.mono, fontSize: 10, color: V.ink2, marginTop: 3 }}>첫 번째 사진으로 AI가 민원 유형을 자동 분류합니다</div>
+                    </div>
+                    <input type="file" accept="image/*" multiple onChange={handlePhoto} style={{ display: "none" }} />
+                  </label>
+                ) : (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                    {previews.map((preview, i) => (
+                      <div key={i} style={{ position: "relative", width: 88, height: 88 }}>
+                        {preview.isHeic ? (
+                          // HEIC: objectURL 시도, 실패 시 플레이스홀더
+                          <img
+                            src={preview.url}
+                            alt=""
+                            style={{ width: 88, height: 88, objectFit: "cover", borderRadius: 6, border: `1px solid ${V.line}` }}
+                            onError={ev => {
+                              ev.currentTarget.style.display = "none";
+                              ev.currentTarget.nextSibling.style.display = "flex";
+                            }}
+                          />
+                        ) : (
+                          <img src={preview.url} alt="" style={{ width: 88, height: 88, objectFit: "cover", borderRadius: 6, border: `1px solid ${V.line}` }} />
+                        )}
+                        {preview.isHeic && (
+                          <div style={{ display: "none", width: 88, height: 88, borderRadius: 6, border: `1px solid ${V.line}`, background: "#0d0d0d", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                            <span style={{ fontFamily: V.mono, fontSize: 18, color: V.ink2 }}>⬜</span>
+                            <span style={{ fontFamily: V.mono, fontSize: 9, color: V.ink2 }}>HEIC</span>
+                          </div>
+                        )}
+                        {i === 0 && (
+                          <span style={{ position: "absolute", bottom: 4, left: 4, fontFamily: V.mono, fontSize: 9, color: V.ink2, background: "rgba(0,0,0,0.8)", border: `1px solid ${V.line}`, borderRadius: 3, padding: "1px 5px" }}>AI 분석</span>
+                        )}
+                        <button onClick={() => removePhoto(i)}
+                          style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, background: V.red, border: "none", borderRadius: "50%", color: "#fff", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    {photos.length < 3 && (
+                      <label style={{ width: 88, height: 88, border: `1px dashed ${V.line}`, borderRadius: 6, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", color: V.ink2, gap: 4 }}>
+                        <span style={{ fontSize: 20 }}>+</span>
+                        <span style={{ fontFamily: V.mono, fontSize: 9 }}>추가</span>
+                        <input type="file" accept="image/*" multiple onChange={handlePhoto} style={{ display: "none" }} />
+                      </label>
+                    )}
+                  </div>
+                )}
               </div>
 
               {err && (

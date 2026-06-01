@@ -152,37 +152,32 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
                 <div style={{
                   position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)",
                   zIndex: 20, display: "flex", alignItems: "center", gap: 10,
-                  background: "rgba(10,10,10,0.92)", border: "1px solid #2a2418",
-                  borderRadius: 2, padding: "8px 16px",
-                  backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                  background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 8, padding: "7px 14px",
+                  backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
                   pointerEvents: "none", whiteSpace: "nowrap",
                 }}>
                   <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ffaa33", display: "inline-block", flexShrink: 0 }} />
-                  <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 12, color: "#aab4c8" }}>
-                    <b style={{ color: "#e7ecf5", fontWeight: 700 }}>{selectedGu.name}</b>
-                    {" "}현재 민원{" "}
-                    <b style={{ color: "#ffaa33", fontSize: 15 }}>{complaints.length}</b>
-                    <span style={{ color: "#7a7a7a" }}>건</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#aab4c8", display: "flex", alignItems: "center", gap: 8 }}>
+                    <b style={{ color: "#e7ecf5" }}>{selectedGu.name}</b>
+                    <span>현재 민원</span>
+                    <b style={{ color: "#ffaa33" }}>{complaints.length}건</b>
                   </span>
                   {complaints.length > 0 && (
-                    <div style={{ display: "flex", gap: 5, marginLeft: 2 }}>
+                    <div style={{ display: "flex", gap: 10 }}>
                       {[
                         ["접수",   complaints.filter(c => c.status === "접수").length,   "#ffaa33"],
                         ["처리중", complaints.filter(c => c.status === "처리중").length, "#4ea6ff"],
                         ["완료",   complaints.filter(c => c.status === "완료").length,   "#2ee07a"],
                       ].filter(([, cnt]) => cnt > 0).map(([label, cnt, color]) => (
-                        <span key={label} style={{
-                          fontFamily: "'IBM Plex Mono',monospace", fontSize: 10,
-                          color, padding: "2px 7px",
-                          border: `1px solid ${color}55`, borderRadius: 2,
-                        }}>
+                        <span key={label} style={{ fontSize: 14, fontWeight: 700, color }}>
                           {label} {cnt}
                         </span>
                       ))}
                     </div>
                   )}
                   {complaints.length === 0 && (
-                    <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, color: "#3a3a3a" }}>접수된 민원 없음</span>
+                    <span style={{ fontSize: 14, color: "#4a4a4a" }}>민원 없음</span>
                   )}
                 </div>
               )}
