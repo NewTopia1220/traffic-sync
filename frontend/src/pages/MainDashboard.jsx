@@ -44,7 +44,7 @@ function makeSpark(base) {
   return Number.isFinite(base) ? [base] : [];
 }
 
-export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu, onRegisterSelectGu, isMuted, onToggleMute }) {
+export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoComplaints, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu, onRegisterSelectGu, isMuted, onToggleMute }) {
   const [time, setTime] = useState(new Date());
   const [loading, setLoading] = useState(false);
   // "송파구 · 12개 교차로 수집됨" 같은 임시 메시지 (3초 후 사라짐)
@@ -310,12 +310,13 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
 
         {/* 페이지 탭: 통합 대시보드(현재) / 실시간 지도 / CCTV 관제 */}
         <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3 }}>
-          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스", "news"], ["CCTV 관제", "cctv"], ["신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
+          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스", "news"], ["CCTV 관제", "cctv"], ["신호 시뮬레이션", "simulation"], ["민원 관리", "complaints"]].map(([label, tab]) => {
             const isActive = tab === "main";
             const onClick = tab === "map" ? () => onGoMap(selectedGu)
               : tab === "cctv" ? onGoCctv
               : tab === "news" ? onGoNews
               : tab === "simulation" ? onGoSimulation
+              : tab === "complaints" ? onGoComplaints
               : undefined;
             return (
               <button key={tab}

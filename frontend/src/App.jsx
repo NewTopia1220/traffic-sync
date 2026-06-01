@@ -27,6 +27,8 @@ import MapDashboard from './pages/MapDashboard'
 import CctvDashboard from './pages/CctvDashboard'
 import SimulationDashboard from './pages/SimulationDashboard'
 import NewsDashboard from './pages/NewsDashboard'
+import ComplaintManagePage from './pages/ComplaintManagePage'
+import CivilApp from './pages/civil/CivilApp'
 
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAssistant } from './hooks/useAssistant'
@@ -93,16 +95,25 @@ export default function App() {
 
   // ── 페이지별 조건부 렌더링 ──────────────────────────────────────
 
+  if (page === 'civil') return <CivilApp onBack={() => setPage('login')} />
+
   if (page === 'login') return (
-    <LoginPage onLoginSuccess={(data) => {
-      const name = data.name || '관제사'
-      const gu   = selectedGu?.name || '강남구'
-      assistant.greetOnLogin(name, gu)  // 환영 인사 + 시작 확인 팝업
-      setPage(data.isTempPw ? 'mypage' : 'main')
-    }} />
+    <LoginPage
+      onCivil={() => setPage('civil')}
+      onLoginSuccess={(data) => {
+        const name = data.name || '관제사'
+        const gu   = selectedGu?.name || '강남구'
+        assistant.greetOnLogin(name, gu)
+        setPage(data.isTempPw ? 'mypage' : 'main')
+      }}
+    />
   )
 
   if (page === 'mypage') return <MyPage onBack={() => setPage('main')} />
+
+  if (page === 'complaints') return (
+    <ComplaintManagePage onBack={() => setPage('map')} />
+  )
 
   if (page === 'news') return (
     <NewsDashboard
@@ -110,6 +121,7 @@ export default function App() {
       onGoMap={goMap}
       onGoCctv={() => setPage('cctv')}
       onGoSimulation={() => setPage('simulation')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
@@ -122,6 +134,7 @@ export default function App() {
       onGoMap={goMap}
       onGoNews={() => setPage('news')}
       onGoCctv={() => setPage('cctv')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
@@ -134,6 +147,7 @@ export default function App() {
       onGoMap={goMap}
       onGoNews={() => setPage('news')}
       onGoSimulation={() => setPage('simulation')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
@@ -146,6 +160,7 @@ export default function App() {
       onGoCctv={() => setPage('cctv')}
       onGoNews={() => setPage('news')}
       onGoSimulation={() => setPage('simulation')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
@@ -199,6 +214,7 @@ export default function App() {
         onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
         onGoNews={() => assistant.tryNav(() => setPage('news'))}
         onGoSimulation={() => assistant.tryNav(() => setPage('simulation'))}
+        onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
         onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
         onLogout={() => assistant.tryNav(() => setPage('login'))}
         wsData={wsData}

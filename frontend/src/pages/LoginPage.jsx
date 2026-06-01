@@ -423,7 +423,7 @@ function ScreenApproval({ onBack }) {
 }
 
 // ── 메인 LoginPage ─────────────────────────────────────────────────────────────
-export default function LoginPage({ onLoginSuccess }) {
+export default function LoginPage({ onLoginSuccess, onCivil }) {
   const [screen, setScreen] = useState("login");
   const [isAdmin, setIsAdmin] = useState(false);
   const [now, setNow] = useState(new Date());
@@ -497,11 +497,16 @@ export default function LoginPage({ onLoginSuccess }) {
               {screen === "admin"   && <ScreenAdminLogin onAdminSuccess={() => setScreen("approval")} onGo={setScreen} />}
             </div>
 
-            {/* 관리자 링크 (로그인 화면에서만) */}
+            {/* 관리자 / 민원 링크 (로그인 화면에서만) */}
             {screen === "login" && (
-              <a onClick={() => setScreen("admin")} style={{ fontFamily: V.mono, fontSize: 13, color: "rgba(255,255,255,.45)", letterSpacing: ".5px", padding: "8px 18px", cursor: "pointer" }}>
-                관리자 페이지 →
-              </a>
+              <div style={{ display: "flex", gap: 8 }}>
+                <a onClick={() => setScreen("admin")} style={{ fontFamily: V.mono, fontSize: 13, color: "rgba(255,255,255,.45)", letterSpacing: ".5px", padding: "8px 18px", cursor: "pointer" }}>
+                  관리자 페이지 →
+                </a>
+                <a onClick={onCivil} style={{ fontFamily: V.mono, fontSize: 13, color: "rgba(255,170,51,.65)", letterSpacing: ".5px", padding: "8px 18px", cursor: "pointer" }}>
+                  민원 페이지 →
+                </a>
+              </div>
             )}
           </div>
         </div>

@@ -44,11 +44,12 @@ function isWithinSelectedGu(item, selectedGu, radiusKm = 2.5) {
  * @param {Object}   initialCenter - 최초 지도 중심 좌표 { lat, lon } (구 클릭 시 전달)
  * @param {Function} onCctvClick   - CCTV 마커 클릭 시 CCTV 객체 전달 콜백 → CctvModal 열기
  */
-export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter, selectedGu, onCctvClick, stations = [], onStationSelect }) {
+export default function KakaoMapView({ crossroads, selected, onSelect, initialCenter, selectedGu, onCctvClick, stations = [], onStationSelect, complaints = [], onComplaintClick }) {
 
   // ── Ref: 재렌더링 없이 값 유지 ──────────────────────────────────────────────
-  const mapRef       = useRef(null); // 카카오맵이 실제로 렌더링될 DOM div 요소
-  const mapObj       = useRef(null); // kakao.maps.Map 인스턴스 (지도 객체)
+  const mapRef            = useRef(null); // 카카오맵이 실제로 렌더링될 DOM div 요소
+  const mapObj            = useRef(null); // kakao.maps.Map 인스턴스 (지도 객체)
+  const complaintOverlays = useRef([]);   // 민원 마커 오버레이 배열
   const overlays     = useRef({});   // 교차로 오버레이 맵 { crsrdId → CustomOverlay }
   const cctvOverlays = useRef([]);   // CCTV CustomOverlay 배열 (toggle 시 일괄 제거용)
   const cctvClusterer = useRef(null);  // CCTV 줌아웃 클러스터
@@ -573,12 +574,68 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
     return () => el.removeEventListener("click", h);
   }, [ready, onSelect, onCctvClick]);
 
+  // ── 민원 마커 업데이트 ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!ready || !mapObj.current) return;
+    const kakao = window.kakao;
+
+    complaintOverlays.current.forEach(ov => ov.setMap(null));
+    complaintOverlays.current = [];
+
+    complaints.forEach(c => {
+      const lat = Number(c.lat), lng = Number(c.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      const statusColor = c.status === "완료" ? "#2ee07a" : c.status === "처리중" ? "#4ea6ff" : "#ffaa33";
+
+      const el = document.createElement("div");
+      // 맵 컨테이너의 CSS filter(invert+hue-rotate)를 상쇄하는 역-필터 적용
+      el.style.cssText = "cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;filter:invert(1) hue-rotate(180deg) brightness(1.18) saturate(1.11);";
+      el.innerHTML = `
+        <div title="${(c.title || '민원').replace(/"/g, '&quot;')}" style="
+          background:${statusColor};
+          border:3px solid #fff;
+          border-radius:50%;
+          width:36px;height:36px;
+          display:flex;align-items:center;justify-content:center;
+          font-size:19px;
+          box-shadow:0 0 14px 4px rgba(255,180,0,0.7),0 2px 8px rgba(0,0,0,0.6);
+          font-family:system-ui;
+          animation:complaint-pulse 1.6s infinite;
+        ">⚠</div>
+        <div style="
+          background:rgba(0,0,0,0.82);
+          color:#fff;
+          font-size:10px;
+          font-family:sans-serif;
+          padding:2px 6px;
+          border-radius:3px;
+          white-space:nowrap;
+          max-width:90px;
+          overflow:hidden;
+          text-overflow:ellipsis;
+        ">${(c.category || '민원').substring(0, 8)}</div>
+      `;
+      el.onclick = () => onComplaintClick && onComplaintClick(c);
+
+      const ov = new kakao.maps.CustomOverlay({
+        position: new kakao.maps.LatLng(lat, lng),
+        content: el,
+        zIndex: 8,
+        xAnchor: 0.5,
+        yAnchor: 1.0,
+      });
+      ov.setMap(mapObj.current);
+      complaintOverlays.current.push(ov);
+    });
+  }, [ready, complaints, onComplaintClick]);
+
   // ── SDK 미로드 시 로딩 화면 ─────────────────────────────────────────────────
   if (!ready) return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0a1020", gap: 10 }}>
       <div style={{ width: 28, height: 28, border: "3px solid rgba(59,130,246,0.3)", borderTop: "3px solid #3b82f6", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
       <div style={{ fontSize: 14, color: "#6b7280" }}>카카오맵 로딩 중...</div>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes complaint-pulse{0%,100%{box-shadow:0 0 14px 4px rgba(255,180,0,0.7),0 2px 8px rgba(0,0,0,0.6)}50%{box-shadow:0 0 22px 8px rgba(255,180,0,0.95),0 2px 8px rgba(0,0,0,0.6)}}`}</style>
     </div>
   );
 
@@ -587,6 +644,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <style>{`@keyframes complaint-pulse{0%,100%{box-shadow:0 0 14px 4px rgba(255,180,0,0.7),0 2px 8px rgba(0,0,0,0.6)}50%{box-shadow:0 0 22px 8px rgba(255,180,0,0.95),0 2px 8px rgba(0,0,0,0.6)}}`}</style>
       {/* 카카오맵이 실제로 렌더링되는 div (ref로 참조) */}
       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
 
