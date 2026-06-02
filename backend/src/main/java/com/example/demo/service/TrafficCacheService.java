@@ -45,20 +45,17 @@ public class TrafficCacheService {
         return areaRefreshInProgress.get();
     }
 
-    // 교차로ID → 최신 신호 상태
-    private final ConcurrentHashMap<String, TrafficStatus> signalCache = new ConcurrentHashMap<>();
+    // 교차로ID → 최신 신호 상태 (volatile로 참조 자체를 원자적으로 교체)
+    private volatile Map<String, TrafficStatus> signalCache = new ConcurrentHashMap<>();
 
     // 업데이트 메서드 (API 호출 후 교차로ID별로 신호 상태 업데이트) -->구 클릭했을때
     public void updateSignal(String crsrdId, TrafficStatus status) {
         signalCache.put(crsrdId, status);
     }
 
-    // 전체 업데이트 메서드 (API 호출 후 전체 교차로ID → 신호 상태 맵으로 업데이트)-->구 클릭했을때  그 구만 스케줄러 5초마다
+    // 전체 업데이트 메서드: 새 맵을 생성해 참조를 원자적으로 교체 → clear()+putAll() 의 부분 읽기 문제 제거
     public void updateAllSignals(Map<String, TrafficStatus> statusMap) {
-        // 기존 캐시 전체 삭제 후 새 데이터로 교체 (원자적 업데이트)
-        signalCache.clear();
-        // 새 데이터로 캐시 채우기
-        signalCache.putAll(statusMap);
+        signalCache = new ConcurrentHashMap<>(statusMap);
     }
 
     // 조회 메서드 (교차로ID로 신호 상태 조회, 캐시에 없으면 null 반환) --> 챗봇이 답변 생성할 때 그 교차로ID에 해당하는 신호 상태 가져올 때

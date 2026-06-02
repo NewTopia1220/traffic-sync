@@ -23,6 +23,8 @@ public class UserService {
         if (opt.isEmpty()) return Map.of("success", false, "message", "아이디 또는 비밀번호가 올바르지 않습니다.");
 
         UserEntity user = opt.get();
+        if ("CIVIL".equals(user.getRole()))
+            return Map.of("success", false, "message", "민원 계정은 민원 신청 화면에서 로그인하세요.");
         if ("PENDING".equals(user.getStatus()))
             return Map.of("success", false, "message", "관리자 승인 대기 중입니다.");
         if ("REJECTED".equals(user.getStatus()))
@@ -33,7 +35,8 @@ public class UserService {
             "userId",   user.getUserId(),
             "name",     user.getName(),
             "role",     user.getRole(),
-            "isTempPw", user.getIsTempPw()
+            "isTempPw", user.getIsTempPw(),
+            "email",    user.getEmail() != null ? user.getEmail() : ""
         );
     }
 

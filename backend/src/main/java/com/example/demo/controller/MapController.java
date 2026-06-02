@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestController
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = {"http://localhost:5173", "http://172.28.6.40:5173"})
 public class MapController {
 
 
@@ -121,12 +121,15 @@ public class MapController {
 
             Map<String, TrafficStatus> signals = v2xApiService.fetchSignalData(crossroads);
 
-            //위에서 다 찾은 교차로ID → 신호 상태 맵을 캐시에 업데이트
-            //signals = {
-            //    "1007" → TrafficStatus { crsrdNm: "잠실역사거리", signals: {...} }
-            //    "1008" → TrafficStatus { crsrdNm: "석촌역사거리", signals: {...} }
-            //    "1009" → TrafficStatus { crsrdNm: "롯데타워교차로", signals: {...} }
-            //}
+            // V2X API가 타임아웃 등으로 실패하면 빈 맵이 올 수 있음
+            // 이 경우 캐시를 빈 맵으로 덮어쓰면 프론트가 "0개" 로 보이므로 방어
+            if (signals.isEmpty()) {
+                log.warn("V2X API가 빈 결과 반환 (DB 교차로 {}개) — 캐시 유지, fetch-area 실패 응답", crossroads.size());
+                return ResponseEntity.status(503).body(Map.of(
+                    "count", 0,
+                    "message", "V2X API 수집 실패 — 잠시 후 다시 시도해주세요"
+                ));
+            }
 
             // 선택 구역은 이전 구역과 섞이면 안 되므로 전체 캐시를 새 구역 데이터로 교체한다.
             cacheService.updateAllSignals(signals);

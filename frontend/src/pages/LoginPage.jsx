@@ -103,7 +103,8 @@ function ScreenLogin({ onSuccess, onGo }) {
       });
       const data = await res.json();
       if (data.success) {
-        localStorage.setItem("ts_user", JSON.stringify({ userId: data.userId, name: data.name, role: data.role, isTempPw: data.isTempPw }));
+        if (data.role === "CIVIL") { setErr("민원 계정은 민원 신청 화면에서 로그인하세요."); return; }
+        localStorage.setItem("ts_user", JSON.stringify({ userId: data.userId, name: data.name, role: data.role, isTempPw: data.isTempPw, email: data.email || "" }));
         onSuccess(data);
       } else {
         setErr(data.message);
@@ -423,7 +424,7 @@ function ScreenApproval({ onBack }) {
 }
 
 // ── 메인 LoginPage ─────────────────────────────────────────────────────────────
-export default function LoginPage({ onLoginSuccess }) {
+export default function LoginPage({ onLoginSuccess, onCivil }) {
   const [screen, setScreen] = useState("login");
   const [isAdmin, setIsAdmin] = useState(false);
   const [now, setNow] = useState(new Date());
@@ -435,6 +436,7 @@ export default function LoginPage({ onLoginSuccess }) {
 
   if (screen === "approval") return <ScreenApproval onBack={() => setScreen("login")} />;
 
+  const isMobile = window.innerWidth <= 768;
   const cardStyle = {
     width: 570, maxWidth: "100%",
     background: isAdmin ? "rgba(14,11,7,.42)" : V.card,
@@ -442,7 +444,7 @@ export default function LoginPage({ onLoginSuccess }) {
     WebkitBackdropFilter: "blur(20px) saturate(1.05)",
     border: `1px solid ${isAdmin ? "rgba(255,170,51,.22)" : "rgba(255,200,140,.10)"}`,
     borderRadius: 2,
-    padding: screen === "signup" ? "36px 44px" : "48px 54px",
+    padding: isMobile ? "28px 20px" : screen === "signup" ? "36px 44px" : "48px 54px",
   };
 
   const screenTitles = { login: ["로그인", "SEOUL TRAFFIC CONTROL SYSTEM"], signup: ["회원가입", "SEOUL TRAFFIC CONTROL SYSTEM"], findid: ["아이디 찾기", "SEOUL TRAFFIC CONTROL SYSTEM"], findpw: ["비밀번호 찾기", "SEOUL TRAFFIC CONTROL SYSTEM"], admin: ["관리자 로그인", "ADMIN AUTHENTICATION"] };
@@ -452,7 +454,7 @@ export default function LoginPage({ onLoginSuccess }) {
     <div style={{ fontFamily: V.sans, background: V.bg, color: V.ink, height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
       {/* status bar */}
-      <header style={{ height: 28, display: "flex", alignItems: "center", gap: 16, padding: "0 16px", background: "#0a0a0a", borderBottom: `1px solid ${V.bd}`, fontFamily: V.mono, fontSize: 11, color: V.ink3, letterSpacing: ".3px", zIndex: 30, flexShrink: 0 }}>
+      <header style={{ height: 28, display: window.innerWidth <= 768 ? "none" : "flex", alignItems: "center", gap: 16, padding: "0 16px", background: "#0a0a0a", borderBottom: `1px solid ${V.bd}`, fontFamily: V.mono, fontSize: 11, color: V.ink3, letterSpacing: ".3px", zIndex: 30, flexShrink: 0 }}>
         <span style={{ width: 8, height: 8, background: V.ok, display: "inline-block" }} />
         <span>TRAFFICSYNC AUTH SERVER · 정상</span>
         <span style={{ color: V.ink4 }}>│</span>
@@ -486,8 +488,8 @@ export default function LoginPage({ onLoginSuccess }) {
         </div>
 
         {/* 카드 */}
-        <div style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, overflowY: "auto" }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+        <div style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 24, overflowY: "auto" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, width: "100%" }}>
             <div style={cardStyle}>
               <CardHeader title={title} sub={sub} isAdmin={screen === "admin"} />
               {screen === "login"   && <ScreenLogin    onSuccess={onLoginSuccess} onGo={setScreen} />}
@@ -497,18 +499,23 @@ export default function LoginPage({ onLoginSuccess }) {
               {screen === "admin"   && <ScreenAdminLogin onAdminSuccess={() => setScreen("approval")} onGo={setScreen} />}
             </div>
 
-            {/* 관리자 링크 (로그인 화면에서만) */}
+            {/* 관리자 / 민원 링크 (로그인 화면에서만) */}
             {screen === "login" && (
-              <a onClick={() => setScreen("admin")} style={{ fontFamily: V.mono, fontSize: 13, color: "rgba(255,255,255,.45)", letterSpacing: ".5px", padding: "8px 18px", cursor: "pointer" }}>
-                관리자 페이지 →
-              </a>
+              <div style={{ display: "flex", gap: 8 }}>
+                <a onClick={() => setScreen("admin")} style={{ fontFamily: V.mono, fontSize: 13, color: "rgba(255,255,255,.45)", letterSpacing: ".5px", padding: "8px 18px", cursor: "pointer" }}>
+                  관리자 페이지 →
+                </a>
+                <a onClick={onCivil} style={{ fontFamily: V.mono, fontSize: 13, color: "rgba(255,170,51,.65)", letterSpacing: ".5px", padding: "8px 18px", cursor: "pointer" }}>
+                  민원 페이지 →
+                </a>
+              </div>
             )}
           </div>
         </div>
       </div>
 
       {/* footer */}
-      <footer style={{ height: 24, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", background: "#0a0a0a", borderTop: `1px solid ${V.bd}`, fontFamily: V.mono, fontSize: 11, color: V.ink4, letterSpacing: ".3px", flexShrink: 0 }}>
+      <footer style={{ height: 24, display: window.innerWidth <= 768 ? "none" : "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", background: "#0a0a0a", borderTop: `1px solid ${V.bd}`, fontFamily: V.mono, fontSize: 11, color: V.ink4, letterSpacing: ".3px", flexShrink: 0 }}>
         <span>TRAFFICSYNC · v2.4.0 · © 2026 서울특별시 교통정보센터</span>
         <span>비인가 접근 금지 · 모든 활동은 감사 로그에 기록됨</span>
       </footer>

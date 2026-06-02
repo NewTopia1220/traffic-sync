@@ -33,10 +33,11 @@ public class ChatController {
     public ResponseEntity<Map<String, String>> chat(@RequestBody Map<String, String> body) {
         String crsrdId = body.get("crsrdId");
         String question = body.get("question");
+        String userEmail = body.get("userEmail");
         if (question == null || question.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
-        String answer = chatService.ask(crsrdId, question);
+        String answer = chatService.ask(crsrdId, question, userEmail);
         return ResponseEntity.ok(Map.of("answer", answer));
     }
 
@@ -44,8 +45,9 @@ public class ChatController {
     @PostMapping("/bottleneck-email")
     public ResponseEntity<Map<String, String>> bottleneckEmail(@RequestBody Map<String, String> body) {
         String district = body.get("district");
+        String userEmail = body.get("userEmail");
         if (district == null || district.isBlank()) return ResponseEntity.badRequest().build();
-        String result = chatService.bottleneckEmail(district);
+        String result = chatService.bottleneckEmail(district, userEmail);
         return ResponseEntity.ok(Map.of("result", result));
     }
 
@@ -54,12 +56,13 @@ public class ChatController {
     public ResponseEntity<Map<String, String>> simulationChat(@RequestBody Map<String, Object> body) {
         String intNo = (String) body.get("intNo");
         String question = (String) body.get("question");
+        String userEmail = (String) body.get("userEmail");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> simulation = (List<Map<String, Object>>) body.get("simulation");
         if (question == null || question.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
-        String answer = chatService.simulationChat(intNo, question, simulation);
+        String answer = chatService.simulationChat(intNo, question, simulation, userEmail);
         return ResponseEntity.ok(Map.of("answer", answer));
     }
 }

@@ -12,6 +12,7 @@ import java.util.List; // List를 쓰기 위해 필요
 
 @RestController
 @RequiredArgsConstructor
+@CrossOrigin(origins = "http://localhost:5173")
 @RequestMapping("/api") // 1. 공통 경로 확인
 public class ForecastController {
 
