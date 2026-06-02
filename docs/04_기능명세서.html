@@ -143,11 +143,15 @@ p{margin-bottom:10px;line-height:1.7;}
     <tr><td class="center">FR-MAP</td><td>실시간 교차로 지도</td><td>카카오맵 마커, 신호 패널, 로드뷰, 병목/위험 리스트, AI 챗봇 패널</td><td class="center">MapDashboard</td></tr>
     <tr><td class="center">FR-AI</td><td>AI 교통 챗봇</td><td>자유 질의, 프리셋, SSE 스트리밍, ReAct 추론 표시, MCP 도구 9개</td><td class="center">AIChatBot</td></tr>
     <tr><td class="center">FR-CCTV</td><td>CCTV 관제</td><td>CCTV 목록, 영상 스트리밍(UTIC iframe), 지도 마커 클릭</td><td class="center">CctvDashboard</td></tr>
-    <tr><td class="center">FR-SIM</td><td>신호 시뮬레이션</td><td>교차로 선택, 신호 타이밍 슬라이더, AI 자동 최적화, 시뮬레이션 챗봇</td><td class="center">SimulationDashboard</td></tr>
+    <tr><td class="center">FR-SIM</td><td>신호 시뮬레이션</td><td>VWorld 3D 경로 선택, TOPIS 속도 기반 병목 탐지, 신호 타이밍 슬라이더, AI 자동 최적화, 도착시간 비교, 3D 차량 모델 <span style="font-size:8pt;color:#2563eb;">[v1.1 변경]</span></td><td class="center">SimulationDashboard</td></tr>
     <tr><td class="center">FR-EMAIL</td><td>이메일 리포트</td><td>병목 HTML 리포트 이메일 발송 (AI 에이전트 + Spring SMTP)</td><td class="center">MainDashboard</td></tr>
     <tr><td class="center">FR-NEWS</td><td>뉴스 대시보드</td><td>최신 교통 관련 뉴스 피드 표시</td><td class="center">Newsdashboard</td></tr>
     <tr><td class="center">FR-FORECAST</td><td>교통량 예측</td><td>XGBoost 사전학습 모델 기반 24시간 상행/하행 교통량 예측 차트 (Flask :5002)</td><td class="center">MainDashboard</td></tr>
     <tr><td class="center">FR-WS</td><td>WebSocket 실시간 연결</td><td>TrafficStatus 10초 브로드캐스트, 연결 상태 표시</td><td class="center">App.jsx</td></tr>
+    <tr><td class="center" style="color:#2563eb;">FR-VOICE</td><td>음성 어시스턴트 <span style="font-size:8pt;color:#2563eb;">[v1.1 신규]</span></td><td>박수 2번 감지(AudioContext RMS), Web Speech API STT, Google Cloud TTS 자동 읽기, 음소거 토글</td><td class="center">VoiceAssistantPanel</td></tr>
+    <tr><td class="center" style="color:#2563eb;">FR-CIVIL</td><td>시민 민원 포털 <span style="font-size:8pt;color:#2563eb;">[v1.1 신규]</span></td><td>카카오맵 위치 핀, 14개 카테고리 민원 제출, 사진 첨부, 담당 부서 자동 매핑, 날씨 자동 기록, AI 답변 이메일</td><td class="center">CivilApp/CivilDashboard</td></tr>
+    <tr><td class="center" style="color:#2563eb;">FR-ADMIN</td><td>관리자 민원 관리 <span style="font-size:8pt;color:#2563eb;">[v1.1 신규]</span></td><td>민원 목록·상태 변경(접수→처리중→완료), 사진 조회, 구별 카운트 사이드바</td><td class="center">ComplaintManagePage</td></tr>
+    <tr><td class="center" style="color:#2563eb;">FR-MGMT</td><td>관리자 사용자 승인 <span style="font-size:8pt;color:#2563eb;">[v1.1 신규]</span></td><td>사용자 목록 조회, 로그인 승인, 임시 비밀번호 발급, 계정 활성화/비활성화</td><td class="center">MyPage(관리자)</td></tr>
   </tbody>
 </table>
 
@@ -713,29 +717,53 @@ p{margin-bottom:10px;line-height:1.7;}
 
 <!-- ─── 7. FR-SIM ──────────────────────────────────── -->
 <div class="page-break"></div>
-<div class="section-title">7. FR-SIM — 신호 시뮬레이션</div>
+<div class="section-title">7. FR-SIM — 신호 시뮬레이션 <span style="font-size:9pt;color:#2563eb;">[v1.1: VWorld 3D + TOPIS 속도 기반으로 변경. T Data 미사용.]</span></div>
 
 <!-- FR-SIM-001 -->
 <div class="fn-card no-break">
   <div class="fn-header">
     <span class="fn-id">FR-SIM-001</span>
-    <span class="fn-name">시뮬레이션 교차로 선택</span>
+    <span class="fn-name">VWorld 3D 경로 선택 및 병목 탐지</span>
     <span class="fn-actor">행위자: 사용자</span>
   </div>
   <div class="fn-body">
-    <div class="fn-row"><span class="fn-label">설명</span><span class="fn-value">시뮬레이션 지도에서 교차로를 클릭하면 해당 교차로의 신호 현시(phase) 데이터를 DB에서 조회하여 슬라이더 패널에 로드한다.</span></div>
+    <div class="fn-row"><span class="fn-label">설명</span><span class="fn-value">VWorld 3D WebGL 지도에서 출발지·목적지 교차로를 순서대로 클릭하면 두 점 간 경로를 자동 탐색하고, TOPIS 실시간 도로 소통 정보(상행/하행 속도)로 병목 경유지를 자동 선정한다. <span style="color:#2563eb;font-size:8.5pt;">[v1.1 신규]</span></span></div>
     <div class="fn-row">
       <span class="fn-label">주요 흐름</span>
       <ul class="flow-list">
-        <li><span class="n">1</span><span class="t">SimulationMapView에서 교차로 마커 클릭</span></li>
-        <li><span class="n">2</span><span class="t"><code>GET /api/signal/crossroads/{intNo}</code> → SIGNAL_PHASES 테이블에서 해당 교차로 현시 목록 조회</span></li>
-        <li><span class="n">3</span><span class="t">응답: <code>[{ no, dirs[], sec, cycleTime }]</code> — 현시 번호, 방향, 초기 신호 시간(초), 주기 합계</span></li>
-        <li><span class="n">4</span><span class="t">SimSliderPanel에 현시 목록 렌더링 — 각 현시당 슬라이더 1개</span></li>
+        <li><span class="n">1</span><span class="t">SimulationMapView(VWorld 3D)에서 첫 번째 마커 클릭 → 출발지(start) 설정</span></li>
+        <li><span class="n">2</span><span class="t">두 번째 마커 클릭 → 목적지(end) 설정, 경로 자동 탐색 시작</span></li>
+        <li><span class="n">3</span><span class="t">경로상 교차로의 TOPIS 링크 속도 조회 → 20 km/h 미만 구간을 병목으로 탐지, 자동 경유지 배열(autoWaypoints) 생성</span></li>
+        <li><span class="n">4</span><span class="t">3D 지도에 경로 선, 병목 마커(주황), 출발/목적지 마커 표시</span></li>
       </ul>
     </div>
     <div class="fn-row">
       <span class="fn-label">관련</span>
-      <div class="tag-row"><span class="tag tag-api">GET /api/signal/crossroads/{intNo}</span><span class="tag tag-comp">SimulationDashboard.jsx</span><span class="tag tag-comp">SimulationMapView.jsx</span></div>
+      <div class="tag-row"><span class="tag tag-comp">SimulationDashboard.jsx</span><span class="tag tag-comp">SimulationMapView.jsx (VWorld)</span><span class="tag tag-api">TOPIS TrafficInfo</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- FR-SIM-001b -->
+<div class="fn-card no-break">
+  <div class="fn-header">
+    <span class="fn-id">FR-SIM-001b</span>
+    <span class="fn-name">시뮬레이션 교차로 신호 현시 로드</span>
+    <span class="fn-actor">행위자: 사용자</span>
+  </div>
+  <div class="fn-body">
+    <div class="fn-row"><span class="fn-label">설명</span><span class="fn-value">출발지·목적지·병목 경유지 선택 시 각 교차로의 신호 현시(phase) 데이터를 DB에서 조회하여 슬라이더 패널에 로드한다.</span></div>
+    <div class="fn-row">
+      <span class="fn-label">주요 흐름</span>
+      <ul class="flow-list">
+        <li><span class="n">1</span><span class="t">교차로 선택 → <code>GET /api/signal/simulation/context/{intNo}</code> 호출</span></li>
+        <li><span class="n">2</span><span class="t">응답: <code>{ phases: [{ no, dirs[], sec }], cycleVal }</code></span></li>
+        <li><span class="n">3</span><span class="t">출발지/경유지/목적지/병목지 탭으로 구분하여 각각 VehicleAwareSignalSimPanel + SimSliderPanel 렌더링</span></li>
+      </ul>
+    </div>
+    <div class="fn-row">
+      <span class="fn-label">관련</span>
+      <div class="tag-row"><span class="tag tag-api">GET /api/signal/simulation/context/{intNo}</span><span class="tag tag-comp">SimulationDashboard.jsx</span></div>
     </div>
   </div>
 </div>
@@ -814,9 +842,142 @@ p{margin-bottom:10px;line-height:1.7;}
   </div>
 </div>
 
-<!-- ─── 8. FR-FORECAST ──────────────────────────── -->
+<!-- ─── 8. FR-VOICE ──────────────────────────────── -->
 <div class="page-break"></div>
-<div class="section-title">8. FR-FORECAST — 교통량 예측</div>
+<div class="section-title">8. FR-VOICE — 음성 어시스턴트 <span style="font-size:9pt;color:#2563eb;">[v1.1 신규]</span></div>
+
+<div class="fn-card no-break">
+  <div class="fn-header">
+    <span class="fn-id">FR-VOICE-001</span>
+    <span class="fn-name">박수 2번 감지 활성화</span>
+    <span class="fn-actor">행위자: 사용자 (마이크 환경)</span>
+  </div>
+  <div class="fn-body">
+    <div class="fn-row"><span class="fn-label">설명</span><span class="fn-value">useClapDetection 훅이 마이크 오디오 스트림을 분석하여 700ms 이내 박수 2번(RMS > 0.22 AND delta > 0.15)을 감지하면 음성 어시스턴트 팝업을 자동으로 열고 인사 TTS를 재생한다.</span></div>
+    <div class="fn-row">
+      <span class="fn-label">주요 흐름</span>
+      <ul class="flow-list">
+        <li><span class="n">1</span><span class="t">AudioContext + createAnalyser(fftSize=256)로 마이크 스트림 분석 (requestAnimationFrame 루프)</span></li>
+        <li><span class="n">2</span><span class="t">RMS > 0.22 AND delta(현재-이전 RMS) > 0.15 시 박수 1회 카운트</span></li>
+        <li><span class="n">3</span><span class="t">700ms 이내 2회 감지 → onDoubleClap() 실행 → 3초 쿨다운</span></li>
+        <li><span class="n">4</span><span class="t">VoiceAssistantPanel 팝업 활성화 → speakAsync("안녕하세요...") 인사 TTS 재생</span></li>
+      </ul>
+    </div>
+    <div class="fn-row">
+      <span class="fn-label">관련</span>
+      <div class="tag-row"><span class="tag tag-comp">hooks/useClapDetection.js</span><span class="tag tag-comp">lib/tts.js (speakAsync)</span><span class="tag tag-comp">VoiceAssistantPanel.jsx</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="fn-card no-break">
+  <div class="fn-header">
+    <span class="fn-id">FR-VOICE-002</span>
+    <span class="fn-name">STT 음성 질의 및 TTS 응답</span>
+    <span class="fn-actor">행위자: 사용자</span>
+  </div>
+  <div class="fn-body">
+    <div class="fn-row"><span class="fn-label">설명</span><span class="fn-value">마이크 버튼으로 Web Speech API STT를 활성화하여 음성 질의를 텍스트로 변환한 뒤 AI 에이전트에 전달하고, 응답을 Google Cloud TTS(ko-KR-Neural2-C)로 자동 읽는다.</span></div>
+    <div class="fn-row">
+      <span class="fn-label">주요 흐름</span>
+      <ul class="flow-list">
+        <li><span class="n">1</span><span class="t">마이크 버튼 클릭 → SpeechRecognition 시작 (lang='ko-KR', continuous=false)</span></li>
+        <li><span class="n">2</span><span class="t">음성 인식 완료 → result.transcript를 AI 에이전트 API로 전송</span></li>
+        <li><span class="n">3</span><span class="t">AI 응답 텍스트 수신 → speakAsync(text) 호출 → Google Cloud TTS API (ko-KR-Neural2-C, MP3)</span></li>
+        <li><span class="n">4</span><span class="t">전역 단일 큐(_ttsChain)로 발화 순서 보장. 음소거 상태면 speakAsync 즉시 반환.</span></li>
+      </ul>
+    </div>
+    <div class="fn-row">
+      <span class="fn-label">관련</span>
+      <div class="tag-row"><span class="tag tag-comp">hooks/useAssistant.js</span><span class="tag tag-comp">lib/tts.js</span><span class="tag tag-api">Google Cloud TTS API</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 9. FR-CIVIL ──────────────────────────────── -->
+<div class="page-break"></div>
+<div class="section-title">9. FR-CIVIL — 시민 민원 포털 <span style="font-size:9pt;color:#2563eb;">[v1.1 신규]</span></div>
+
+<div class="fn-card no-break">
+  <div class="fn-header">
+    <span class="fn-id">FR-CIVIL-001</span>
+    <span class="fn-name">시민 민원 제출</span>
+    <span class="fn-actor">행위자: 시민 (별도 진입 경로)</span>
+  </div>
+  <div class="fn-body">
+    <div class="fn-row"><span class="fn-label">설명</span><span class="fn-value">로그인 페이지의 "민원 신고" 버튼으로 진입. 카카오맵 위치 핀 + 14개 카테고리 선택 + 사진 첨부로 민원을 제출하면 civil_flask_server(:8002)가 Google GenAI로 민원을 분류하고 자동 답변 이메일을 발송한다.</span></div>
+    <div class="fn-row">
+      <span class="fn-label">주요 흐름</span>
+      <ul class="flow-list">
+        <li><span class="n">1</span><span class="t">카카오맵에서 위치 핀 설정 → 위경도 추출</span></li>
+        <li><span class="n">2</span><span class="t">카테고리 선택 → DEPT_MAP으로 담당 부서 자동 매핑 (도로과/교통과/주차과 등)</span></li>
+        <li><span class="n">3</span><span class="t">사진 파일 선택 → <code>POST {CIVIL_API}/complaints/upload</code> 로 사전 업로드</span></li>
+        <li><span class="n">4</span><span class="t">제출 → <code>POST {CIVIL_API}/complaints</code> (민원 정보 + 사진 URL + 날씨 데이터)</span></li>
+        <li><span class="n">5</span><span class="t">civil_flask_server: Google GenAI로 민원 내용 분류 → 자동 답변 이메일 발송</span></li>
+      </ul>
+    </div>
+    <div class="fn-row">
+      <span class="fn-label">관련</span>
+      <div class="tag-row"><span class="tag tag-comp">CivilDashboard.jsx</span><span class="tag tag-api">POST civil_flask_server/complaints</span><span class="tag tag-api">카카오맵 SDK</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 10. FR-ADMIN + FR-MGMT ──────────────────── -->
+<div class="page-break"></div>
+<div class="section-title">10. FR-ADMIN / FR-MGMT — 관리자 페이지 <span style="font-size:9pt;color:#2563eb;">[v1.1 신규]</span></div>
+
+<div class="fn-card no-break">
+  <div class="fn-header">
+    <span class="fn-id">FR-ADMIN-001</span>
+    <span class="fn-name">민원 목록 조회 및 상태 변경</span>
+    <span class="fn-actor">행위자: 관제 담당자</span>
+  </div>
+  <div class="fn-body">
+    <div class="fn-row"><span class="fn-label">설명</span><span class="fn-value">ComplaintManagePage에서 접수된 민원 전체를 테이블로 표시. 자치구·상태·카테고리 필터 및 키워드 검색 가능. 상태 변경 버튼으로 접수 → 처리중 → 완료 순으로 진행.</span></div>
+    <div class="fn-row">
+      <span class="fn-label">주요 흐름</span>
+      <ul class="flow-list">
+        <li><span class="n">1</span><span class="t"><code>GET /api/complaints</code> → 전체 민원 목록 조회</span></li>
+        <li><span class="n">2</span><span class="t">자치구 사이드바 클릭 → 해당 구 민원만 필터. 상태/카테고리 드롭다운 필터 복합 적용.</span></li>
+        <li><span class="n">3</span><span class="t">상태 변경 버튼 클릭 → <code>PATCH /api/complaints/{id}/status</code> → DB 업데이트 → 목록 즉시 갱신</span></li>
+        <li><span class="n">4</span><span class="t">사진 버튼 클릭 → PhotoModal 슬라이드쇼로 첨부 사진 표시</span></li>
+      </ul>
+    </div>
+    <div class="fn-row">
+      <span class="fn-label">관련</span>
+      <div class="tag-row"><span class="tag tag-comp">ComplaintManagePage.jsx</span><span class="tag tag-api">GET /api/complaints</span><span class="tag tag-api">PATCH /api/complaints/{id}/status</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="fn-card no-break">
+  <div class="fn-header">
+    <span class="fn-id">FR-MGMT-001</span>
+    <span class="fn-name">사용자 승인 및 임시 비밀번호 발급</span>
+    <span class="fn-actor">행위자: 시스템 관리자(admin)</span>
+  </div>
+  <div class="fn-body">
+    <div class="fn-row"><span class="fn-label">설명</span><span class="fn-value">admin 계정 전용 사용자 관리 페이지. 승인 대기 사용자를 승인하거나, 임시 비밀번호를 발급하고(isTempPw=true), 계정을 활성화/비활성화한다.</span></div>
+    <div class="fn-row">
+      <span class="fn-label">주요 흐름</span>
+      <ul class="flow-list">
+        <li><span class="n">1</span><span class="t"><code>GET /api/admin/users</code> → 전체 사용자 목록(이메일·이름·역할·상태) 조회</span></li>
+        <li><span class="n">2</span><span class="t">승인 버튼 → <code>POST /api/admin/users/{email}/approve</code> → USERS 테이블 status=ACTIVE</span></li>
+        <li><span class="n">3</span><span class="t">임시 비밀번호 발급 → <code>POST /api/admin/users/{email}/temp-password</code> → BCrypt 해시 저장 + isTempPw=true</span></li>
+        <li><span class="n">4</span><span class="t">해당 사용자 다음 로그인 시 isTempPw=true 감지 → 마이페이지로 강제 이동</span></li>
+      </ul>
+    </div>
+    <div class="fn-row">
+      <span class="fn-label">관련</span>
+      <div class="tag-row"><span class="tag tag-comp">MyPage.jsx (관리자 뷰)</span><span class="tag tag-api">GET /api/admin/users</span><span class="tag tag-api">POST /api/admin/users/{email}/approve</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 11. FR-FORECAST ──────────────────────────── -->
+<div class="page-break"></div>
+<div class="section-title">11. FR-FORECAST — 교통량 예측</div>
 
 <!-- FR-FORECAST-001 -->
 <div class="fn-card no-break">

@@ -41,25 +41,20 @@ p{margin-bottom:9px;color:#334155;}
 /* ── 표 ── */
 table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:9.5pt;}
 thead tr{background:#1e40af;color:#fff;}
-thead th{padding:8px 12px;text-align:left;font-weight:600;letter-spacing:.3px;}
+thead th{padding:8px 12px;text-align:left;font-weight:600;letter-spacing:.3px;white-space:nowrap;}
 tbody tr:nth-child(even){background:#f1f5f9;}
-tbody td{padding:8px 12px;border-bottom:1px solid #e2e8f0;vertical-align:top;line-height:1.6;}
+tbody td{padding:8px 12px;border-bottom:1px solid #e2e8f0;vertical-align:top;line-height:1.6;word-break:keep-all;}
 td.num{text-align:center;color:#64748b;font-size:9pt;width:30px;}
 code{font-family:'Consolas',monospace;background:#f1f5f9;padding:1px 5px;border-radius:3px;font-size:8.5pt;color:#1d4ed8;}
 
 /* ── 배지 ── */
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:8.5pt;font-weight:600;}
-.badge-blue  {background:#dbeafe;color:#1d4ed8;}
-.badge-green {background:#dcfce7;color:#15803d;}
-.badge-yellow{background:#fef3c7;color:#92400e;}
-.badge-gray  {background:#f1f5f9;color:#475569;}
-.badge-purple{background:#ede9fe;color:#6d28d9;}
-.badge-red   {background:#fee2e2;color:#b91c1c;}
-.badge-orange{background:#ffedd5;color:#9a3412;}
+.badge-blue,.badge-green,.badge-yellow,.badge-gray,.badge-purple,.badge-red,.badge-orange{
+  background:#dbeafe;color:#1d4ed8;}
 
 /* ── 박스 ── */
 .info-box{background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #3b82f6;border-radius:6px;padding:13px 16px;margin:13px 0;font-size:10pt;color:#1e40af;}
-.warn-box{background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #f97316;border-radius:6px;padding:13px 16px;margin:13px 0;font-size:10pt;color:#9a3412;}
+.warn-box{background:#f0f9ff;border:1px solid #bae6fd;border-left:4px solid #0284c7;border-radius:6px;padding:13px 16px;margin:13px 0;font-size:10pt;color:#1e3a5f;}
 .success-box{background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #22c55e;border-radius:6px;padding:13px 16px;margin:13px 0;font-size:10pt;color:#14532d;}
 .gray-box{background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid #94a3b8;border-radius:6px;padding:13px 16px;margin:13px 0;font-size:10pt;color:#334155;}
 
@@ -78,11 +73,8 @@ code{font-family:'Consolas',monospace;background:#f1f5f9;padding:1px 5px;border-
 
 /* 헤더 */
 .sc-header{padding:13px 18px;display:flex;align-items:center;gap:14px;color:#fff;}
-.sc-header.blue  {background:linear-gradient(90deg,#1e40af,#2563eb);}
-.sc-header.teal  {background:linear-gradient(90deg,#0f766e,#0d9488);}
-.sc-header.purple{background:linear-gradient(90deg,#5b21b6,#7c3aed);}
-.sc-header.orange{background:linear-gradient(90deg,#9a3412,#c2410c);}
-.sc-header.gray  {background:linear-gradient(90deg,#374151,#4b5563);}
+.sc-header.blue,.sc-header.teal,.sc-header.purple,.sc-header.orange,.sc-header.gray{
+  background:#1e3a5f;}
 .sc-num{font-size:9pt;font-weight:700;background:rgba(255,255,255,.2);padding:3px 10px;border-radius:4px;flex-shrink:0;}
 .sc-title{font-size:11.5pt;font-weight:700;flex:1;}
 .sc-type{font-size:8.5pt;background:rgba(255,255,255,.15);padding:2px 10px;border-radius:12px;white-space:nowrap;}
@@ -104,10 +96,8 @@ code{font-family:'Consolas',monospace;background:#f1f5f9;padding:1px 5px;border-
 .react-content{display:flex;flex-direction:column;gap:3px;}
 .react-phase{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
 .react-badge{font-size:8pt;font-weight:700;padding:1px 7px;border-radius:4px;}
-.rb-observe{background:#dbeafe;color:#1e40af;}
-.rb-think {background:#ede9fe;color:#5b21b6;}
-.rb-act   {background:#dcfce7;color:#15803d;}
-.rb-tool  {background:#fef3c7;color:#92400e;}
+.rb-observe,.rb-think,.rb-act{background:#dbeafe;color:#1e40af;}
+.rb-tool  {background:#dbeafe;color:#1d4ed8;}
 .react-text{font-size:9.5pt;color:#334155;line-height:1.55;}
 .react-code{font-family:'Consolas',monospace;font-size:8.5pt;background:#f1f5f9;color:#1d4ed8;padding:2px 6px;border-radius:3px;}
 .react-result{font-size:8.5pt;color:#64748b;padding:5px 8px;background:#fff;border:1px solid #e2e8f0;border-radius:4px;margin-top:3px;font-family:'Consolas',monospace;}
@@ -122,11 +112,7 @@ code{font-family:'Consolas',monospace;background:#f1f5f9;padding:1px 5px;border-
 .tool-tags{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;}
 .tool-tag{display:inline-flex;align-items:center;gap:5px;background:#1e40af;color:#fff;
   padding:3px 10px;border-radius:16px;font-size:8.5pt;font-weight:600;}
-.tool-tag.gray  {background:#475569;}
-.tool-tag.green {background:#15803d;}
-.tool-tag.purple{background:#5b21b6;}
-.tool-tag.orange{background:#c2410c;}
-.tool-tag.teal  {background:#0f766e;}
+.tool-tag.gray,.tool-tag.green,.tool-tag.purple,.tool-tag.orange,.tool-tag.teal{background:#1e40af;}
 .tool-tag .call-n{font-size:7.5pt;background:rgba(255,255,255,.25);padding:1px 5px;border-radius:8px;margin-left:2px;}
 
 /* 메타 정보 행 */
@@ -165,7 +151,7 @@ footer{text-align:center;font-size:8.5pt;color:#94a3b8;margin-top:44px;padding-t
     </div>
     <div class="cover-meta-item">
       <div class="cover-meta-label">버전</div>
-      <div class="cover-meta-value">v1.0</div>
+      <div class="cover-meta-value">v1.1</div>
     </div>
     <div class="cover-meta-item">
       <div class="cover-meta-label">작성일</div>
@@ -187,6 +173,11 @@ footer{text-align:center;font-size:8.5pt;color:#94a3b8;margin-top:44px;padding-t
       <tr>
         <td><strong>v1.0</strong></td><td>2026-05-28</td><td>박희윤</td>
         <td>최초 작성 — AI 챗봇 질의응답 시나리오 10개, ReAct 루프 전체 기술</td>
+        <td><span class="badge badge-yellow">초안</span></td>
+      </tr>
+      <tr>
+        <td><strong>v1.1</strong></td><td>2026-06-02</td><td>박희윤</td>
+        <td>음성 어시스턴트 시나리오 추가 (박수 2번 활성화, STT 질의, TTS 자동 읽기), 시뮬레이션 챗봇 TOPIS 기반 병목 분석 시나리오 추가</td>
         <td><span class="badge badge-yellow">초안</span></td>
       </tr>
     </tbody>
@@ -211,6 +202,7 @@ footer{text-align:center;font-size:8.5pt;color:#94a3b8;margin-top:44px;padding-t
   <div class="toc-item toc-sub"><span class="toc-num" style="font-size:9pt;">S-08</span><span class="toc-title">"병목 경보 이메일 보내줘"</span></div>
   <div class="toc-item toc-sub"><span class="toc-num" style="font-size:9pt;">S-09</span><span class="toc-title">"송파구 위험한 곳 5곳 리포트해줘"</span></div>
   <div class="toc-item"><span class="toc-num">6</span><span class="toc-title toc-bold">도메인 지식 활용 시나리오</span></div>
+  <div class="toc-item"><span class="toc-num">7</span><span class="toc-title toc-bold">음성 어시스턴트 시나리오 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 신규</span></span></div>
   <div class="toc-item toc-sub"><span class="toc-num" style="font-size:9pt;">S-10</span><span class="toc-title">"Webster 공식으로 최적 주기 계산해줘"</span></div>
   <div class="toc-item"><span class="toc-num">7</span><span class="toc-title toc-bold">에이전트 응답 능력 범위</span></div>
 </div>
@@ -1137,15 +1129,77 @@ weather: { temperatureC:22.1, precipitationMm:4.2, windSpeedMs:2.1 }</div>
       <tr><td>이메일 발송 (S-08)</td><td>2회</td><td>8~15초</td><td>SMTP 포함</td></tr>
       <tr><td>다중 교차로 5개 (S-09)</td><td>6회</td><td>30~60초</td><td>가장 느림, 개선 필요</td></tr>
       <tr><td>시뮬레이션 챗봇 (S-07)</td><td>0회</td><td>3~6초</td><td>컨텍스트 주입</td></tr>
+      <tr><td>음성 어시스턴트 — 박수 활성화 (V-01) <span style="color:#2563eb;font-size:8pt;">[v1.1]</span></td><td>0회</td><td>즉시 + TTS 1~2초</td><td>AudioContext 로컬 처리</td></tr>
+      <tr><td>음성 어시스턴트 — STT 질의 (V-02) <span style="color:#2563eb;font-size:8pt;">[v1.1]</span></td><td>1~3회</td><td>5~20초</td><td>Web Speech API + AI + TTS</td></tr>
     </tbody>
   </table>
 
   <div class="warn-box">
-    <strong>⚠ 응답 시간 참고사항:</strong> 로컬 Ollama qwen3:30b-a3b 기준. GPU 없이 CPU 추론 시 응답 시간이 수 분까지 늘어날 수 있음. MCP 도구 호출 1회당 약 2~4초 추가 소요.
+    <strong>⚠ 응답 시간 참고사항:</strong> 로컬 Ollama qwen3:30b-a3b 기준. GPU 없이 CPU 추론 시 응답 시간이 수 분까지 늘어날 수 있음. MCP 도구 호출 1회당 약 2~4초 추가 소요. Google Cloud TTS는 네트워크 지연 포함 약 1~2초.
+  </div>
+
+  <!-- ─── 7. 음성 어시스턴트 시나리오 ──────────────── -->
+  <div class="section-title" style="margin-top:40px;">7. 음성 어시스턴트 시나리오 <span style="font-size:9pt;color:#2563eb;">[v1.1 신규]</span></div>
+
+  <!-- V-01 -->
+  <div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:12px 0;background:#f8fafc;">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+      <span style="background:#1e40af;color:#fff;padding:3px 10px;border-radius:4px;font-size:9pt;font-weight:700;">V-01</span>
+      <span style="font-weight:700;font-size:11pt;">박수 2번으로 어시스턴트 활성화</span>
+    </div>
+    <p style="margin-bottom:8px;color:#334155;">상황: 관제 담당자가 키보드·마우스 없이 손뼉을 쳐서 AI 어시스턴트를 호출한다.</p>
+    <table style="font-size:9pt;">
+      <thead><tr><th style="width:100px;">단계</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td><strong>사용자 액션</strong></td><td>박수 2번 (700ms 이내)</td></tr>
+        <tr><td><strong>시스템 감지</strong></td><td>useClapDetection: RMS &gt; 0.22 AND delta &gt; 0.15 → 2회 카운트 → onDoubleClap()</td></tr>
+        <tr><td><strong>TTS 발화</strong></td><td>speakAsync("안녕하세요! 교통 현황이나 신호 최적화 관련 질문을 말씀해 주세요.")</td></tr>
+        <tr><td><strong>UI 변화</strong></td><td>VoiceAssistantPanel 팝업 슬라이드 인, 마이크 버튼 활성화</td></tr>
+        <tr><td><strong>쿨다운</strong></td><td>3초간 재감지 차단 (중복 활성화 방지)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- V-02 -->
+  <div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:12px 0;background:#f8fafc;">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+      <span style="background:#1e40af;color:#fff;padding:3px 10px;border-radius:4px;font-size:9pt;font-weight:700;">V-02</span>
+      <span style="font-weight:700;font-size:11pt;">음성 질의 → AI 응답 → TTS 자동 읽기</span>
+    </div>
+    <p style="margin-bottom:8px;color:#334155;">상황: 담당자가 "강남구 병목 교차로 알려줘"라고 음성으로 질의한다.</p>
+    <table style="font-size:9pt;">
+      <thead><tr><th style="width:100px;">단계</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td><strong>STT</strong></td><td>마이크 버튼 → SpeechRecognition(ko-KR) → "강남구 병목 교차로 알려줘" 텍스트 변환</td></tr>
+        <tr><td><strong>AI 질의</strong></td><td>LangGraph ReAct 에이전트 → MCP get_bottleneck_list 도구 호출 → 병목 교차로 목록 조회</td></tr>
+        <tr><td><strong>응답 수신</strong></td><td>"현재 강남구에서 가장 혼잡한 교차로는 ○○ 교차로로, 평균 속도 15km/h입니다..."</td></tr>
+        <tr><td><strong>TTS 읽기</strong></td><td>speakAsync(답변 텍스트) → Google Cloud TTS API → ko-KR-Neural2-C MP3 생성 → Audio.play()</td></tr>
+        <tr><td><strong>중단</strong></td><td>TTS 재생 중 박수 2번 → window.__stopBriefingAudio() → 재생 즉시 중단, 큐 초기화</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- V-03 -->
+  <div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:12px 0;background:#f8fafc;">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+      <span style="background:#1e40af;color:#fff;padding:3px 10px;border-radius:4px;font-size:9pt;font-weight:700;">V-03</span>
+      <span style="font-weight:700;font-size:11pt;">시뮬레이션 챗봇 — TOPIS 병목 기반 신호 최적화</span>
+    </div>
+    <p style="margin-bottom:8px;color:#334155;">상황: 시뮬레이션 페이지에서 병목 교차로 신호를 자동 조정한 후 AI에게 효과 분석을 요청한다. <span style="color:#2563eb;font-size:8.5pt;">[v1.1 변경 — TOPIS 속도 데이터 기반]</span></p>
+    <table style="font-size:9pt;">
+      <thead><tr><th style="width:100px;">단계</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td><strong>트리거</strong></td><td>"병목 신호제어 적용" 버튼 클릭 → 직진 현시 시간 자동 증가 애니메이션</td></tr>
+        <tr><td><strong>자동 질문</strong></td><td>autoTrigger: "관제사가 ○○ 신호를 조정했습니다. 제어 전후 효과를 분석해주세요."</td></tr>
+        <tr><td><strong>챗봇 분석</strong></td><td>POST /api/simulation-chat { question, intNo, simulation: [{no, sec, dirs}] }</td></tr>
+        <tr><td><strong>AI 응답</strong></td><td>직진 현시 +Xs 증가로 예상 처리량 향상. TOPIS 속도 기준 병목 완화 예상 효과 서술.</td></tr>
+        <tr><td><strong>도착시간 비교</strong></td><td>stats.beforeSec vs stats.afterSec — 단축 시간(savedSec) 화면 표시</td></tr>
+      </tbody>
+    </table>
   </div>
 
   <footer>
-    TrafficSync — AI 챗봇 질의응답 시나리오 TS-DOC-06 v1.0 &nbsp;|&nbsp; 2026-05-28 &nbsp;|&nbsp; 박희윤
+    TrafficSync — AI 챗봇 질의응답 시나리오 TS-DOC-06 v1.1 &nbsp;|&nbsp; 최초: 2026-05-28 &nbsp;|&nbsp; 수정: 2026-06-02 &nbsp;|&nbsp; 박희윤
   </footer>
 </div>
 
