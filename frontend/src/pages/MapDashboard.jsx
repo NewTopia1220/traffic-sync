@@ -1,13 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import KakaoMapView from "../components/map/KakaoMapView";
 import SignalPanel from "../components/map/SignalPanel";
 import RoadViewModal from "../components/map/RoadViewModal";
 import CctvModal from "../components/map/CctvModal";
 import BottleneckList from "../components/sidebar/BottleneckList";
 import RiskList from "../components/sidebar/RiskList";
+import ComplaintList from "../components/sidebar/ComplaintList";
 import AIChatBot from "../components/sidebar/AIChatBot";
+import ComplaintPopup from "../components/map/ComplaintPopup";
 import { riskGradeValue } from "../utils/signalUtils";
 import AppHeader from "../components/common/AppHeader";
+
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
 
 const WEATHER = { icon: "🌤️", temp: "21°C", desc: "맑음", humidity: "65%" };
@@ -18,7 +22,7 @@ const TABS = [
 const CHAT_W = 480;
 const CHATBOT_ICON = "/icons/chatbot.webp";
 
-export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, selectedGu, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [] }) {
+export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, onGoComplaints, selectedGu, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [] }) {
   const [time,         setTime]         = useState(new Date());
   const [selected,     setSelected]     = useState(null);
   const [activeTab,    setActiveTab]    = useState("map");
@@ -26,6 +30,10 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
   const [selectedCctv, setSelectedCctv] = useState(null);
   const [chatOpen,     setChatOpen]     = useState(false);
   const [signalPanelOpen, setSignalPanelOpen] = useState(true);
+  const [complaints,       setComplaints]     = useState([]);
+  const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [complaintMapCenter, setComplaintMapCenter] = useState(null);
+  const prevComplaintIdsRef = useRef(new Set());
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -53,6 +61,45 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
   };
   const isHighRisk = c => (riskGradeValue(c.riskGrade) ?? 0) >= 3;
 
+  // ── 브라우저 알림 권한 요청 ───────────────────────────────────
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // ── 민원 폴링 + 신규 민원 알림 (30초 간격) ───────────────────
+  const fetchComplaints = useCallback(() => {
+    const guParam = selectedGu?.name ? `?guName=${encodeURIComponent(selectedGu.name)}` : "";
+    fetch(`${API_BASE}/api/complaints${guParam}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        if (!Array.isArray(data)) return;
+        setComplaints(data);
+
+        const prevIds = prevComplaintIdsRef.current;
+        if (prevIds.size > 0) {
+          const newOnes = data.filter(c => !prevIds.has(String(c.id)));
+          newOnes.forEach(c => {
+            if (Notification.permission === "granted") {
+              new Notification("새 민원 접수", {
+                body: `[${c.category}] ${c.title}\n📍 ${c.address}`,
+                icon: "/favicon.ico",
+              });
+            }
+          });
+        }
+        prevComplaintIdsRef.current = new Set(data.map(c => String(c.id)));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchComplaints();
+    const id = setInterval(fetchComplaints, 5000);
+    return () => clearInterval(id);
+  }, [fetchComplaints, selectedGu?.name]);
+
   const bottlenecks = [...wsData]
     .filter(c => c.congestion === "혼잡" || c.congestion === "서행")
     .sort((a, b) => (a.speed ?? Number.MAX_SAFE_INTEGER) - (b.speed ?? Number.MAX_SAFE_INTEGER));
@@ -75,8 +122,10 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
         onGoNews={onGoNews}
         onGoCctv={onGoCctv}
         onGoSimulation={onGoSimulation}
+        onGoComplaints={onGoComplaints}
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
+        complaintCount={complaints.filter(c => c.status !== "완료").length}
         rightExtra={(
           <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 12, color: "#7a7a7a" }}>
             갱신: <span style={{ color: "#aab4c8" }}>{lastUpdate ? lastUpdate.toLocaleTimeString("ko-KR") : "-"}</span>
@@ -87,7 +136,9 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
       <div style={{
         flex: 1, display: "grid",
         gridTemplateColumns: chatOpen ? `1fr 360px ${CHAT_W}px` : "1fr 360px",
+        gridTemplateRows: "1fr",
         minHeight: 0,
+        overflow: "hidden",
         transition: "grid-template-columns .28s ease",
       }}>
 
@@ -96,7 +147,36 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
 
           {activeTab === "map" && (
             <div style={{ flex: 1, position: "relative", minHeight: 0, borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} selectedGu={selectedGu} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} />
+              <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} selectedGu={selectedGu} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} complaints={complaints.filter(c => c.status !== "완료")} onComplaintClick={setSelectedComplaint} complaintCenter={complaintMapCenter} />
+
+              {/* ── 구별 민원 현황 배지 — 활성 민원 1건 이상일 때만 표시 ── */}
+              {selectedGu && complaints.filter(c => c.status !== "완료").length > 0 && (
+                <div style={{
+                  position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)",
+                  zIndex: 20, display: "flex", alignItems: "center", gap: 10,
+                  background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 8, padding: "7px 14px",
+                  backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
+                  pointerEvents: "none", whiteSpace: "nowrap",
+                }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ffaa33", display: "inline-block", flexShrink: 0 }} />
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#aab4c8", display: "flex", alignItems: "center", gap: 8 }}>
+                    <b style={{ color: "#e7ecf5" }}>{selectedGu.name}</b>
+                    <span>현재 민원</span>
+                    <b style={{ color: "#ffaa33" }}>{complaints.filter(c => c.status !== "완료").length}건</b>
+                  </span>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    {[
+                      ["접수",   complaints.filter(c => c.status === "접수").length,   "#ffaa33"],
+                      ["처리중", complaints.filter(c => c.status === "처리중").length, "#4ea6ff"],
+                    ].filter(([, cnt]) => cnt > 0).map(([label, cnt, color]) => (
+                      <span key={label} style={{ fontSize: 14, fontWeight: 700, color }}>
+                        {label} {cnt}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {wsData.length === 0 && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(7,12,23,0.75)", zIndex: 30, gap: 10 }}>
@@ -188,16 +268,24 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
               </div>
             ))}
           </div>
+          <ComplaintList
+            complaints={complaints}
+            selected={selectedComplaint}
+            onSelect={c => { setSelectedComplaint(c); setComplaintMapCenter({ ...c, _t: Date.now() }); }}
+            onStatusChange={fetchComplaints}
+          />
           <BottleneckList bottlenecks={bottlenecks} selected={selected} onSelect={selectCr} crossroadsCount={wsData.length} />
           <RiskList risks={risks} onSelect={selectCr} crossroadsCount={wsData.length} />
         </div>
 
         {/* 챗봇 패널 — chatOpen일 때만 그리드 컬럼에 렌더링 */}
         {chatOpen && (
-          <AIChatBot
-            selected={selected}
-            onClose={() => setChatOpen(false)}
-          />
+          <div style={{ overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <AIChatBot
+              selected={selected}
+              onClose={() => setChatOpen(false)}
+            />
+          </div>
         )}
       </div>
 
@@ -207,6 +295,9 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
       )}
       {selectedCctv && (
         <CctvModal cctv={selectedCctv} onClose={() => setSelectedCctv(null)} />
+      )}
+      {selectedComplaint && (
+        <ComplaintPopup complaint={selectedComplaint} onClose={() => setSelectedComplaint(null)} />
       )}
     </div>
   );

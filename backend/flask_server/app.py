@@ -18,7 +18,9 @@ db_config = {
      "user": "ADMIN",
      "password": "Heeyoun1220!",
      "dsn": "koreapoint_medium",
-     "wallet_location": "C:/Final!!!!!!!/traffic-sync/backend/src/main/resources/wallet"
+
+     "wallet_location": "C:/final__project/traffic-sync/backend/src/main/resources/wallet"
+     # C:\final__project\traffic-sync\backend\src\main\resources\wallet
 
 }
 

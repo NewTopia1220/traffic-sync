@@ -1,4 +1,25 @@
-import { useState } from 'react'
+/**
+ * App — 애플리케이션 최상위 컴포넌트
+ * ==================================================================
+ * React Router 없이 useState(page)로 화면을 전환하는 단일 페이지 구조.
+ * URL은 바뀌지 않고 page 값에 따라 렌더링할 화면이 결정된다.
+ *
+ *   login → LoginPage
+ *   main  → MainDashboard (기본)
+ *   map   → MapDashboard
+ *   cctv  → CctvDashboard
+ *   news  → NewsDashboard
+ *   simulation → SimulationDashboard
+ *   mypage → MyPage
+ *
+ * WebSocket 교차로 데이터(wsData)와 선택 구(selectedGu)는 여러 화면이
+ * 공유하므로 App에서 관리하고 props로 내려준다.
+ *
+ * AI 음성 어시스턴트 / 구 브리핑 관련 로직은 모두 useAssistant 훅에 있고,
+ * App은 그 상태를 받아 메인 화면 위에 팝업 컴포넌트들을 띄우기만 한다.
+ */
+import { useState, useRef, useCallback } from 'react'
+
 import LoginPage from './pages/LoginPage'
 import MyPage from './pages/mypage/MyPage'
 import MainDashboard from './pages/MainDashboard'
@@ -6,121 +27,177 @@ import MapDashboard from './pages/MapDashboard'
 import CctvDashboard from './pages/CctvDashboard'
 import SimulationDashboard from './pages/SimulationDashboard'
 import NewsDashboard from './pages/NewsDashboard'
+import ComplaintManagePage from './pages/ComplaintManagePage'
+import CivilApp from './pages/civil/CivilApp'
+
 import { useWebSocket } from './hooks/useWebSocket'
+import { useAssistant } from './hooks/useAssistant'
+import { speakAsync, stopAllTTS } from './lib/tts'
+import LoginBriefingCard from './components/LoginBriefingCard'
 import { GU_LIST } from './constants/seoulGeoData'
 
-/**
- * App 컴포넌트 — 애플리케이션 최상위 컴포넌트
- *
- * React Router 없이 useState로 직접 페이지를 전환하는 방식.
- * URL은 바뀌지 않고 page state 값에 따라 렌더링할 컴포넌트가 결정됨.
- *
- * 페이지 구조:
- *   'main' → MainDashboard  (통합 대시보드, 기본 페이지)
- *   'map'  → MapDashboard   (실시간 교차로 지도)
- *   'cctv' → CctvDashboard  (CCTV 관제)
- */
-export default function App() {
+import NavBlockToast from './components/assistant/NavBlockToast'
+import VoiceAssistantPanel from './components/assistant/VoiceAssistantPanel'
+import AIFloatingButton from './components/assistant/AIFloatingButton'
+import PendingBriefingPopup from './components/assistant/PendingBriefingPopup'
+import { AssistantKeyframes } from './components/assistant/assistantStyles'
 
+export default function App() {
   // localStorage에 로그인 정보 있으면 바로 메인, 없으면 로그인 페이지
   const [page, setPage] = useState(() =>
-    localStorage.getItem("ts_user") ? 'main' : 'login'
+    localStorage.getItem('ts_user') ? 'main' : 'login'
   )
 
-  // WebSocket으로 받은 교차로 신호 데이터 배열
-  // MainDashboard와 MapDashboard가 같은 데이터를 공유해야 하므로
-  // 공통 부모인 App에서 관리하고 props로 내려줌
+  // 여러 화면이 공유하는 데이터 상태
   const [wsData, setWsData] = useState([])
   const { wsStatus, lastUpdate } = useWebSocket(setWsData)
+  const [mapCenter, setMapCenter] = useState(null)             // 지도 초기 중심 좌표
+  const [selectedGu, setSelectedGu] = useState(() => GU_LIST.find(g => g.name === '강남구'))
+  const [stations, setStations] = useState([])                // 메인에서 fetch한 교통량 지점
+  // MainDashboard의 handleSelectGu(fetch-area 포함)를 받아두는 ref
+  const selectGuRef = useRef(null)
 
-  // 통합 대시보드에서 구를 클릭했을 때 해당 구의 좌표 저장
-  // 지도 페이지로 이동할 때 initialCenter로 전달해 카카오맵 초기 중심을 설정
-  const [mapCenter, setMapCenter] = useState(null)
+  // 로그인 브리핑 카드
+  const [loginBriefing, setLoginBriefing] = useState(null) // { name, gu, weatherDesc, temp, pendingCount }
 
-  // 선택된 구 — App 레벨에서 유지해야 페이지 이동 후 복귀 시 대시보드가 비지 않음
-  // 기본값: 강남구 (로그인 직후 자동 fetch-area 호출됨)
-  const [selectedGu, setSelectedGu] = useState(() => GU_LIST.find(g => g.name === "강남구"))
+  // AI 어시스턴트 / 브리핑 로직 일체
+  const assistant = useAssistant({
+    page,
+    onNavIntent: (intent) => {
+      switch (intent.action) {
+        case 'navigate':
+          if (intent.page === 'map')             { if (selectedGu) setMapCenter(selectedGu); setPage('map') }
+          else if (intent.page === 'simulation') setPage('simulation')
+          else if (intent.page === 'cctv')       setPage('cctv')
+          else if (intent.page === 'news')       setPage('news')
+          break
+        case 'select_gu': {
+          const gu = GU_LIST.find(g => g.name === intent.gu || intent.gu?.includes(g.name))
+          // fetch-area 포함된 MainDashboard 핸들러 우선 사용
+          if (gu) selectGuRef.current ? selectGuRef.current(gu) : (setSelectedGu(gu), setMapCenter(gu))
+          break
+        }
+        case 'mypage': setPage('mypage'); break
+        case 'logout':  setPage('login'); break
+      }
+    },
+  })
 
-  /**
-   * goMap — 지도 페이지로 이동하는 함수
-   * @param {Object} center - 이동할 구의 좌표 { lat, lon, name }
-   *
-   * MainDashboard에서 구 클릭 시 호출됨.
-   * center가 있으면 mapCenter에 저장 후 'map' 페이지로 전환.
-   * center 없이 호출하면 이전 좌표(또는 null) 유지.
-   */
-  const goMap = (center) => {
+  // 구 클릭 → 지도 페이지로 이동 (분석 중이면 차단)
+  const goMap = (center) => assistant.tryNav(() => {
     if (center) setMapCenter(center)
     setPage('map')
-  }
+  })
 
+  // SVG 지도에서 구 선택 → 선택 상태 갱신 + 브리핑 시작 확인 팝업
   const handleSelectGu = (gu) => {
+    if (assistant.isAnalyzing) { assistant.blockNav(); return }
     setSelectedGu(gu)
     setMapCenter(gu)
+    const name = JSON.parse(localStorage.getItem('ts_user') || '{}').name || '관제사'
+    assistant.promptGuBriefing(name, gu.name)
   }
 
-  const [stations, setStations] = useState([]);
+  // ── 페이지별 조건부 렌더링 ──────────────────────────────────────
 
-  // ── 페이지 조건부 렌더링 ──────────────────────────────
+  if (page === 'civil') return <CivilApp onBack={() => setPage('login')} />
 
-  // 로그인 페이지
   if (page === 'login') return (
-    <LoginPage onLoginSuccess={(data) => {
-      setPage(data.isTempPw ? 'mypage' : 'main')
-    }} />
+    <LoginPage
+      onCivil={() => setPage('civil')}
+      onLoginSuccess={async (data) => {
+        const name = data.name || '관제사'
+        const gu   = selectedGu?.name || '강남구'
+        const API  = (import.meta.env.VITE_API_URL || 'http://localhost:8080').replace(/\/+$/, '')
+
+        setPage(data.isTempPw ? 'mypage' : 'main')
+
+        // 임시 비번이면 브리핑 없이 마이페이지로
+        if (data.isTempPw) { assistant.greetOnLogin(name, gu); return }
+
+        // 날씨 + 민원 미처리 건수 병렬 fetch
+        let weatherDesc = '정보 없음', temp = '--', pendingCount = 0
+        try {
+          const pos = await new Promise((resolve, reject) =>
+            navigator.geolocation.getCurrentPosition(
+              p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+              reject, { timeout: 5000 }
+            )
+          )
+          const [wRes, cRes] = await Promise.all([
+            fetch(`${API}/api/civil/auth/weather?lat=${pos.lat}&lng=${pos.lng}`),
+            fetch(`${API}/api/complaints`),
+          ])
+          if (wRes.ok) {
+            const w = await wRes.json()
+            weatherDesc = w.description || '정보 없음'
+            temp = w.temperatureC != null ? `${Math.round(w.temperatureC)}도` : '--'
+          }
+          if (cRes.ok) {
+            const complaints = await cRes.json()
+            pendingCount = Array.isArray(complaints)
+              ? complaints.filter(c => c.status === '접수').length
+              : 0
+          }
+        } catch {}
+
+        setLoginBriefing({ name, gu, weatherDesc, temp, pendingCount })
+      }}
+    />
   )
 
-  // 마이페이지
-  if (page === 'mypage') return (
-    <MyPage onBack={() => setPage('main')} />
+  if (page === 'mypage') return <MyPage onBack={() => setPage('main')} />
+
+  if (page === 'complaints') return (
+    <ComplaintManagePage onBack={() => setPage('map')} />
   )
 
-  // 뉴스 감성 분석 페이지
   if (page === 'news') return (
     <NewsDashboard
       onGoMain={() => setPage('main')}
       onGoMap={goMap}
       onGoCctv={() => setPage('cctv')}
       onGoSimulation={() => setPage('simulation')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
     />
   )
 
-  // 신호 시뮬레이션 페이지
   if (page === 'simulation') return (
     <SimulationDashboard
       onGoMain={() => setPage('main')}
       onGoMap={goMap}
       onGoNews={() => setPage('news')}
       onGoCctv={() => setPage('cctv')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
     />
   )
 
-  // CCTV 관제 페이지
   if (page === 'cctv') return (
     <CctvDashboard
       onGoMain={() => setPage('main')}
       onGoMap={goMap}
       onGoNews={() => setPage('news')}
       onGoSimulation={() => setPage('simulation')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
     />
   )
 
-  // 실시간 지도 페이지
   if (page === 'map') return (
     <MapDashboard
       onGoMain={() => setPage('main')}
       onGoCctv={() => setPage('cctv')}
       onGoNews={() => setPage('news')}
       onGoSimulation={() => setPage('simulation')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
@@ -133,22 +210,75 @@ export default function App() {
     />
   )
 
-  // 통합 대시보드 (기본 페이지 — page === 'main')
+  // ── 메인 대시보드 + AI 어시스턴트 팝업들 ────────────────────────
   return (
-    <MainDashboard
-      onGoMap={goMap}
-      onGoCctv={() => setPage('cctv')}
-      onGoNews={() => setPage('news')}
-      onGoSimulation={() => setPage('simulation')}
-      onGoMyPage={() => setPage('mypage')}
-      onLogout={() => setPage('login')}
-      wsData={wsData}
-      setWsData={setWsData}
-      stations={stations}
-      setStations={setStations}
-      selectedGu={selectedGu}
-      onSelectGu={handleSelectGu}
-    />
-  )
-  }
+    <>
+      <AssistantKeyframes />
 
+      {loginBriefing && (
+        <LoginBriefingCard
+          briefing={loginBriefing}
+          onClose={() => {
+            stopAllTTS()
+            setLoginBriefing(null)
+            assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
+          }}
+          onTTSDone={() => {
+            setLoginBriefing(null)
+            assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
+          }}
+        />
+      )}
+
+      <NavBlockToast message={assistant.navBlockMsg} />
+
+      {/* 음성 어시스턴트 채팅 팝업 (최소화 상태가 아닐 때만) */}
+      {assistant.voiceUI.active && !assistant.voiceMinimized && (
+        <VoiceAssistantPanel
+          voiceUI={assistant.voiceUI}
+          voiceSTTActive={assistant.voiceSTTActive}
+          msgEndRef={assistant.msgEndRef}
+          onStartSTT={assistant.startVoiceSTT}
+          onStopTTS={assistant.stopAllTTS}
+          onMinimize={assistant.minimizeVoiceUI}
+          onClose={assistant.closeVoiceUI}
+          onEmailConfirm={assistant.handleEmailConfirmClick}
+        />
+      )}
+
+      {/* 항상 보이는 AI 플로팅 버튼 */}
+      <AIFloatingButton
+        active={assistant.voiceUI.active}
+        minimized={assistant.voiceMinimized}
+        onClick={assistant.onFloatingClick}
+      />
+
+      {/* 구 분석 시작 확인 팝업 — 보이스 패널이 열려있으면 그 왼쪽에 위치 */}
+      <PendingBriefingPopup
+        pending={assistant.pendingBriefing}
+        onStart={assistant.acceptPendingBriefing}
+        onDismiss={assistant.dismissPendingBriefing}
+        shifted={assistant.voiceUI.active && !assistant.voiceMinimized}
+      />
+
+      <MainDashboard
+        onGoMap={goMap}
+        onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
+        onGoNews={() => assistant.tryNav(() => setPage('news'))}
+        onGoSimulation={() => assistant.tryNav(() => setPage('simulation'))}
+        onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
+        onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
+        onLogout={() => assistant.tryNav(() => setPage('login'))}
+        wsData={wsData}
+        setWsData={setWsData}
+        stations={stations}
+        setStations={setStations}
+        selectedGu={selectedGu}
+        onSelectGu={handleSelectGu}
+        onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
+        isMuted={assistant.isMuted}
+        onToggleMute={assistant.toggleMute}
+      />
+    </>
+  )
+}

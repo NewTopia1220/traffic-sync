@@ -104,6 +104,7 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
       alignItems: "flex-end",
       gap: 8,
     }}>
+
       <button onClick={() => setIsOpen(o => !o)} style={btn({
         width: 54,
         height: 54,
@@ -433,7 +434,7 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk, autoAdjustKey = 0, au
   );
 }
 
-export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoMyPage, onLogout, selectedGu }) {
+export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu }) {
   const [selectedList, setSelectedList] = useState([]);
   const [time, setTime] = useState(new Date());
   const [isOptimized, setIsOptimized] = useState(false);
@@ -464,6 +465,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const bottleneckWaypoint = waypointList.length
     ? [...waypointList].sort((a, b) => Math.abs((a.routeProgress ?? 0.5) - 0.54) - Math.abs((b.routeProgress ?? 0.5) - 0.54))[0]
     : null;
+
   const sliderCrossroad = sliderTarget === "start"
     ? start
     : sliderTarget === "waypoint"
@@ -477,6 +479,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     : sliderTarget === "bottleneck" && sliderCrossroad
       ? `bottleneck:${sliderCrossroad.intNo}`
       : sliderTarget;
+
   const activeChatCrossroad = sliderCrossroad ?? selectedWaypoint ?? bottleneckWaypoint ?? end ?? start ?? null;
   const canOptimize = !!start && !!end && !!stats;
 
@@ -501,6 +504,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       onPhaseChange: setWaypointPhaseIdx,
       onContextChange: setWaypointContext,
     },
+
     bottleneck: {
       icon: "🟡",
       label: "병목지",
@@ -511,6 +515,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       onPhaseChange: setWaypointPhaseIdx,
       onContextChange: setWaypointContext,
     },
+
     end: {
       icon: "🔴",
       label: "목적지",
@@ -646,6 +651,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         onGoNews={onGoNews}
         onGoCctv={onGoCctv}
         onGoSimulation={() => {}}
+        onGoComplaints={onGoComplaints}
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
       />
@@ -668,6 +674,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
             zIndex: 30,
             pointerEvents: "auto",
           }}>
+
             <SimulationChatBot intNo={activeChatCrossroad?.intNo} intNm={activeChatCrossroad?.intNm} simulation={simPhases} autoTrigger={autoTrigger} />
           </div>
         </div>
@@ -755,6 +762,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           <div style={cardStyle}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ fontWeight: 900, color: "#ffffff", fontSize: 15 }}>출발지/경유지/목적지/병목지 신호체계</div>
+
               <div style={{ fontSize: 11, color: "#64748b" }}>선택 확인</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>

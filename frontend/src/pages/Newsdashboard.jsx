@@ -130,7 +130,7 @@ function NewsCard({ item }) {
   );
 }
 
-export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulation, onGoMyPage, onLogout, selectedGu }) {
+export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulation, onGoComplaints, onGoMyPage, onLogout, selectedGu }) {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedMenu, setSelectedMenu] = useState("all");
@@ -206,6 +206,7 @@ export default function NewsDashboard({ onGoMain, onGoMap, onGoCctv, onGoSimulat
         onGoNews={() => {}}
         onGoCctv={onGoCctv}
         onGoSimulation={onGoSimulation}
+        onGoComplaints={onGoComplaints}
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
       />

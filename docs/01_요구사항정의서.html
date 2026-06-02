@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrafficSync – 요구사항 정의서</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.75;
+    color: #1a1a2e;
+    background: #fff;
+  }
+
+  /* ── 표지 ── */
+  .cover {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    background: linear-gradient(160deg, #0f172a 0%, #1e3a5f 60%, #0f172a 100%);
+    color: #fff;
+    page-break-after: always;
+    padding: 60px;
+  }
+  .cover-badge {
+    font-size: 10pt;
+    letter-spacing: 4px;
+    color: #60a5fa;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    font-weight: 500;
+  }
+  .cover-title {
+    font-size: 38pt;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 12px;
+    letter-spacing: -1px;
+  }
+  .cover-title span { color: #60a5fa; }
+  .cover-subtitle {
+    font-size: 15pt;
+    font-weight: 300;
+    color: #94a3b8;
+    margin-bottom: 60px;
+  }
+  .cover-meta {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 28px;
+    margin-top: 60px;
+    width: 100%;
+    max-width: 640px;
+  }
+  .cover-meta-item { text-align: center; }
+  .cover-meta-label {
+    font-size: 8pt;
+    color: #64748b;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .cover-meta-value {
+    font-size: 10pt;
+    color: #cbd5e1;
+    font-weight: 500;
+  }
+  .cover-divider {
+    width: 60px;
+    height: 3px;
+    background: #60a5fa;
+    margin: 40px auto;
+    border-radius: 2px;
+  }
+
+  /* ── 본문 공통 ── */
+  .page {
+    max-width: 210mm;
+    margin: 0 auto;
+    padding: 20mm 22mm;
+  }
+
+  /* ── 섹션 헤더 ── */
+  h1 {
+    font-size: 18pt;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 8px;
+    padding-bottom: 10px;
+    border-bottom: 3px solid #1e40af;
+    margin-top: 36px;
+  }
+  h1:first-child { margin-top: 0; }
+
+  h2 {
+    font-size: 13pt;
+    font-weight: 600;
+    color: #1e3a5f;
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-left: 12px;
+    border-left: 4px solid #3b82f6;
+  }
+
+  h3 {
+    font-size: 11pt;
+    font-weight: 600;
+    color: #334155;
+    margin-top: 18px;
+    margin-bottom: 8px;
+  }
+
+  p { margin-bottom: 10px; color: #334155; }
+
+  /* ── 테이블 ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 20px;
+    font-size: 9.5pt;
+  }
+  thead tr { background: #1e40af; color: #fff; }
+  thead th {
+    padding: 9px 12px;
+    text-align: left;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  tbody tr:nth-child(even) { background: #f1f5f9; }
+  tbody tr:hover { background: #dbeafe; }
+  tbody td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  td.id {
+    font-family: monospace;
+    font-size: 9pt;
+    color: #2563eb;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  td.priority-high  { color: #dc2626; font-weight: 700; }
+  td.priority-mid   { color: #d97706; font-weight: 600; }
+  td.priority-low   { color: #16a34a; font-weight: 500; }
+
+  /* ── 배지 ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 8.5pt;
+    font-weight: 600;
+  }
+  .badge-blue   { background: #dbeafe; color: #1d4ed8; }
+  .badge-red    { background: #fee2e2; color: #b91c1c; }
+  .badge-yellow { background: #fef3c7; color: #92400e; }
+  .badge-green  { background: #dcfce7; color: #15803d; }
+  .badge-gray   { background: #f1f5f9; color: #475569; }
+
+  /* ── 인포 박스 ── */
+  .info-box {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-left: 4px solid #3b82f6;
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin: 14px 0;
+    font-size: 10pt;
+    color: #1e40af;
+  }
+  .warn-box {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-left: 4px solid #f97316;
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin: 14px 0;
+    font-size: 10pt;
+    color: #9a3412;
+  }
+
+  /* ── 목차 ── */
+  .toc { margin: 20px 0 30px; }
+  .toc-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 5px 0;
+    border-bottom: 1px dotted #e2e8f0;
+    font-size: 10.5pt;
+  }
+  .toc-num   { color: #2563eb; font-weight: 700; min-width: 28px; }
+  .toc-title { flex: 1; color: #334155; }
+  .toc-page  { color: #94a3b8; font-size: 9.5pt; }
+  .toc-section { font-weight: 600; color: #0f172a; }
+
+  /* ── 개정 이력 ── */
+  .rev-table { font-size: 9.5pt; }
+
+  /* ── 페이지 구분 ── */
+  .page-break { page-break-before: always; padding-top: 0; }
+
+  /* ── 인쇄 설정 ── */
+  @media print {
+    body { font-size: 10pt; }
+    .cover { height: 100vh; }
+    h1 { page-break-before: auto; }
+    table { page-break-inside: avoid; }
+    .page-break { page-break-before: always; }
+  }
+
+  /* ── 번호 리스트 ── */
+  ol, ul { padding-left: 20px; margin-bottom: 10px; }
+  li { margin-bottom: 4px; color: #334155; }
+  ul li::marker { color: #3b82f6; }
+
+  /* ── 섹션 번호 헤더 ── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 6px;
+    margin-top: 36px;
+  }
+  .section-num {
+    background: #1e40af;
+    color: #fff;
+    font-size: 11pt;
+    font-weight: 700;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-size: 17pt;
+    font-weight: 700;
+    color: #0f172a;
+    border-bottom: 3px solid #1e40af;
+    flex: 1;
+    padding-bottom: 8px;
+  }
+
+  .sub-num {
+    background: #eff6ff;
+    color: #1e40af;
+    font-size: 9pt;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 4px;
+    margin-right: 6px;
+  }
+
+  footer {
+    text-align: center;
+    font-size: 8.5pt;
+    color: #94a3b8;
+    margin-top: 48px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════
+     표지
+════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-badge">Software Requirements Specification</div>
+  <div class="cover-title">Traffic<span>Sync</span></div>
+  <div class="cover-subtitle">실시간 교통 AI 모니터링 시스템</div>
+  <div class="cover-divider"></div>
+  <div style="font-size:13pt; color:#cbd5e1; font-weight:500;">요구사항 정의서</div>
+  <div style="font-size:9.5pt; color:#64748b; margin-top:8px;">Requirements Definition Document</div>
+
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">버전</div>
+      <div class="cover-meta-value">v1.0</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">작성일</div>
+      <div class="cover-meta-value">2026. 05. 28</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">상태</div>
+      <div class="cover-meta-value">초안 (Draft)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     개정 이력 + 목차
+════════════════════════════════════════════ -->
+<div class="page">
+
+  <!-- 개정 이력 -->
+  <div class="section-header">
+    <div class="section-title" style="font-size:14pt;">개정 이력</div>
+  </div>
+  <table class="rev-table">
+    <thead>
+      <tr><th>버전</th><th>일자</th><th>작성자</th><th>변경 내용</th><th>상태</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">v1.0</td>
+        <td>2026-05-28</td>
+        <td>박희윤</td>
+        <td>최초 작성 — 기능/비기능 요구사항 전체 초안</td>
+        <td><span class="badge badge-yellow">초안</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 목차 -->
+  <div class="section-header" style="margin-top:40px;">
+    <div class="section-title" style="font-size:14pt;">목차</div>
+  </div>
+  <div class="toc">
+    <div class="toc-item"><span class="toc-num">1</span><span class="toc-title toc-section">프로젝트 개요</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">1.1</span><span class="toc-title">프로젝트 배경 및 목적</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">1.2</span><span class="toc-title">시스템 범위</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">1.3</span><span class="toc-title">이해관계자</span></div>
+    <div class="toc-item"><span class="toc-num">2</span><span class="toc-title toc-section">기능 요구사항</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">2.1</span><span class="toc-title">사용자 인증 및 계정 관리</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">2.2</span><span class="toc-title">메인 대시보드</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">2.3</span><span class="toc-title">실시간 교차로 지도</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">2.4</span><span class="toc-title">CCTV 관제</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">2.5</span><span class="toc-title">신호 시뮬레이션</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">2.6</span><span class="toc-title">뉴스 감성 분석</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">2.7</span><span class="toc-title">AI 교통 어시스턴트 챗봇</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">2.8</span><span class="toc-title">이메일 알림</span></div>
+    <div class="toc-item"><span class="toc-num">3</span><span class="toc-title toc-section">비기능 요구사항</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">3.1</span><span class="toc-title">성능</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">3.2</span><span class="toc-title">가용성 및 안정성</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">3.3</span><span class="toc-title">보안</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">3.4</span><span class="toc-title">유지보수성 및 확장성</span></div>
+    <div class="toc-item" style="padding-left:16px;"><span class="toc-num" style="font-size:9pt;">3.5</span><span class="toc-title">사용성</span></div>
+    <div class="toc-item"><span class="toc-num">4</span><span class="toc-title toc-section">외부 인터페이스 요구사항</span></div>
+    <div class="toc-item"><span class="toc-num">5</span><span class="toc-title toc-section">제약사항 및 가정</span></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     1. 프로젝트 개요
+════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">1</div>
+    <div class="section-title">프로젝트 개요</div>
+  </div>
+
+  <h2><span class="sub-num">1.1</span>프로젝트 배경 및 목적</h2>
+  <p>
+    TrafficSync는 서울시 교차로의 실시간 V2X(Vehicle-to-Everything) 신호 데이터, 도로 속도 정보, 기상 데이터, 도로 위험도 정보를 통합하여 교통 관제 담당자 및 연구자에게 <strong>단일 통합 모니터링 플랫폼</strong>을 제공하는 시스템이다.
+  </p>
+  <p>
+    기존의 개별 공공 API 조회 방식은 데이터 수집·통합의 어려움과 실시간성 부족 문제가 있었다. TrafficSync는 다수의 공공 데이터를 자동으로 수집·가공·합산하고 WebSocket 기반 실시간 스트리밍으로 사용자에게 전달하며, LLM 기반 AI 에이전트가 자연어 질의에 응답하는 지능형 시스템을 목표로 한다.
+  </p>
+
+  <div class="info-box">
+    <strong>핵심 목표:</strong> 공공 교통 데이터의 실시간 통합 수집 → 이상 탐지 및 병목 분석 → AI 기반 자연어 질의응답 → 신호 최적화 시뮬레이션
+  </div>
+
+  <h2><span class="sub-num">1.2</span>시스템 범위</h2>
+  <p>본 시스템의 범위는 다음과 같이 정의한다.</p>
+  <table>
+    <thead>
+      <tr><th>구분</th><th>포함 범위</th><th>제외 범위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>지리적 범위</strong></td>
+        <td>서울시 전 자치구 (구별 반경 2.5km 내 교차로)</td>
+        <td>경기도 및 수도권 외곽 지역</td>
+      </tr>
+      <tr>
+        <td><strong>데이터 범위</strong></td>
+        <td>V2X 신호, TOPIS 속도, KMA 날씨, 도로 위험도, T Data 신호·차량 데이터</td>
+        <td>대중교통 버스/지하철 운행 데이터</td>
+      </tr>
+      <tr>
+        <td><strong>기능 범위</strong></td>
+        <td>모니터링, 시각화, AI 분석, 신호 시뮬레이션, CCTV 관제, 이메일 알림</td>
+        <td>실제 신호 제어기 하드웨어 연동, 과금 시스템</td>
+      </tr>
+      <tr>
+        <td><strong>사용자 범위</strong></td>
+        <td>가입 인증된 내부 사용자</td>
+        <td>일반 시민 대상 공개 서비스</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="sub-num">1.3</span>이해관계자</h2>
+  <table>
+    <thead>
+      <tr><th>역할</th><th>설명</th><th>주요 관심사</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>교통 관제 담당자</strong></td>
+        <td>실시간 교통 현황 모니터링 주사용자</td>
+        <td>실시간 병목·위험 교차로 파악, 알림 수신</td>
+      </tr>
+      <tr>
+        <td><strong>교통 연구자</strong></td>
+        <td>신호 최적화 시나리오 분석</td>
+        <td>시뮬레이션 정확도, 데이터 신뢰성</td>
+      </tr>
+      <tr>
+        <td><strong>시스템 관리자</strong></td>
+        <td>서버·API 키 관리, 사용자 계정 관리</td>
+        <td>가용성, 장애 대응, 보안</td>
+      </tr>
+      <tr>
+        <td><strong>개발팀</strong></td>
+        <td>시스템 구축 및 유지보수</td>
+        <td>코드 품질, 확장성, 외부 API 안정성</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════
+     2. 기능 요구사항
+════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">2</div>
+    <div class="section-title">기능 요구사항</div>
+  </div>
+
+  <div class="info-box">
+    <strong>우선순위 기준 —</strong>
+    <span class="badge badge-red">필수</span> 시스템 핵심 기능, 미구현 시 서비스 불가 &nbsp;|&nbsp;
+    <span class="badge badge-yellow">중요</span> 사용성에 직접 영향 &nbsp;|&nbsp;
+    <span class="badge badge-green">선택</span> 향후 확장 기능
+  </div>
+
+  <!-- 2.1 사용자 인증 -->
+  <h2><span class="sub-num">2.1</span>사용자 인증 및 계정 관리</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>설명</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">FR-AUTH-01</td>
+        <td>로그인</td>
+        <td>이메일/비밀번호 기반 로그인. 인증 실패 시 오류 메시지 표시. 성공 시 JWT 발급 및 localStorage 저장.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-AUTH-02</td>
+        <td>임시 비밀번호 발급</td>
+        <td>관리자가 신규 사용자에게 임시 비밀번호 발급. 최초 로그인 시 마이페이지로 강제 이동하여 비밀번호 변경 요구.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-AUTH-03</td>
+        <td>비밀번호 변경</td>
+        <td>마이페이지에서 현재 비밀번호 확인 후 신규 비밀번호 변경 가능.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-AUTH-04</td>
+        <td>로그아웃</td>
+        <td>localStorage 세션 삭제 후 로그인 페이지로 이동.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-AUTH-05</td>
+        <td>관리자 초기 계정 생성</td>
+        <td>시스템 최초 기동 시 admin 계정 자동 생성 (AdminInitializer).</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 2.2 메인 대시보드 -->
+  <h2><span class="sub-num">2.2</span>메인 대시보드</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>설명</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">FR-DASH-01</td>
+        <td>구별 교통 데이터 수집</td>
+        <td>서울 SVG 지도에서 자치구 클릭 시 해당 구 반경 2.5km 내 교차로의 V2X·속도·날씨·위험도 데이터를 일괄 수집 및 WebSocket 브로드캐스트.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-DASH-02</td>
+        <td>KPI 카드 표시</td>
+        <td>모니터링 교차로 수, 위험 교차로 수, 평균 속도, 최대 위험지수 4개 지표를 실시간으로 표시.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-DASH-03</td>
+        <td>속도 스파크라인 차트</td>
+        <td>최대 3개 교차로의 실시간 속도 변화를 스파크라인으로 표시. 평균·최소·최대·추세 계산. 최대 720 샘플 누적.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-DASH-04</td>
+        <td>위험도 패널</td>
+        <td>최대 8개 교차로의 위험 등급(1~5) 및 위험 지수를 도넛 차트와 바 차트로 시각화.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-DASH-05</td>
+        <td>교통량 예보 차트</td>
+        <td>선택 지점의 24시간 교통량 예측값을 막대그래프로 표시. 피크 시간대 강조.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-DASH-06</td>
+        <td>로그인 후 기본 구역 자동 수집</td>
+        <td>로그인 성공 시 강남구를 기본 구역으로 자동 설정하고 데이터 수집 1회 실행.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-DASH-07</td>
+        <td>구 선택 상태 유지</td>
+        <td>페이지 이동 후 복귀 시 마지막으로 선택된 구와 수집 데이터가 초기화되지 않고 유지됨.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-DASH-08</td>
+        <td>AI 구 분석 리포트</td>
+        <td>선택된 구에 대한 AI 종합 분석 결과를 텍스트 리포트로 표시 (Python ReAct 에이전트 호출).</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- 2.3 실시간 지도 -->
+<div class="page page-break">
+  <h2><span class="sub-num">2.3</span>실시간 교차로 지도</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>설명</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">FR-MAP-01</td>
+        <td>카카오맵 교차로 마커</td>
+        <td>수집된 교차로를 카카오맵 위에 혼잡도(원활/서행/혼잡) 별 색상 마커로 표시. 클러스터링 적용.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-MAP-02</td>
+        <td>교차로 신호 현황 패널</td>
+        <td>마커 클릭 시 좌하단 오버레이에 8방향(북/동/남/서 및 대각) 신호등 상태와 잔여시간(초) 표시.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-MAP-03</td>
+        <td>실시간 병목·위험 사이드바</td>
+        <td>우측 사이드바에 병목 교차로(속도 기준 정렬), 위험 교차로(위험도 기준 정렬) 목록을 실시간으로 표시.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-MAP-04</td>
+        <td>WebSocket 실시간 업데이트</td>
+        <td>30초 폴링 주기로 V2X 데이터 갱신 시 WebSocket을 통해 지도·사이드바 자동 업데이트.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-MAP-05</td>
+        <td>로드뷰</td>
+        <td>선택된 교차로의 카카오 로드뷰를 모달로 표시.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-MAP-06</td>
+        <td>AI 챗봇 사이드 패널</td>
+        <td>지도 우하단 AI 버튼 클릭 시 480px 폭의 챗봇 패널이 병목 사이드바 옆에 슬라이드 인. 병목 현황과 동시 표시.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-MAP-07</td>
+        <td>CCTV 마커</td>
+        <td>지도 위에 CCTV 위치 마커 표시. 클릭 시 UTIC 스트리밍 영상 모달.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 2.4 CCTV -->
+  <h2><span class="sub-num">2.4</span>CCTV 관제</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>설명</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">FR-CCTV-01</td>
+        <td>CCTV 목록 표시</td>
+        <td>DB에 저장된 서울 시내 CCTV 목록을 카드 형태로 표시. 이름·위치 기반 검색 가능.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-CCTV-02</td>
+        <td>CCTV 실시간 스트리밍</td>
+        <td>UTIC API 키 기반으로 선택한 CCTV의 실시간 영상 스트림을 iframe으로 표시.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-CCTV-03</td>
+        <td>IP 기반 접근 인증</td>
+        <td>UTIC API는 등록된 공인 IP 대역에서만 스트리밍 접근 허용. IP 변경 시 UTIC에 재등록 필요.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 2.5 신호 시뮬레이션 -->
+  <h2><span class="sub-num">2.5</span>신호 시뮬레이션</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>설명</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">FR-SIM-01</td>
+        <td>T Data 실시간 신호 수신</td>
+        <td>T Data 신호제어기 신호 정보 API를 통해 교차로의 현재 실시간 신호 상태(방향별 현시, 잔여시간) 조회.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-SIM-02</td>
+        <td>신호 계획 조회</td>
+        <td>DB 저장 신호 계획(주기, 현시별 시간, 방향) 기반으로 현재 신호 패턴 시각화.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-SIM-03</td>
+        <td>신호 타이밍 조정 시뮬레이션</td>
+        <td>사용자가 현시별 신호 시간을 변경하면 가상 시나리오의 예상 대기시간·처리량 변화를 시뮬레이션.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-SIM-04</td>
+        <td>교차로 Map 정보 연동</td>
+        <td>T Data 교차로 Map 정보 API로 교차로 기하구조(차로 배치, 접근로) 시각화.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-SIM-05</td>
+        <td>차량 속도·위치 실시간 표시</td>
+        <td>T Data 차량 속도 및 위치 정보 API로 교차로 접근 차량의 실시간 위치·속도 오버레이.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-SIM-06</td>
+        <td>AI 신호 최적화 분석</td>
+        <td>조정된 신호 타이밍과 현재 교통 상황을 AI 에이전트에 전달하여 최적화 권고안 생성.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-SIM-07</td>
+        <td>신호연결 Map 정보 표시</td>
+        <td>T Data 신호연결 Map API로 교차로 간 신호 연동(Green Wave) 관계 시각화.</td>
+        <td class="priority-low"><span class="badge badge-green">선택</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- 2.6 ~ 2.8 -->
+<div class="page page-break">
+  <!-- 2.6 뉴스 -->
+  <h2><span class="sub-num">2.6</span>뉴스 감성 분석</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>설명</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">FR-NEWS-01</td>
+        <td>교통 관련 뉴스 수집</td>
+        <td>교통 관련 뉴스 기사를 수집하여 DB에 저장.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-NEWS-02</td>
+        <td>감성 분석 결과 표시</td>
+        <td>수집된 뉴스의 긍정/부정/중립 감성 분석 결과를 시각화.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-NEWS-03</td>
+        <td>교통 이슈 키워드 추출</td>
+        <td>뉴스 기사에서 교통 관련 주요 키워드를 추출하여 표시.</td>
+        <td class="priority-low"><span class="badge badge-green">선택</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 2.7 AI 챗봇 -->
+  <h2><span class="sub-num">2.7</span>AI 교통 어시스턴트 챗봇</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>설명</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">FR-AI-01</td>
+        <td>자연어 교통 질의응답</td>
+        <td>사용자가 입력한 자연어 질문에 대해 LangGraph ReAct 에이전트가 MCP 도구를 활용하여 실시간 교통 데이터 기반 답변 생성.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-AI-02</td>
+        <td>추론 과정 스트리밍 표시</td>
+        <td>SSE(Server-Sent Events)로 에이전트의 생각(Thought)·도구 사용(Action)·결과 확인(Observation) 단계를 채팅창 내 인라인으로 실시간 표시.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-AI-03</td>
+        <td>교차로 컨텍스트 전달</td>
+        <td>지도에서 선택된 교차로 ID를 챗봇에 자동으로 컨텍스트로 전달하여 관련 질문 시 정확도 향상.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-AI-04</td>
+        <td>프리셋 질문 버튼</td>
+        <td>병목 TOP3, 신호 최적화, 날씨 현황 등 자주 묻는 질문을 버튼으로 제공.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-AI-05</td>
+        <td>구 단위 AI 분석 리포트</td>
+        <td>선택된 자치구의 교통 상황 전반에 대한 AI 종합 분석 보고서 생성.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 2.8 이메일 -->
+  <h2><span class="sub-num">2.8</span>이메일 알림</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>설명</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">FR-EMAIL-01</td>
+        <td>병목 교차로 이메일 리포트</td>
+        <td>AI 에이전트가 분석한 병목 교차로 현황 및 신호 최적화 권고안을 Gmail SMTP를 통해 지정 이메일로 전송.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">FR-EMAIL-02</td>
+        <td>이메일 수신자 설정</td>
+        <td>사용자 계정 이메일 또는 별도 지정 주소로 리포트 전송.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════
+     3. 비기능 요구사항
+════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">3</div>
+    <div class="section-title">비기능 요구사항</div>
+  </div>
+
+  <h2><span class="sub-num">3.1</span>성능 요구사항</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>목표 기준</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">NFR-PERF-01</td>
+        <td>WebSocket 데이터 갱신 주기</td>
+        <td>V2X 신호 데이터는 최대 30초 간격으로 전체 교차로 갱신. 사용자에게 30초 내 신호 상태 반영.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-PERF-02</td>
+        <td>구역 데이터 수집 응답시간</td>
+        <td>fetch-area API 호출 후 V2X 수집 완료 및 WebSocket 전송까지 30초 이내.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-PERF-03</td>
+        <td>AI 챗봇 첫 응답 스트리밍</td>
+        <td>질문 전송 후 첫 번째 추론 단계(thought) 스트리밍 시작까지 5초 이내.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-PERF-04</td>
+        <td>TOPIS 속도 갱신 주기</td>
+        <td>도로 링크 속도는 60초마다 4개 스레드 병렬 수집. 단일 링크 요청 타임아웃 12초.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-PERF-05</td>
+        <td>동시 WebSocket 세션</td>
+        <td>최소 10개 이상의 동시 WebSocket 세션을 지연 없이 브로드캐스트.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="sub-num">3.2</span>가용성 및 안정성</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>목표 기준</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">NFR-AVAIL-01</td>
+        <td>외부 API 장애 시 캐시 유지</td>
+        <td>V2X API 타임아웃/오류 발생 시 기존 캐시 데이터를 유지하고 빈 응답으로 캐시를 덮어쓰지 않음.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-AVAIL-02</td>
+        <td>WebSocket 자동 재연결</td>
+        <td>WebSocket 연결 끊김 시 프론트엔드에서 3초 후 자동 재연결 시도.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-AVAIL-03</td>
+        <td>보조 API 장애 격리</td>
+        <td>TOPIS·날씨·위험도 API 개별 장애 시 해당 데이터만 stale 처리하고 나머지 데이터는 정상 서비스.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-AVAIL-04</td>
+        <td>DB 커넥션 풀 관리</td>
+        <td>HikariCP 최대 10개 커넥션, idle timeout 120초, keepalive 60초 유지.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="sub-num">3.3</span>보안 요구사항</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>목표 기준</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">NFR-SEC-01</td>
+        <td>API 인증키 외부 노출 금지</td>
+        <td>공공 API 서비스키, DB 비밀번호, SMTP 비밀번호는 application-secret.properties에 분리 관리. Git 커밋에서 제외.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-SEC-02</td>
+        <td>사용자 비밀번호 암호화</td>
+        <td>BCrypt 등 단방향 해시로 비밀번호 암호화 저장.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-SEC-03</td>
+        <td>CORS 설정</td>
+        <td>허가된 Origin(프론트엔드 도메인)에서만 API 요청 허용.</td>
+        <td class="priority-high"><span class="badge badge-red">필수</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-SEC-04</td>
+        <td>UTIC IP 화이트리스트</td>
+        <td>CCTV 스트리밍은 UTIC에 등록된 공인 IP 대역에서만 접근 가능. IP 변경 시 재등록 프로세스 수행.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="sub-num">3.4</span>유지보수성 및 확장성</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>목표 기준</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">NFR-MAINT-01</td>
+        <td>폴링 주기 설정 외부화</td>
+        <td>V2X·TOPIS·날씨·위험도 폴링 주기를 application.properties로 외부화하여 재배포 없이 변경 가능.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-MAINT-02</td>
+        <td>MCP 도구 확장성</td>
+        <td>AI 에이전트의 MCP 도구를 mcp_server.py에 독립적으로 추가·제거 가능한 구조.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-MAINT-03</td>
+        <td>LLM 모델 교체 가능성</td>
+        <td>Ollama 모델(qwen3:30b-a3b)을 설정 변경으로 타 LLM 모델로 교체 가능한 구조.</td>
+        <td class="priority-low"><span class="badge badge-green">선택</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="sub-num">3.5</span>사용성 요구사항</h2>
+  <table>
+    <thead>
+      <tr><th style="width:90px;">요구사항 ID</th><th>요구사항명</th><th>목표 기준</th><th style="width:60px;">우선순위</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="id">NFR-UX-01</td>
+        <td>다크모드 UI</td>
+        <td>전체 화면을 다크 테마로 제공하여 장시간 모니터링 시 눈의 피로 최소화.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-UX-02</td>
+        <td>데이터 로딩 상태 표시</td>
+        <td>구역 데이터 수집 중 로딩 오버레이 표시. 완료 또는 오류 시 토스트 메시지로 결과 안내.</td>
+        <td class="priority-mid"><span class="badge badge-yellow">중요</span></td>
+      </tr>
+      <tr>
+        <td class="id">NFR-UX-03</td>
+        <td>반응형 레이아웃</td>
+        <td>1280px 이상 해상도의 데스크탑 환경에서 최적화된 그리드 레이아웃 제공.</td>
+        <td class="priority-low"><span class="badge badge-green">선택</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════
+     4. 외부 인터페이스 요구사항
+════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">4</div>
+    <div class="section-title">외부 인터페이스 요구사항</div>
+  </div>
+
+  <h2><span class="sub-num">4.1</span>사용 API 전체 목록</h2>
+
+  <h3 style="margin-top:16px; margin-bottom:8px; color:#1e40af;">① 공공 API</h3>
+  <table>
+    <thead>
+      <tr><th style="width:30px;">#</th><th>API명</th><th>제공기관</th><th>용도</th><th>호출 주기</th><th style="width:90px;">상태</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:center; color:#64748b;">1</td>
+        <td><strong>V2X 교차로 정보</strong></td>
+        <td>국토교통부</td>
+        <td>교차로 목록·위도/경도 초기 적재</td>
+        <td>서버 시작 1회</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">2</td>
+        <td><strong>V2X 신호 정보</strong></td>
+        <td>국토교통부</td>
+        <td>8방향 실시간 신호 상태·잔여시간</td>
+        <td>30초</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">3</td>
+        <td><strong>신호계획 – 교차로정보<br><small style="color:#64748b;">/getCrossRoadInfoList</small></strong></td>
+        <td>국토교통부 (1320000)</td>
+        <td>지자체 주요도로 교차로 번호·이름·위치(X,Y) 조회</td>
+        <td>서버 시작 1회</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">4</td>
+        <td><strong>신호계획 – 현시구성정보<br><small style="color:#64748b;">/getCrossRoadInfoDetail</small></strong></td>
+        <td>국토교통부 (1320000)</td>
+        <td>교차로 A링·B링 현시별 방향설정코드 조회</td>
+        <td>서버 시작 1회</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">5</td>
+        <td><strong>신호계획 – 운영계획정보<br><small style="color:#64748b;">/getPlanCROPInfo</small></strong></td>
+        <td>국토교통부 (1320000)</td>
+        <td>교차로 운영주기·A링/B링 현시값(1~8) 조회</td>
+        <td>서버 시작 1회</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">6</td>
+        <td><strong>UTIC CCTV</strong></td>
+        <td>경찰청 도시교통정보센터</td>
+        <td>서울 CCTV 목록 및 실시간 스트리밍</td>
+        <td>시작 1회 + 스트리밍</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">7</td>
+        <td><strong>기상청 초단기실황<br><small style="color:#64748b;">KMA getUltraSrtNcst</small></strong></td>
+        <td>기상청</td>
+        <td>기온·강수량·습도·풍속 수집</td>
+        <td>10분</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">8</td>
+        <td><strong>도로 위험도<br><small style="color:#64748b;">B552061 roadDgdgrLink</small></strong></td>
+        <td>공공데이터포털</td>
+        <td>도로 링크 위험 등급(1~5)·지수(0~100)</td>
+        <td>5분</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">9</td>
+        <td><strong>TOPIS 도로 속도<br><small style="color:#64748b;">openapi.seoul.go.kr TrafficInfo</small></strong></td>
+        <td>서울시 TOPIS</td>
+        <td>도로 링크별 실시간 속도·여행시간</td>
+        <td>60초</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">10</td>
+        <td><strong>T Data – Map 차로 정보</strong></td>
+        <td>서울 교통빅데이터플랫폼</td>
+        <td>도로 차로 구조 정보 (차로 수, 차로별 방향)</td>
+        <td>시뮬레이션 요청 시</td>
+        <td><span class="badge badge-yellow">운영계정 신청중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">11</td>
+        <td><strong>T Data – 교차로 Map 정보</strong></td>
+        <td>서울 교통빅데이터플랫폼</td>
+        <td>교차로 기하구조 (접근로·차로 배치)</td>
+        <td>시뮬레이션 요청 시</td>
+        <td><span class="badge badge-yellow">운영계정 신청중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">12</td>
+        <td><strong>T Data – 노드 Map 정보</strong></td>
+        <td>서울 교통빅데이터플랫폼</td>
+        <td>도로 네트워크 노드 위치·연결 관계</td>
+        <td>시뮬레이션 요청 시</td>
+        <td><span class="badge badge-yellow">운영계정 신청중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">13</td>
+        <td><strong>T Data – 신호연결 Map</strong></td>
+        <td>서울 교통빅데이터플랫폼</td>
+        <td>교차로 간 신호 연동(Green Wave) 관계</td>
+        <td>시뮬레이션 요청 시</td>
+        <td><span class="badge badge-yellow">운영계정 신청중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">14</td>
+        <td><strong>T Data – 신호제어기 신호 정보</strong></td>
+        <td>서울 교통빅데이터플랫폼</td>
+        <td>교차로 실시간 신호 현시 상태·잔여시간</td>
+        <td>시뮬레이션 요청 시</td>
+        <td><span class="badge badge-yellow">운영계정 신청중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">15</td>
+        <td><strong>T Data – 차량 속도·위치</strong></td>
+        <td>서울 교통빅데이터플랫폼</td>
+        <td>교차로 접근 차량 실시간 위치·속도</td>
+        <td>시뮬레이션 요청 시</td>
+        <td><span class="badge badge-yellow">운영계정 신청중</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin-top:20px; margin-bottom:8px; color:#1e40af;">② 민간 API</h3>
+  <table>
+    <thead>
+      <tr><th style="width:30px;">#</th><th>API명</th><th>제공사</th><th>용도</th><th>호출 주기</th><th style="width:90px;">상태</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:center; color:#64748b;">1</td>
+        <td><strong>카카오맵 SDK</strong></td>
+        <td>카카오</td>
+        <td>지도 렌더링, 교차로·CCTV 마커, 클러스터링, 로드뷰</td>
+        <td>지도 렌더링 시</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">2</td>
+        <td><strong>네이버 뉴스 검색</strong></td>
+        <td>네이버</td>
+        <td>교통 관련 뉴스 수집 및 감성 분석 입력 데이터</td>
+        <td>뉴스 페이지 요청 시</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+      <tr>
+        <td style="text-align:center; color:#64748b;">3</td>
+        <td><strong>CesiumJS 3D</strong></td>
+        <td>Cesium</td>
+        <td>3D 지도 시각화 (시뮬레이션 페이지)</td>
+        <td>시뮬레이션 요청 시</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin-top:20px; margin-bottom:8px; color:#1e40af;">③ 로컬 / 자체 구축</h3>
+  <table>
+    <thead>
+      <tr><th style="width:30px;">#</th><th>API명</th><th>구분</th><th>용도</th><th>비고</th><th style="width:90px;">상태</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:center; color:#64748b;">1</td>
+        <td><strong>Ollama (로컬 LLM)</strong></td>
+        <td>로컬</td>
+        <td>LangGraph ReAct 에이전트 추론 (qwen3:30b-a3b 모델)</td>
+        <td>localhost:11434</td>
+        <td><span class="badge badge-green">운영중</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="sub-num">4.2</span>내부 서버 인터페이스</h2>
+  <table>
+    <thead>
+      <tr><th>구분</th><th>프로토콜</th><th>포트</th><th>설명</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Frontend ↔ Backend</strong></td>
+        <td>HTTP REST / WebSocket</td>
+        <td>8080</td>
+        <td>교차로 데이터 조회, WebSocket 실시간 스트림</td>
+      </tr>
+      <tr>
+        <td><strong>Frontend ↔ AI Agent</strong></td>
+        <td>HTTP SSE</td>
+        <td>8001</td>
+        <td>챗봇 스트리밍 응답</td>
+      </tr>
+      <tr>
+        <td><strong>AI Agent ↔ Backend</strong></td>
+        <td>HTTP REST</td>
+        <td>8080</td>
+        <td>MCP 도구의 교차로 컨텍스트 조회</td>
+      </tr>
+      <tr>
+        <td><strong>AI Agent ↔ Ollama</strong></td>
+        <td>HTTP</td>
+        <td>11434</td>
+        <td>LLM 추론 (qwen3:30b-a3b)</td>
+      </tr>
+      <tr>
+        <td><strong>Backend ↔ Oracle DB</strong></td>
+        <td>JDBC (Oracle Thin)</td>
+        <td>TNS</td>
+        <td>교차로·CCTV·신호계획·사용자 데이터</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════
+     5. 제약사항 및 가정
+════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">5</div>
+    <div class="section-title">제약사항 및 가정</div>
+  </div>
+
+  <h2><span class="sub-num">5.1</span>기술적 제약사항</h2>
+  <table>
+    <thead>
+      <tr><th style="width:100px;">구분</th><th>제약사항</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>LLM</strong></td>
+        <td>Ollama 로컬 실행 환경 필요. qwen3:30b-a3b 모델 다운로드(약 20GB) 필요. GPU 없는 환경에서 응답 지연 발생 가능.</td>
+      </tr>
+      <tr>
+        <td><strong>V2X API</strong></td>
+        <td>V2X 신호 정보는 실제 V2X 장치가 설치된 교차로에만 데이터 존재. 모든 교차로에 신호 데이터가 있지 않을 수 있음.</td>
+      </tr>
+      <tr>
+        <td><strong>T Data API</strong></td>
+        <td>T Data 운영계정 인증 후 사용 가능. 현재 개발 계정 보유, 운영 계정 신청 중. 운영 계정 승인 전까지 시뮬레이션 기능 제한.</td>
+      </tr>
+      <tr>
+        <td><strong>UTIC CCTV</strong></td>
+        <td>공인 IP 기반 화이트리스트 인증 방식. ISP 동적 IP 변경 시 UTIC 재등록 필요.</td>
+      </tr>
+      <tr>
+        <td><strong>Oracle DB</strong></td>
+        <td>Oracle Autonomous DB (클라우드) 사용. 로컬 Wallet 파일 및 접속 정보 필요.</td>
+      </tr>
+      <tr>
+        <td><strong>도로 위험도 API</strong></td>
+        <td>LineString 길이 최대 3,900자 제약. 긴 도로 구간은 분할 요청 필요.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="sub-num">5.2</span>운영 환경 가정</h2>
+  <table>
+    <thead>
+      <tr><th style="width:120px;">구분</th><th>가정 사항</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>네트워크</strong></td>
+        <td>서버가 공공 API 서버(data.go.kr, openapi.seoul.go.kr 등)에 안정적으로 접근 가능한 인터넷 환경.</td>
+      </tr>
+      <tr>
+        <td><strong>서버 스펙</strong></td>
+        <td>Spring Boot, Python FastAPI, Ollama가 동일 호스트 또는 내부 네트워크에서 운영됨.</td>
+      </tr>
+      <tr>
+        <td><strong>사용자</strong></td>
+        <td>최종 사용자는 Chrome 또는 최신 브라우저를 사용하며 1280px 이상 해상도 환경.</td>
+      </tr>
+      <tr>
+        <td><strong>데이터 신뢰성</strong></td>
+        <td>공공 API는 일시적 장애·응답 지연이 발생할 수 있으며, 이 경우 직전 캐시 데이터를 사용.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="warn-box" style="margin-top:28px;">
+    <strong>주의:</strong> T Data API (신호제어기 신호 정보, 신호연결 Map, 교차로 Map, 차량 속도·위치) 는 현재 운영 계정 신청 중으로, 해당 기능(FR-SIM-01 ~ FR-SIM-07)은 운영 계정 승인 후 구현 완료 예정.
+  </div>
+
+  <footer>
+    TrafficSync 요구사항 정의서 v1.0 &nbsp;|&nbsp; 작성일: 2026-05-28 &nbsp;|&nbsp; CONFIDENTIAL
+  </footer>
+</div>
+
+</body>
+</html>

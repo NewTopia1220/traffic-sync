@@ -50,6 +50,38 @@ public class WeatherApiService {
         return serviceKey != null && !serviceKey.isBlank();
     }
 
+    public WeatherSnapshot fetchWeather(double lat, double lon) throws Exception {
+        if (!isConfigured()) {
+            throw new IllegalStateException("KMA service key is not configured");
+        }
+
+        KmaGridConverter.GridPoint grid = gridConverter.toGrid(lat, lon);
+        BaseDateTime baseDateTime = latestUltraSrtBaseDateTime(ZonedDateTime.now(KST));
+
+        URI uri = UriComponentsBuilder.fromHttpUrl(weatherUrl)
+                .queryParam("ServiceKey", serviceKey)
+                .queryParam("pageNo", 1)
+                .queryParam("numOfRows", numOfRows)
+                .queryParam("dataType", "JSON")
+                .queryParam("base_date", baseDateTime.date())
+                .queryParam("base_time", baseDateTime.time())
+                .queryParam("nx", grid.nx())
+                .queryParam("ny", grid.ny())
+                .build(false)
+                .toUri();
+
+        String response = webClient.get()
+                .uri(uri)
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        WeatherSnapshot snapshot = parseWeatherResponse(response);
+        snapshot.setStale(false);
+        snapshot.setLastFetchedAtMs(System.currentTimeMillis());
+        return snapshot;
+    }
+
     public WeatherSnapshot fetchJamsilWeather() throws Exception {
         if (!isConfigured()) {
             throw new IllegalStateException("KMA service key is not configured");
