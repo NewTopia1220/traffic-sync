@@ -1,12 +1,16 @@
 package com.example.demo.controller;
 
 import com.example.demo.entity.UserEntity;
+import com.example.demo.model.context.WeatherSnapshot;
 import com.example.demo.repository.UserRepository;
+import com.example.demo.service.WeatherApiService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -15,12 +19,14 @@ import java.util.Optional;
  * - 회원가입 즉시 APPROVED (관리자 승인 불필요)
  * - role = CIVIL
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/civil/auth")
 @RequiredArgsConstructor
 public class CivilController {
 
     private final UserRepository userRepo;
+    private final WeatherApiService weatherApiService;
 
     // 민원 로그인
     @PostMapping("/login")
@@ -74,5 +80,33 @@ public class CivilController {
         userRepo.save(user);
 
         return ResponseEntity.ok(Map.of("success", true, "message", "회원가입이 완료되었습니다."));
+    }
+
+    // 민원 브리핑용 날씨 조회 (KMA 초단기실황)
+    @GetMapping("/weather")
+    public ResponseEntity<Map<String, Object>> getWeather(
+            @RequestParam double lat,
+            @RequestParam double lng) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            WeatherSnapshot snap = weatherApiService.fetchWeather(lat, lng);
+            result.put("success", true);
+            result.put("temperatureC", snap.getTemperatureC());
+            result.put("humidityPercent", snap.getHumidityPercent());
+            result.put("windSpeedMs", snap.getWindSpeedMs());
+            result.put("description", deriveDescription(snap));
+        } catch (Exception e) {
+            log.warn("날씨 조회 실패: {}", e.getMessage());
+            result.put("success", false);
+            result.put("description", "정보 없음");
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    private String deriveDescription(WeatherSnapshot snap) {
+        Double mm = snap.getPrecipitationMm();
+        if (mm == null || mm == 0.0) return "맑음";
+        if (mm < 1.0) return "흐림";
+        return "비";
     }
 }

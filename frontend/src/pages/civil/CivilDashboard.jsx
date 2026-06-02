@@ -53,12 +53,12 @@ const inpStyle = {
 };
 
 export default function CivilDashboard({ civilUser, onLogout }) {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth <= 768);
-    window.addEventListener('resize', handler);
-    handler();
-    return () => window.removeEventListener('resize', handler);
+    const check = () => setIsMobile(window.innerWidth < 1024);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
   }, []);
 
   const mapRef    = useRef(null);
@@ -136,13 +136,59 @@ export default function CivilDashboard({ civilUser, onLogout }) {
     });
   }, [ready]);
 
+  // ── 검색 마커 ref ───────────────────────────────────────────────────────────
+  const searchMarkerRef    = useRef(null);
+  const searchOverlayRef   = useRef(null);
+  const [searchNoResult, setSearchNoResult] = useState(false);
+
   // ── 검색 ────────────────────────────────────────────────────────────────────
   const handleSearch = () => {
     if (!searchQ.trim() || !mapObj.current) return;
+    setSearchNoResult(false);
+
     const ps = new window.kakao.maps.services.Places();
     ps.keywordSearch(searchQ, (data, status) => {
-      if (status !== window.kakao.maps.services.Status.OK || !data.length) return;
-      mapObj.current.setCenter(new window.kakao.maps.LatLng(data[0].y, data[0].x));
+      // 기존 마커/오버레이 제거
+      if (searchMarkerRef.current)  { searchMarkerRef.current.setMap(null);  searchMarkerRef.current = null; }
+      if (searchOverlayRef.current) { searchOverlayRef.current.setMap(null); searchOverlayRef.current = null; }
+
+      if (status !== window.kakao.maps.services.Status.OK || !data.length) {
+        setSearchNoResult(true);
+        setTimeout(() => setSearchNoResult(false), 3000);
+        return;
+      }
+
+      const place = data[0];
+      const latlng = new window.kakao.maps.LatLng(place.y, place.x);
+
+      // 마커
+      const marker = new window.kakao.maps.Marker({ position: latlng });
+      marker.setMap(mapObj.current);
+      searchMarkerRef.current = marker;
+
+      // 마커 위 이름 라벨 (X 버튼 포함)
+      const overlayId = `search-overlay-${Date.now()}`;
+      const content = `<div id="${overlayId}" style="
+        display:flex; align-items:center; gap:6px;
+        background: rgba(0,0,0,0.92); color: #e7ecf5;
+        padding: 5px 10px 5px 12px; border-radius: 6px;
+        font-size: 12px; font-weight: 700;
+        border: 1px solid #2a2a2a;
+        white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+      ">
+        ${place.place_name}
+        <span onclick="document.getElementById('${overlayId}').parentElement.parentElement.style.display='none'" style="cursor:pointer;color:#7a7a7a;font-size:13px;line-height:1;padding-left:2px;">✕</span>
+      </div>`;
+      const overlay = new window.kakao.maps.CustomOverlay({
+        position: latlng,
+        content,
+        yAnchor: 2.1,
+      });
+      overlay.setMap(mapObj.current);
+      searchOverlayRef.current = overlay;
+
+      mapObj.current.setCenter(latlng);
       mapObj.current.setLevel(4);
     });
   };
@@ -328,13 +374,6 @@ export default function CivilDashboard({ civilUser, onLogout }) {
         </div>
       )}
 
-      {/* ── 안내 배너 — 모바일에서 숨김 */}
-      {!isMobile && (
-        <div style={{ padding: "7px 20px", background: "#050510", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 12, color: V.ink2, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <span style={{ color: V.org }}>▸</span>
-          지도를 클릭하여 민원 위치를 선택하세요 · 위치 검색 또는 현재 위치 버튼을 사용할 수 있습니다
-        </div>
-      )}
 
       {/* ── 지도 ── */}
       <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
@@ -346,11 +385,17 @@ export default function CivilDashboard({ civilUser, onLogout }) {
           )}
         </div>
 
+        {/* 검색 결과 없음 토스트 */}
+        {searchNoResult && (
+          <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 20, background: "rgba(8,8,8,0.95)", border: `1px solid ${V.line}`, borderRadius: 6, padding: "8px 16px", fontFamily: V.mono, fontSize: 12, color: V.ink2, whiteSpace: "nowrap", pointerEvents: "none" }}>
+            검색 결과가 없습니다
+          </div>
+        )}
+
         {/* 현재 위치로 민원 신청 버튼 — 모바일에서 숨김 */}
         {!isMobile && (
           <button onClick={goCurrentLocation} disabled={locating} title="현재 위치에 민원 신청"
             style={{ position: "absolute", bottom: 24, right: 16, zIndex: 10, height: 54, padding: "0 20px", background: locating ? "#1a1a1a" : V.org, border: "none", borderRadius: 6, color: locating ? V.ink2 : "#000", fontSize: 14, fontWeight: 700, cursor: locating ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 8, boxShadow: "0 4px 16px rgba(0,0,0,.6)", fontFamily: V.sans, whiteSpace: "nowrap" }}>
-            <span style={{ fontSize: 18 }}>{locating ? "⏳" : "📍"}</span>
             {locating ? "위치 확인 중..." : "현재 위치로 신청"}
           </button>
         )}
@@ -365,40 +410,31 @@ export default function CivilDashboard({ civilUser, onLogout }) {
 
         {/* ── 위치 확인 — 마커 위 플로팅 카드 ── */}
         {confirmOpen && selectedLoc && (
-        <div style={{
-          position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)",
-          zIndex: 20, width: 360, maxWidth: "calc(100vw - 32px)",
-          background: "rgba(8,8,8,0.95)", border: `1px solid ${V.line}`,
-          borderRadius: 10, padding: "16px 18px",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
-          backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
-        }}>
-          {/* 말풍선 꼬리 */}
           <div style={{
-            position: "absolute", bottom: -8, left: "50%", transform: "translateX(-50%)",
-            width: 14, height: 8,
-            clipPath: "polygon(0 0, 100% 0, 50% 100%)",
-            background: V.line,
-          }} />
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
-            <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>📍</span>
-            <div>
-              <div style={{ fontFamily: V.sans, fontSize: 13, fontWeight: 700, color: V.ink0, marginBottom: 3 }}>이 위치에 민원을 신청할까요?</div>
-              <div style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2, lineHeight: 1.5 }}>{selectedLoc.address}</div>
+            position: "absolute", bottom: 80, left: "50%", transform: "translateX(-50%)",
+            zIndex: 20, width: 340, maxWidth: "calc(100vw - 32px)",
+            background: "#0a0a0a", border: `1px solid ${V.line}`,
+            borderRadius: 4, overflow: "hidden",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.8)",
+          }}>
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${V.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontFamily: V.mono, fontSize: 10, color: V.ink2, letterSpacing: ".5px", marginBottom: 4 }}>LOCATION SELECTED</div>
+                <div style={{ fontFamily: V.sans, fontSize: 13, color: V.ink0, fontWeight: 600 }}>{selectedLoc.address}</div>
+              </div>
+              <button onClick={cancelSelection} style={{ background: "transparent", border: "none", color: V.ink2, fontSize: 14, cursor: "pointer", flexShrink: 0, padding: "2px 4px" }}>✕</button>
             </div>
-            <button onClick={cancelSelection} style={{ marginLeft: "auto", background: "transparent", border: "none", color: V.ink2, fontSize: 16, cursor: "pointer", flexShrink: 0, padding: 2 }}>✕</button>
+            <div style={{ display: "flex" }}>
+              <button onClick={() => { setConfirmOpen(false); setFormOpen(true); }}
+                style={{ flex: 2, height: 44, background: V.org, border: "none", color: "#000", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: V.sans, letterSpacing: ".3px" }}>
+                민원 신청하기
+              </button>
+              <button onClick={cancelSelection}
+                style={{ flex: 1, height: 44, background: "transparent", borderLeft: `1px solid ${V.line}`, border: "none", borderLeft: `1px solid ${V.line}`, color: V.ink2, fontSize: 13, cursor: "pointer", fontFamily: V.sans }}>
+                취소
+              </button>
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => { setConfirmOpen(false); setFormOpen(true); }}
-              style={{ flex: 2, height: 42, background: V.org, border: "none", borderRadius: 6, color: "#000", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: V.sans }}>
-              민원 신청하기
-            </button>
-            <button onClick={cancelSelection}
-              style={{ flex: 1, height: 42, background: "transparent", border: `1px solid ${V.line}`, borderRadius: 6, color: V.ink2, fontSize: 13, cursor: "pointer", fontFamily: V.sans }}>
-              취소
-            </button>
-          </div>
-        </div>
         )}
       </div>
 

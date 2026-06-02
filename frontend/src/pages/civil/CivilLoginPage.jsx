@@ -182,10 +182,6 @@ export default function CivilLoginPage({ onLogin, onBack }) {
             <div style={{ width: screen === "signup" ? 500 : 480, maxWidth: "100%", background: V.card, backdropFilter: "blur(20px) saturate(1.05)", WebkitBackdropFilter: "blur(20px) saturate(1.05)", border: "1px solid rgba(255,170,51,.22)", borderRadius: 2, padding: "clamp(20px, 5vw, 44px) clamp(16px, 6vw, 50px)" }}>
 
               {/* 헤더 */}
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", border: `1px solid ${V.pri}`, background: "rgba(255,170,51,.12)", color: V.pri, borderRadius: 2, fontFamily: V.mono, fontSize: 11, fontWeight: 700, letterSpacing: ".8px", marginBottom: 14 }}>
-                <span style={{ width: 6, height: 6, background: V.pri, display: "inline-block" }} />
-                CIVIL COMPLAINT
-              </div>
               <div style={{ fontSize: 30, fontWeight: 800, color: V.pri, letterSpacing: "-.3px", lineHeight: 1 }}>TrafficSync</div>
               <div style={{ marginTop: 8, fontFamily: V.mono, fontSize: 12, color: V.ink2, letterSpacing: "1.4px", textTransform: "uppercase" }}>서울시 교통 민원 포털</div>
               <div style={{ height: 1, background: "rgba(255,255,255,.10)", margin: "24px -40px 22px" }} />
