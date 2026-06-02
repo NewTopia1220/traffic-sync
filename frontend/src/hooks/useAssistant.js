@@ -156,7 +156,7 @@ export function useAssistant({ page, onNavIntent }) {
 
   // ── 전역 박수 감지 → 음성 세션 시작/중단 ────────────────────────
   useClapDetection({
-    enabled: true,
+    enabled: page === 'main' && !(voiceUI.active && !voiceMinimized),
     onDoubleClap: useCallback(() => {
       if (window.__chatbotSpeaking) return
       if (page === 'map') return  // 지도 페이지는 지도 챗봇 훅이 처리
@@ -461,11 +461,15 @@ export function useAssistant({ page, onNavIntent }) {
     speakAsync(`${guName} 분석을 시작할까요?`)
     setPendingBriefing({ name, gu: guName })
   }
-  // 로그인 직후: 시간대 인사 + 확인 팝업
+  // 로그인 직후: 시간대 인사 + 확인 팝업 (레거시 — 브리핑 카드가 대체)
   const greetOnLogin = (name, gu) => {
     const h = new Date().getHours()
     const tl = h < 6 ? '새벽' : h < 12 ? '오전' : h < 18 ? '오후' : '저녁'
     speakAsync(`안녕하세요 ${name}님. ${tl} ${h}시입니다.`)
+    setPendingBriefing({ name, gu })
+  }
+  // 브리핑 카드 닫힌 뒤 구 분석 팝업만 띄울 때 사용 (TTS 없음)
+  const activatePendingBriefing = (name, gu) => {
     setPendingBriefing({ name, gu })
   }
   // pendingBriefing 팝업 버튼
@@ -485,7 +489,7 @@ export function useAssistant({ page, onNavIntent }) {
     // 음소거
     isMuted, toggleMute,
     // 트리거 (App에서 호출)
-    promptGuBriefing, greetOnLogin,
+    promptGuBriefing, greetOnLogin, activatePendingBriefing,
     // 렌더 상태
     navBlockMsg, pendingBriefing, voiceUI, voiceMinimized, voiceSTTActive, msgEndRef,
     // 핸들러

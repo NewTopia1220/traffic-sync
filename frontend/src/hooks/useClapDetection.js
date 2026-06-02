@@ -18,6 +18,7 @@ export function useClapDetection({
   const clapCount    = useRef(0);
   const clapTimer    = useRef(null);
   const isClapActive = useRef(false);
+  const cooldownRef  = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -67,7 +68,7 @@ export function useClapDetection({
           if (rms > debugMax) debugMax = rms;
 
           // 절대 볼륨 AND 급등 둘 다 충족할 때만 박수로 판정
-          if (rms > THRESHOLD && delta > DELTA && !isClapActive.current) {
+          if (rms > THRESHOLD && delta > DELTA && !isClapActive.current && !cooldownRef.current) {
             isClapActive.current = true;
             clapCount.current += 1;
 
@@ -76,6 +77,8 @@ export function useClapDetection({
             if (clapCount.current >= requiredClaps) {
               clapCount.current = 0;
               clearTimeout(clapTimer.current);
+              cooldownRef.current = true;
+              setTimeout(() => { cooldownRef.current = false; }, 3000); // 3초 쿨다운
               onDoubleClap?.();
             } else {
               clapTimer.current = setTimeout(() => {

@@ -18,7 +18,7 @@
  * AI 음성 어시스턴트 / 구 브리핑 관련 로직은 모두 useAssistant 훅에 있고,
  * App은 그 상태를 받아 메인 화면 위에 팝업 컴포넌트들을 띄우기만 한다.
  */
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 
 import LoginPage from './pages/LoginPage'
 import MyPage from './pages/mypage/MyPage'
@@ -27,9 +27,13 @@ import MapDashboard from './pages/MapDashboard'
 import CctvDashboard from './pages/CctvDashboard'
 import SimulationDashboard from './pages/SimulationDashboard'
 import NewsDashboard from './pages/NewsDashboard'
+import ComplaintManagePage from './pages/ComplaintManagePage'
+import CivilApp from './pages/civil/CivilApp'
 
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAssistant } from './hooks/useAssistant'
+import { speakAsync, stopAllTTS } from './lib/tts'
+import LoginBriefingCard from './components/LoginBriefingCard'
 import { GU_LIST } from './constants/seoulGeoData'
 
 import NavBlockToast from './components/assistant/NavBlockToast'
@@ -52,6 +56,9 @@ export default function App() {
   const [stations, setStations] = useState([])                // 메인에서 fetch한 교통량 지점
   // MainDashboard의 handleSelectGu(fetch-area 포함)를 받아두는 ref
   const selectGuRef = useRef(null)
+
+  // 로그인 브리핑 카드
+  const [loginBriefing, setLoginBriefing] = useState(null) // { name, gu, weatherDesc, temp, pendingCount }
 
   // AI 어시스턴트 / 브리핑 로직 일체
   const assistant = useAssistant({
@@ -93,16 +100,57 @@ export default function App() {
 
   // ── 페이지별 조건부 렌더링 ──────────────────────────────────────
 
+  if (page === 'civil') return <CivilApp onBack={() => setPage('login')} />
+
   if (page === 'login') return (
-    <LoginPage onLoginSuccess={(data) => {
-      const name = data.name || '관제사'
-      const gu   = selectedGu?.name || '강남구'
-      assistant.greetOnLogin(name, gu)  // 환영 인사 + 시작 확인 팝업
-      setPage(data.isTempPw ? 'mypage' : 'main')
-    }} />
+    <LoginPage
+      onCivil={() => setPage('civil')}
+      onLoginSuccess={async (data) => {
+        const name = data.name || '관제사'
+        const gu   = selectedGu?.name || '강남구'
+        const API  = (import.meta.env.VITE_API_URL || 'http://localhost:8080').replace(/\/+$/, '')
+
+        setPage(data.isTempPw ? 'mypage' : 'main')
+
+        // 임시 비번이면 브리핑 없이 마이페이지로
+        if (data.isTempPw) { assistant.greetOnLogin(name, gu); return }
+
+        // 날씨 + 민원 미처리 건수 병렬 fetch
+        let weatherDesc = '정보 없음', temp = '--', pendingCount = 0
+        try {
+          const pos = await new Promise((resolve, reject) =>
+            navigator.geolocation.getCurrentPosition(
+              p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+              reject, { timeout: 5000 }
+            )
+          )
+          const [wRes, cRes] = await Promise.all([
+            fetch(`${API}/api/civil/auth/weather?lat=${pos.lat}&lng=${pos.lng}`),
+            fetch(`${API}/api/complaints`),
+          ])
+          if (wRes.ok) {
+            const w = await wRes.json()
+            weatherDesc = w.description || '정보 없음'
+            temp = w.temperatureC != null ? `${Math.round(w.temperatureC)}도` : '--'
+          }
+          if (cRes.ok) {
+            const complaints = await cRes.json()
+            pendingCount = Array.isArray(complaints)
+              ? complaints.filter(c => c.status === '접수').length
+              : 0
+          }
+        } catch {}
+
+        setLoginBriefing({ name, gu, weatherDesc, temp, pendingCount })
+      }}
+    />
   )
 
   if (page === 'mypage') return <MyPage onBack={() => setPage('main')} />
+
+  if (page === 'complaints') return (
+    <ComplaintManagePage onBack={() => setPage('map')} />
+  )
 
   if (page === 'news') return (
     <NewsDashboard
@@ -110,6 +158,7 @@ export default function App() {
       onGoMap={goMap}
       onGoCctv={() => setPage('cctv')}
       onGoSimulation={() => setPage('simulation')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
@@ -122,6 +171,7 @@ export default function App() {
       onGoMap={goMap}
       onGoNews={() => setPage('news')}
       onGoCctv={() => setPage('cctv')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
@@ -134,6 +184,7 @@ export default function App() {
       onGoMap={goMap}
       onGoNews={() => setPage('news')}
       onGoSimulation={() => setPage('simulation')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
@@ -146,6 +197,7 @@ export default function App() {
       onGoCctv={() => setPage('cctv')}
       onGoNews={() => setPage('news')}
       onGoSimulation={() => setPage('simulation')}
+      onGoComplaints={() => setPage('complaints')}
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
@@ -162,6 +214,21 @@ export default function App() {
   return (
     <>
       <AssistantKeyframes />
+
+      {loginBriefing && (
+        <LoginBriefingCard
+          briefing={loginBriefing}
+          onClose={() => {
+            stopAllTTS()
+            setLoginBriefing(null)
+            assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
+          }}
+          onTTSDone={() => {
+            setLoginBriefing(null)
+            assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
+          }}
+        />
+      )}
 
       <NavBlockToast message={assistant.navBlockMsg} />
 
@@ -199,6 +266,7 @@ export default function App() {
         onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
         onGoNews={() => assistant.tryNav(() => setPage('news'))}
         onGoSimulation={() => assistant.tryNav(() => setPage('simulation'))}
+        onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
         onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
         onLogout={() => assistant.tryNav(() => setPage('login'))}
         wsData={wsData}

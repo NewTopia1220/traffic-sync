@@ -33,7 +33,7 @@ export default function DonutChart({ name, score, grade }) {
         <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 72, color: "#fff", letterSpacing: "-3px", lineHeight: 1 }}>
           {ready ? score : "—"}<span style={{ fontSize: 15, color: V.ink2, fontWeight: 500, marginLeft: 3 }}>점</span>
         </div>
-        <div style={{ marginTop: 8, fontFamily: V.mono, fontSize: 13, padding: "4px 12px", borderRadius: 2, border: `1px solid ${color}`, color, background: `${color}20`, fontWeight: 700 }}>{level}</div>
+        <div style={{ marginTop: 8, fontFamily: V.mono, fontSize: 13, color, fontWeight: 700 }}>{level}</div>
       </div>
     </div>
   );

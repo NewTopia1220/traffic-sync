@@ -44,7 +44,7 @@ function makeSpark(base) {
   return Number.isFinite(base) ? [base] : [];
 }
 
-export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu, onRegisterSelectGu, isMuted, onToggleMute }) {
+export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoComplaints, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu, onRegisterSelectGu, isMuted, onToggleMute }) {
   const [time, setTime] = useState(new Date());
   const [loading, setLoading] = useState(false);
   // "송파구 · 12개 교차로 수집됨" 같은 임시 메시지 (3초 후 사라짐)
@@ -310,12 +310,13 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
 
         {/* 페이지 탭: 통합 대시보드(현재) / 실시간 지도 / CCTV 관제 */}
         <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3 }}>
-          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스", "news"], ["CCTV 관제", "cctv"], ["신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
+          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스", "news"], ["CCTV 관제", "cctv"], ["신호 시뮬레이션", "simulation"], ["민원 관리", "complaints"]].map(([label, tab]) => {
             const isActive = tab === "main";
             const onClick = tab === "map" ? () => onGoMap(selectedGu)
               : tab === "cctv" ? onGoCctv
               : tab === "news" ? onGoNews
               : tab === "simulation" ? onGoSimulation
+              : tab === "complaints" ? onGoComplaints
               : undefined;
             return (
               <button key={tab}
@@ -393,7 +394,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>실시간 구간 속도
             </span>
             <SpeedDropdown options={speedOptions} selected={speedSelected} onToggle={toggleSpeedCard} />
-            <div style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 12, color: isLive ? V.grn : V.ink2, padding: "3px 8px", border: `1px solid ${isLive ? "#1a3a24" : V.line}`, borderRadius: 2, background: isLive ? "#0c1a12" : V.bg0 }}>
+            <div style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 12, color: isLive ? V.grn : V.ink2, fontWeight: 700 }}>
               {isLive ? "● LIVE · 수집 중" : "대기 중"}
             </div>
           </div>
@@ -436,7 +437,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>교차로별 위험도
             </span>
-            <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 12, color: isLive ? V.grn : V.ink2, padding: "3px 8px", border: `1px solid ${isLive ? "#1a3a24" : V.line}`, borderRadius: 2, background: isLive ? "#0c1a12" : V.bg0 }}>
+            <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 12, color: isLive ? V.grn : V.ink2, fontWeight: 700 }}>
               {isLive ? "● 실시간" : "참고값"}
             </span>
           </div>
@@ -512,12 +513,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>시간대별 교통량 예측
             </span>
-            <span style={{
-              marginLeft: "auto", fontFamily: V.mono, fontSize: 11,
-              color: forecast.isLoaded ? V.grn : V.org,
-              padding: "3px 8px", border: `1px solid ${forecast.isLoaded ? "#1a3a24" : "#3a2a14"}`,
-              borderRadius: 2, background: forecast.isLoaded ? "#0c1a12" : "#1a1206",
-            }}>
+            <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11, color: forecast.isLoaded ? V.grn : V.org, fontWeight: 700 }}>
               {forecast.isLoaded ? "● 예측 모델" : "로드 중/데이터 없음"}
             </span>
           </div>
