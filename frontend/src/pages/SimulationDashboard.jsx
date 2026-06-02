@@ -434,7 +434,7 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk, autoAdjustKey = 0, au
   );
 }
 
-export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoMyPage, onLogout, selectedGu }) {
+export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu }) {
   const [selectedList, setSelectedList] = useState([]);
   const [time, setTime] = useState(new Date());
   const [isOptimized, setIsOptimized] = useState(false);
@@ -649,6 +649,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         onGoNews={onGoNews}
         onGoCctv={onGoCctv}
         onGoSimulation={() => {}}
+        onGoComplaints={onGoComplaints}
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
       />

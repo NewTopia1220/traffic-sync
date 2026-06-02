@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { GU_LIST, calcDistKm } from "../constants/seoulGeoData";
+import { V } from "../constants/theme";  // MainDashboard와 동일한 색상 체계 공유
 import AppHeader from "../components/common/AppHeader";
 
 // UTIC CCTV 스트림 인증키 (.env의 VITE_UTIC_KEY)
@@ -8,16 +9,6 @@ const UTIC_KEY = import.meta.env.VITE_UTIC_KEY || "";
 
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
-
-// ── 전역 디자인 토큰 ─────────────────────────────────────────────────────────
-// MainDashboard와 동일한 색상 체계 사용 (일관성 유지)
-const V = {
-  bg0: "#000", bg1: "#0a0a0a", line: "#1a1a1a",
-  ink0: "#e7ecf5", ink1: "#aab4c8", ink2: "#7a7a7a", ink3: "#3a3a3a",
-  grn: "#2ee07a", red: "#ff5566", org: "#ffaa33", blu: "#4ea6ff",
-  mono: "'IBM Plex Mono',ui-monospace,Menlo,monospace",
-  sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
-};
 
 // ── assignGu ─────────────────────────────────────────────────────────────────
 /**
@@ -87,8 +78,7 @@ function CctvModal({ cctv, onClose }) {
               key={cctv.cctvId}
               src={
                 `https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp`
-                + `?key=${UTIC_KEY}`
-                + `&cctvid=${encodeURIComponent(cctv.cctvId)}`
+                + `?cctvid=${encodeURIComponent(cctv.cctvId)}`
                 + `&cctvName=${encodeURIComponent(encodeURIComponent(cctv.cctvNm))}`
                 + `&kind=Seoul&cctvip=undefined`
                 + `&cctvch=${cctv.cctvCh ?? 51}`
@@ -155,7 +145,7 @@ function CctvModal({ cctv, onClose }) {
  *   onGoMain - "← 대시보드" 버튼 콜백
  *   onGoMap  - "🗺️ 지도 보기" 버튼 콜백
  */
-export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulation, onGoMyPage, onLogout, selectedGu }) {
+export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulation, onGoComplaints, onGoMyPage, onLogout, selectedGu }) {
   const [time,     setTime]     = useState(new Date());
   // 스프링에서 받아온 전체 CCTV 배열 (CctvInfo DTO 배열)
   const [cctvList, setCctvList] = useState([]);
@@ -230,6 +220,7 @@ export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulat
         onGoNews={onGoNews}
         onGoCctv={() => {}}
         onGoSimulation={onGoSimulation}
+        onGoComplaints={onGoComplaints}
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
       />

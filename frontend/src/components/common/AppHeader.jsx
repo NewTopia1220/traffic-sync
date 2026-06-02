@@ -17,9 +17,11 @@ export default function AppHeader({
   onGoNews,
   onGoCctv,
   onGoSimulation,
+  onGoComplaints,
   onGoMyPage,
   onLogout,
   rightExtra,
+  complaintCount = 0,
 }) {
   const [time, setTime] = useState(new Date());
   useEffect(() => {
@@ -33,6 +35,7 @@ export default function AppHeader({
     ["뉴스", "news"],
     ["CCTV 관제", "cctv"],
     ["신호 시뮬레이션", "simulation"],
+    ["민원 관리", "complaints"],
   ];
 
   const go = (tab) => {
@@ -41,6 +44,7 @@ export default function AppHeader({
     if (tab === "news") return onGoNews?.();
     if (tab === "cctv") return onGoCctv?.();
     if (tab === "simulation") return onGoSimulation?.();
+    if (tab === "complaints") return onGoComplaints?.();
   };
 
   return (
@@ -58,10 +62,19 @@ export default function AppHeader({
       <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3 }}>
         {tabs.map(([label, tab]) => {
           const isActive = tab === activePage;
+          const isCivil  = tab === "complaints";
+          const dotColor = isActive ? V.blu : isCivil ? V.org : V.ink3;
           return (
-            <button key={tab} onClick={() => go(tab)} style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "7px 15px", borderRadius: 999, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink3, display: "inline-block" }} />
+            <button key={tab} onClick={() => go(tab)}
+              style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "7px 15px", borderRadius: 999, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans, position: "relative" }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
               {label}
+              {/* 미처리 민원 배지 */}
+              {isCivil && complaintCount > 0 && (
+                <span style={{ position: "absolute", top: 4, right: 6, minWidth: 16, height: 16, background: V.org, borderRadius: 999, fontFamily: V.mono, fontSize: 9, fontWeight: 700, color: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>
+                  {complaintCount}
+                </span>
+              )}
             </button>
           );
         })}
