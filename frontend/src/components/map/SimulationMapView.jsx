@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
@@ -93,6 +92,7 @@ function angleDiffDeg(a, b) {
 function getCarBearingDeg(points, progress) {
   const totalLen = routeLengthMeters(points);
   if (!totalLen || points.length < 2) return null;
+
   let walked = 0;
   const target = progress * totalLen;
 
@@ -103,7 +103,6 @@ function getCarBearingDeg(points, progress) {
     }
     walked += segLen;
   }
-
 
   return routeBearingDeg(points[points.length - 2], points[points.length - 1]);
 }
@@ -120,7 +119,6 @@ function calcIsGreen(signalCtx, nowMs, carBearingDeg = null) {
 
   let acc = 0;
   let currentPhaseNo = phases[0].no;
-
 
   for (const phase of phases) {
     acc += Number(phase.sec || 0);
@@ -198,7 +196,6 @@ async function buildRouteViaNearbyCrossroads(startCr, endCr, crossroads) {
     names: markerRoute.viaCrossroads.map(cr => cr.intNm),
   });
 
-
   if (markerRoute.points.length >= 2 && markerRoute.viaCrossroads.length > 0) {
     return markerRoute;
   }
@@ -272,7 +269,17 @@ function tryBuildMarkerGraphRoute(startCr, endCr, crossroads, totalDist, maxEdge
         projected.distance * 0.28 +
         Math.abs(projected.progress - 0.5) * 4;
 
-      return { key: `cr-${cr.intNo}`, cr, ll, kind: "via", fromStart, toEnd, detour, projected, score };
+      return {
+        key: `cr-${cr.intNo}`,
+        cr,
+        ll,
+        kind: "via",
+        fromStart,
+        toEnd,
+        detour,
+        projected,
+        score,
+      };
     })
     .filter(Boolean)
     .sort((a, b) => a.score - b.score)
@@ -294,7 +301,6 @@ function tryBuildMarkerGraphRoute(startCr, endCr, crossroads, totalDist, maxEdge
       const d = distanceMeters(current.ll, next.ll);
       if (d > maxEdgeMeters) continue;
 
-
       if (i === 0 && j === endIndex && middleNodes.length > 0 && totalDist > maxEdgeMeters * 0.9) {
         continue;
       }
@@ -305,8 +311,6 @@ function tryBuildMarkerGraphRoute(startCr, endCr, crossroads, totalDist, maxEdge
 
       const currentToEnd = distanceMeters(current.ll, end);
       const nextToEnd = distanceMeters(next.ll, end);
-      if (j !== endIndex && i !== 0 && nextToEnd > currentToEnd + maxEdgeMeters * 2.8) continue;
-
 
       if (j !== endIndex && i !== 0 && nextToEnd > currentToEnd + maxEdgeMeters * 2.8) {
         continue;
@@ -345,14 +349,23 @@ function tryBuildMarkerGraphRoute(startCr, endCr, crossroads, totalDist, maxEdge
   for (let step = 0; step < nodes.length; step++) {
     let u = -1;
     let best = Infinity;
+
     for (let i = 0; i < nodes.length; i++) {
-      if (!visited[i] && dist[i] < best) { best = dist[i]; u = i; }
+      if (!visited[i] && dist[i] < best) {
+        best = dist[i];
+        u = i;
+      }
     }
+
     if (u === -1 || u === endIndex) break;
     visited[u] = true;
+
     for (const edge of edges[u]) {
       const alt = dist[u] + edge.weight;
-      if (alt < dist[edge.to]) { dist[edge.to] = alt; prev[edge.to] = u; }
+      if (alt < dist[edge.to]) {
+        dist[edge.to] = alt;
+        prev[edge.to] = u;
+      }
     }
   }
 
@@ -362,7 +375,10 @@ function tryBuildMarkerGraphRoute(startCr, endCr, crossroads, totalDist, maxEdge
 
   const pathIndexes = [];
   let cur = endIndex;
-  while (cur !== -1) { pathIndexes.push(cur); cur = prev[cur]; }
+  while (cur !== -1) {
+    pathIndexes.push(cur);
+    cur = prev[cur];
+  }
   pathIndexes.reverse();
 
   if (pathIndexes.length <= 2) return { points: [], viaCrossroads: [] };
@@ -425,6 +441,7 @@ function extractRouteSegment(points, startProgress, endProgress) {
 
   const startDist = startProgress * totalLen;
   const endDist = endProgress * totalLen;
+
   const result = [];
   let acc = 0;
 
@@ -435,13 +452,13 @@ function extractRouteSegment(points, startProgress, endProgress) {
 
   for (let i = 1; i < points.length - 1; i++) {
     acc += distanceMeters(points[i - 1], points[i]);
-
     if (acc > startDist && acc < endDist) {
       result.push(points[i]);
     }
   }
 
   if (endPoint) result.push(endPoint);
+
   return result;
 }
 
@@ -459,17 +476,23 @@ function routeLengthMeters(points) {
 function estimateTrip(routePoints, isOptimized) {
   const distance = routeLengthMeters(routePoints);
   if (!distance) return null;
+
   const normalSpeedKph = 28;
   const bottleneckSpeedKph = isOptimized ? 24 : 10;
   const normalRatio = 0.72;
   const bottleneckRatio = 0.28;
+
   const normalSec = (distance * normalRatio) / (normalSpeedKph / 3.6);
   const bottleneckSec = (distance * bottleneckRatio) / (bottleneckSpeedKph / 3.6);
   const waitSec = isOptimized ? 20 : 75;
   const totalSec = Math.round(normalSec + bottleneckSec + waitSec);
-  return { distance, totalSec, avgSpeedKph: Math.round((distance / Math.max(totalSec, 1)) * 3.6) };
-}
 
+  return {
+    distance,
+    totalSec,
+    avgSpeedKph: Math.round((distance / Math.max(totalSec, 1)) * 3.6),
+  };
+}
 
 export default function SimulationMapView({
   selectedList = [],
@@ -493,7 +516,6 @@ export default function SimulationMapView({
   const signalCacheRef = useRef({});
   const stoppedAtRef = useRef(null);
   const stopProgressRef = useRef(null);
-
   const routePointsRef = useRef([]);
   const viaCrossroadsRef = useRef([]);
   const startRef = useRef(null);
@@ -512,18 +534,6 @@ export default function SimulationMapView({
   const endLL = getCrLonLat(end);
   const routePoints = routePlan.points;
   const viaCrossroads = routePlan.viaCrossroads;
-
-  // 경로 계산
-  useEffect(() => {
-    if (selectedList.length < 2) {
-      setRoutePlan({ points: [], viaCrossroads: [] });
-      return;
-    }
-    setRoutePlan(buildRouteFromSelectedList(selectedList, crossroads));
-  }, [
-    selectedList.map(item => item.intNo).join("|"),
-    crossroads.length,
-  ]);
 
   useEffect(() => {
     if (selectedList.length < 2) {
@@ -545,7 +555,6 @@ export default function SimulationMapView({
     onAutoWaypointsChange?.(viaCrossroads);
   }, [start?.intNo, end?.intNo, viaCrossroads.map(cr => cr.intNo).join("|"), onAutoWaypointsChange]);
 
-  // Cesium 로드
   useEffect(() => {
     routePointsRef.current = routePoints;
     viaCrossroadsRef.current = viaCrossroads;
@@ -569,7 +578,6 @@ export default function SimulationMapView({
       setStatus("VWorld API 키가 없습니다. .env의 VITE_VWORLD_API_KEY를 확인하세요.");
       return;
     }
-
 
     let alive = true;
     let count = 0;
@@ -599,7 +607,6 @@ export default function SimulationMapView({
     };
   }, []);
 
-  // 교차로 목록 로드
   useEffect(() => {
     fetch(`${API_BASE}/api/signal/crossroads`)
       .then(r => r.json())
@@ -610,7 +617,6 @@ export default function SimulationMapView({
       .catch(() => setStatus("교차로 데이터 로드 실패"));
   }, []);
 
-  // Cesium Viewer 초기화
   useEffect(() => {
     if (!cesiumReady || !containerRef.current || viewerRef.current) return;
     if (!window.vw) return;
@@ -629,13 +635,11 @@ export default function SimulationMapView({
         return;
       }
 
-
       viewer.scene.globe.enableLighting = false;
       viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#0a0f1e");
       viewer.scene.screenSpaceCameraController.enableRotate = true;
       viewer.scene.screenSpaceCameraController.enableTilt = true;
       viewer.scene.screenSpaceCameraController.enableZoom = true;
-
 
       try {
         vworldMapRef.current?.getElementById?.("facility_build")?.show?.();
@@ -702,7 +706,6 @@ export default function SimulationMapView({
     };
   }, [cesiumReady]);
 
-  // 마커 렌더링
   useEffect(() => {
     if (!mapReady || !viewerRef.current || crossroads.length === 0) return;
 
@@ -895,24 +898,11 @@ export default function SimulationMapView({
   }
 
 
-  // ── 경로/시뮬레이션 렌더링 + 애니메이션
   useEffect(() => {
     if (!mapReady || !viewerRef.current || !window.Cesium) return;
 
-
     clearOverlays();
     stopAnimation();
-
-    routePointsRef.current = routePlan.points;
-    viaCrossroadsRef.current = routePlan.viaCrossroads;
-    startRef.current = selectedList[0] ?? null;
-    endRef.current = selectedList.length >= 2 ? selectedList[selectedList.length - 1] : null;
-
-    console.log("useEffect 실행", {
-      routePoints: routePlan.points.length,
-      startLL,
-      endLL,
-    });
 
     if (!startLL) {
       onStatsChange?.(null);
@@ -932,19 +922,16 @@ export default function SimulationMapView({
     endRef.current = end;
 
     renderRouteSimulation();
-
     prefetchSignals(viaCrossroads, start, end);
     startCarAnimation();
 
     const before = estimateTrip(routePoints, false);
     const after = estimateTrip(routePoints, true);
 
-
     if (!before || !after) {
       onStatsChange?.(null);
       return;
     }
-
 
     onStatsChange?.({
       distanceMeters: Math.round(before.distance),
@@ -956,9 +943,6 @@ export default function SimulationMapView({
       bottleneckCount: 1,
       viaCount: viaCrossroads.length,
     });
-
-
-  // ── 신호 미리 fetch (경로 확정 후 한 번 + 30초마다 갱신)
   }, [selectedList, isOptimized, cesiumReady, mapReady, routePlan, driveView]);
 
 
@@ -995,7 +979,6 @@ export default function SimulationMapView({
     targets.forEach(cr => fetchSignalCtx(cr.intNo));
   }
 
-
   async function fetchSignalCtx(intNo) {
     if (!intNo) return null;
 
@@ -1018,7 +1001,6 @@ export default function SimulationMapView({
       return null;
     }
   }
-
 
   function getNodeRouteProgress(node) {
     const ll = getCrLonLat(node);
@@ -1063,7 +1045,6 @@ export default function SimulationMapView({
       ...viaCrossroadsRef.current,
       endRef.current,
     ].filter(Boolean);
-
 
     let nearest = null;
 
@@ -1144,7 +1125,6 @@ export default function SimulationMapView({
     }
 
     viewerRef.current.camera.flyToBoundingSphere(
-
       new Cesium.BoundingSphere(
         Cesium.Cartesian3.fromDegrees(startLL.lon, startLL.lat, 0),
         80
@@ -1160,10 +1140,35 @@ export default function SimulationMapView({
     );
   }
 
+
+  function addRoadMask(viewer, Cesium, points) {
+    if (!viewer || !Cesium || !points || points.length < 2) return null;
+
+    return viewer.entities.add({
+      corridor: {
+        positions: Cesium.Cartesian3.fromDegreesArray(
+          points.flatMap(p => [p.lon, p.lat])
+        ),
+        width: 22,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        material: Cesium.Color.fromCssColorString("#30363a").withAlpha(0.86),
+        outline: false,
+        cornerType: Cesium.CornerType.MITERED,
+        zIndex: 18,
+      },
+    });
+  }
+
+
   function renderRouteSimulation() {
     const Cesium = window.Cesium;
     const viewer = viewerRef.current;
     if (!viewer || routePoints.length < 2) return;
+
+    const roadMask = addRoadMask(viewer, Cesium, routePoints);
+    if (roadMask) {
+      overlayEntitiesRef.current.push(roadMask);
+    }
 
     overlayEntitiesRef.current.push(viewer.entities.add({
       polyline: {
@@ -1179,13 +1184,11 @@ export default function SimulationMapView({
       },
     }));
 
-
     const signalNodePoints = [
       startLL,
       ...viaCrossroads.map(getCrLonLat).filter(Boolean),
       endLL,
     ].filter(Boolean);
-
 
     if (signalNodePoints.length >= 2) {
       overlayEntitiesRef.current.push(viewer.entities.add({
@@ -1203,6 +1206,7 @@ export default function SimulationMapView({
     // 여기에 별도 point 마커를 한 번 더 올리면 특정 경유지가 겹쳐져 크게 보일 수 있어 제거했습니다.
 
     const bottleneckSegment = extractRouteSegment(routePoints, 0.46, 0.62);
+
     if (bottleneckSegment.length >= 2) {
       overlayEntitiesRef.current.push(viewer.entities.add({
         polyline: {
@@ -1254,12 +1258,10 @@ export default function SimulationMapView({
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
           shadows: Cesium.ShadowMode.DISABLED,
           runAnimations: false,
-
         },
       });
     }
   }
-
 
   function startCarAnimation(timestamp = performance.now()) {
     if (!viewerRef.current || !carEntityRef.current || routePointsRef.current.length < 2) return;
@@ -1468,9 +1470,6 @@ export default function SimulationMapView({
   );
 }
 
-// ─────────────────────────────────────────────
-// Canvas 유틸
-// ─────────────────────────────────────────────
 function createMarkerCanvas(color, size = 12, text = "") {
   const canvas = document.createElement("canvas");
   canvas.width = 72;
@@ -1494,6 +1493,7 @@ function createMarkerCanvas(color, size = 12, text = "") {
   ctx.strokeStyle = color;
   ctx.stroke();
   ctx.shadowBlur = 0;
+
   if (text) {
     ctx.fillStyle = "#fff";
     ctx.font = "bold 15px Malgun Gothic";
@@ -1567,29 +1567,6 @@ function createSignalCanvas(isRed) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  return canvas.toDataURL();
-}
-
-// 차량 위 신호등 인디케이터 (빨강/초록 원)
-function createSignalCanvas(isRed) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 28;
-  canvas.height = 28;
-  const ctx = canvas.getContext("2d");
-  const color = isRed ? "#ef4444" : "#22c55e";
-  ctx.beginPath();
-  ctx.arc(14, 14, 11, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.lineWidth = 2.5;
-  ctx.strokeStyle = "#fff";
-  ctx.stroke();
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 10;
-  ctx.beginPath();
-  ctx.arc(14, 14, 11, 0, Math.PI * 2);
-  ctx.strokeStyle = color;
-  ctx.stroke();
   return canvas.toDataURL();
 }
 
