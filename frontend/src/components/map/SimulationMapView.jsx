@@ -56,6 +56,16 @@ function metersToDegrees(meters, lat) {
   return { lon: lonDeg, lat: latDeg };
 }
 
+function offsetPointByMeters(point, bearingDeg, meters) {
+  const rad = bearingDeg * Math.PI / 180;
+  const dLat = (Math.cos(rad) * meters) / 111320;
+  const dLon = (Math.sin(rad) * meters) / (111320 * Math.cos(point.lat * Math.PI / 180) || 1);
+  return {
+    lon: point.lon + dLon,
+    lat: point.lat + dLat,
+  };
+}
+
 function lonLatToLocalMeters(point, originLat) {
   const metersPerDegLat = 111320;
   const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180);
@@ -500,12 +510,14 @@ export default function SimulationMapView({
   isOptimized = false,
   onStatsChange,
   onAutoWaypointsChange,
+  onCurrentSignalChange,
 }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
   const vworldMapRef = useRef(null);
   const markerEntitiesRef = useRef({});
   const overlayEntitiesRef = useRef([]);
+  const roadOverlayPrimitivesRef = useRef([]);
   const carEntityRef = useRef(null);
   const signalIndicatorRef = useRef(null);
   const animationRef = useRef(null);
@@ -516,6 +528,7 @@ export default function SimulationMapView({
   const signalCacheRef = useRef({});
   const stoppedAtRef = useRef(null);
   const stopProgressRef = useRef(null);
+  const currentSignalStatusRef = useRef(null);
   const routePointsRef = useRef([]);
   const viaCrossroadsRef = useRef([]);
   const startRef = useRef(null);
@@ -725,6 +738,10 @@ export default function SimulationMapView({
       const viaIndex = viaCrossroads.findIndex(item => item.intNo === cr.intNo);
       const isVia = viaIndex >= 0;
 
+      // 주행뷰에서는 전체 파란 교차로 노드가 화면을 가리므로
+      // 선택된 출발지/도착지/경유지만 표시합니다.
+      if (driveView && !isStart && !isEnd && !isVia) return;
+
       const color = isStart ? "#22c55e" : isEnd ? "#ef4444" : isVia ? "#f59e0b" : "rgba(96,165,250,0.55)";
       const size = isStart || isEnd ? 18 : isVia ? 13 : 9;
       const markerText = isStart ? "출" : isEnd ? "도" : isVia ? String(viaIndex + 1) : "";
@@ -800,6 +817,7 @@ export default function SimulationMapView({
     start?.intNo,
     end?.intNo,
     viaCrossroads.map(cr => cr.intNo).join("|"),
+    driveView,
     cesiumReady,
     mapReady,
     onSelect,
@@ -953,11 +971,14 @@ export default function SimulationMapView({
       const next = interpolateRoute(routePoints, Math.min((progressRef.current || 0.02) + 0.012, 1));
       if (p && next) {
         const Cesium = window.Cesium;
+        const headingDeg = routeBearingDeg(p, next);
+        const cameraPos = offsetPointByMeters(p, headingDeg + 180, 52);
+
         viewerRef.current.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 140),
+          destination: Cesium.Cartesian3.fromDegrees(cameraPos.lon, cameraPos.lat, 44),
           orientation: {
-            heading: Cesium.Math.toRadians(routeBearingDeg(p, next)),
-            pitch: Cesium.Math.toRadians(-22),
+            heading: Cesium.Math.toRadians(headingDeg),
+            pitch: Cesium.Math.toRadians(-13),
             roll: 0,
           },
           duration: 0.6,
@@ -999,6 +1020,65 @@ export default function SimulationMapView({
     } catch (err) {
       console.warn("신호 데이터 로드 실패", intNo, err);
       return null;
+    }
+  }
+
+  function getRouteNodeType(node) {
+    if (!node) return "unknown";
+    if (startRef.current?.intNo === node.intNo) return "start";
+    if (endRef.current?.intNo === node.intNo) return "end";
+
+    const viaIndex = viaCrossroadsRef.current.findIndex(item => item.intNo === node.intNo);
+    if (viaIndex >= 0) {
+      const bottleneckIndex = viaCrossroadsRef.current.reduce((bestIdx, item, idx, arr) => {
+        const best = arr[bestIdx];
+        return Math.abs((item.routeProgress ?? 0.5) - 0.54) < Math.abs((best.routeProgress ?? 0.5) - 0.54)
+          ? idx
+          : bestIdx;
+      }, 0);
+
+      return viaIndex === bottleneckIndex ? "bottleneck" : "waypoint";
+    }
+
+    return "unknown";
+  }
+
+  function emitCurrentSignalStatus(nextNode, isRedLight, cachedCtx = null, carBearing = null) {
+    if (!onCurrentSignalChange) return;
+
+    if (!nextNode) {
+      const emptyKey = "none";
+      if (currentSignalStatusRef.current !== emptyKey) {
+        currentSignalStatusRef.current = emptyKey;
+        onCurrentSignalChange(null);
+      }
+      return;
+    }
+
+    const status = {
+      intNo: nextNode.intNo,
+      intNm: nextNode.intNm,
+      type: nextNode.type,
+      metersAhead: Math.max(0, Math.round(nextNode.metersAhead ?? 0)),
+      isRed: !!isRedLight,
+      isGreen: !isRedLight,
+      stateText: isRedLight ? "빨간불 정지/감속" : "초록불 통과",
+      phaseNo: cachedCtx?.ctx?.phases?.find?.(() => false)?.no ?? null,
+      carBearingDeg: carBearing == null ? null : Math.round(carBearing),
+      updatedAt: Date.now(),
+    };
+
+    const key = [
+      status.intNo,
+      status.type,
+      status.isRed ? "red" : "green",
+      status.metersAhead,
+      status.carBearingDeg ?? "",
+    ].join("|");
+
+    if (currentSignalStatusRef.current !== key) {
+      currentSignalStatusRef.current = key;
+      onCurrentSignalChange(status);
     }
   }
 
@@ -1061,6 +1141,8 @@ export default function SimulationMapView({
           nearest = {
             intNo: node.intNo,
             intNm: node.intNm,
+            type: getRouteNodeType(node),
+            node,
             progress: routeInfo.progress,
             metersAhead,
           };
@@ -1077,6 +1159,11 @@ export default function SimulationMapView({
 
     overlayEntitiesRef.current.forEach(entity => viewer.entities.remove(entity));
     overlayEntitiesRef.current = [];
+
+    roadOverlayPrimitivesRef.current.forEach(p => {
+      try { viewer.scene.groundPrimitives.remove(p); } catch (_) {}
+    });
+    roadOverlayPrimitivesRef.current = [];
 
     if (carEntityRef.current) {
       viewer.entities.remove(carEntityRef.current);
@@ -1140,10 +1227,126 @@ export default function SimulationMapView({
     );
   }
 
+  // 경로 포인트 배열로 도로 폭만큼 좌우로 오프셋한 폴리곤 좌표를 생성합니다.
+  function buildRoadPolygonCoords(points, halfWidthMeters) {
+    if (points.length < 2) return null;
+    const left = [];
+    const right = [];
+
+    for (let i = 0; i < points.length; i++) {
+      const prev = points[i - 1] ?? points[i];
+      const next = points[i + 1] ?? points[i];
+      const bearing = routeBearingDeg(prev, next);
+      left.push(offsetPointByMeters(points[i], bearing - 90, halfWidthMeters));
+      right.push(offsetPointByMeters(points[i], bearing + 90, halfWidthMeters));
+    }
+
+    // 외곽 링: 왼쪽 순방향 + 오른쪽 역방향으로 닫힌 폴리곤
+    const ring = [...left, ...[...right].reverse(), left[0]];
+    return ring.flatMap(p => [p.lon, p.lat]);
+  }
+
   function renderRouteSimulation() {
     const Cesium = window.Cesium;
     const viewer = viewerRef.current;
     if (!viewer || routePoints.length < 2) return;
+
+    // ── 도로 위 반투명 오버레이 ──────────────────────────────────────────
+    // 위성지도의 실제 차량을 가리고 시뮬레이션 도로처럼 보이게 합니다.
+    // 경로 전체를 도로 폭(약 16m)으로 덮는 반투명 다크 레이어를 깔고,
+    // 그 위에 얇은 도로 중심선 텍스처를 올려 실제 도로처럼 보이게 합니다.
+
+    const roadCoords = buildRoadPolygonCoords(routePoints, 14); // 왕복 2차선 폭 ≈ 28m
+    if (roadCoords && roadCoords.length >= 6) {
+      // 기본 아스팔트 레이어 (어두운 회색, 불투명도 약 70%)
+      const asphaltPrimitive = new Cesium.GroundPrimitive({
+        geometryInstances: new Cesium.GeometryInstance({
+          geometry: new Cesium.PolygonGeometry({
+            polygonHierarchy: new Cesium.PolygonHierarchy(
+              Cesium.Cartesian3.fromDegreesArray(roadCoords)
+            ),
+            vertexFormat: Cesium.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+          }),
+          attributes: {
+            color: Cesium.ColorGeometryInstanceAttribute.fromColor(
+              Cesium.Color.fromCssColorString("#1c1c1e").withAlpha(0.72)
+            ),
+          },
+        }),
+        appearance: new Cesium.PerInstanceColorAppearance({
+          flat: true,
+          translucent: true,
+        }),
+        classificationType: Cesium.ClassificationType.TERRAIN,
+      });
+      viewer.scene.groundPrimitives.add(asphaltPrimitive);
+      roadOverlayPrimitivesRef.current.push(asphaltPrimitive);
+
+      // 도로 중앙 라인 레이어 (약간 밝은 회색, 경로 중심 강조)
+      const centerCoords = buildRoadPolygonCoords(routePoints, 1.2);
+      if (centerCoords && centerCoords.length >= 6) {
+        const centerLinePrimitive = new Cesium.GroundPrimitive({
+          geometryInstances: new Cesium.GeometryInstance({
+            geometry: new Cesium.PolygonGeometry({
+              polygonHierarchy: new Cesium.PolygonHierarchy(
+                Cesium.Cartesian3.fromDegreesArray(centerCoords)
+              ),
+              vertexFormat: Cesium.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+            }),
+            attributes: {
+              color: Cesium.ColorGeometryInstanceAttribute.fromColor(
+                Cesium.Color.fromCssColorString("#e2c94a").withAlpha(0.55)
+              ),
+            },
+          }),
+          appearance: new Cesium.PerInstanceColorAppearance({
+            flat: true,
+            translucent: true,
+          }),
+          classificationType: Cesium.ClassificationType.TERRAIN,
+        });
+        viewer.scene.groundPrimitives.add(centerLinePrimitive);
+        roadOverlayPrimitivesRef.current.push(centerLinePrimitive);
+      }
+
+      // 도로 가장자리 라인 (왼쪽/오른쪽 경계선)
+      const leftEdgeCoords = buildRoadPolygonCoords(routePoints, 14);
+      const rightEdgeCoords = buildRoadPolygonCoords(routePoints, 14);
+      [leftEdgeCoords, rightEdgeCoords].forEach((edgeCoords, side) => {
+        if (!edgeCoords || edgeCoords.length < 6) return;
+        const edgeHalf = side === 0 ? 13 : 14;
+        const innerCoords = buildRoadPolygonCoords(routePoints, edgeHalf - 0.8);
+        if (!innerCoords || innerCoords.length < 6) return;
+
+        // 폴리곤 hole로 내부를 뚫어서 edge line만 남기기
+        const edgePrimitive = new Cesium.GroundPrimitive({
+          geometryInstances: new Cesium.GeometryInstance({
+            geometry: new Cesium.PolygonGeometry({
+              polygonHierarchy: new Cesium.PolygonHierarchy(
+                Cesium.Cartesian3.fromDegreesArray(edgeCoords),
+                [new Cesium.PolygonHierarchy(
+                  Cesium.Cartesian3.fromDegreesArray(innerCoords)
+                )]
+              ),
+              vertexFormat: Cesium.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+            }),
+            attributes: {
+              color: Cesium.ColorGeometryInstanceAttribute.fromColor(
+                Cesium.Color.fromCssColorString("#ffffff").withAlpha(0.28)
+              ),
+            },
+          }),
+          appearance: new Cesium.PerInstanceColorAppearance({
+            flat: true,
+            translucent: true,
+          }),
+          classificationType: Cesium.ClassificationType.TERRAIN,
+        });
+        viewer.scene.groundPrimitives.add(edgePrimitive);
+        roadOverlayPrimitivesRef.current.push(edgePrimitive);
+      });
+    }
+    // ────────────────────────────────────────────────────────────────────
 
     overlayEntitiesRef.current.push(viewer.entities.add({
       polyline: {
@@ -1253,15 +1456,17 @@ export default function SimulationMapView({
     const inBottleneck = progressRef.current > 0.45 && progressRef.current < 0.64;
 
     const nextNode = findNextSignalNode(progressRef.current);
+    const currentBearing = getCarBearingDeg(points, progressRef.current);
     let isRedLight = false;
+    let activeCachedSignal = nextNode ? signalCacheRef.current[nextNode.intNo] : null;
 
     // 빨간불 접근: 교차로 35m 앞에서 정지하도록 감속합니다.
     if (nextNode && !stoppedAtRef.current) {
       const cached = signalCacheRef.current[nextNode.intNo];
+      activeCachedSignal = cached;
 
       if (cached?.ctx) {
-        const carBearing = getCarBearingDeg(points, progressRef.current);
-        const green = calcIsGreen(cached.ctx, Date.now(), carBearing);
+        const green = calcIsGreen(cached.ctx, Date.now(), currentBearing);
 
         if (!green && totalLen) {
           const stopProgress = Math.max(0, nextNode.progress - (35 / totalLen));
@@ -1280,10 +1485,10 @@ export default function SimulationMapView({
     // 정지 중이면 같은 교차로의 신호가 초록으로 바뀌었는지 계속 확인합니다.
     if (stoppedAtRef.current) {
       const cached = signalCacheRef.current[stoppedAtRef.current];
+      activeCachedSignal = cached;
 
       if (cached?.ctx) {
-        const carBearing = getCarBearingDeg(points, progressRef.current);
-        const green = calcIsGreen(cached.ctx, Date.now(), carBearing);
+        const green = calcIsGreen(cached.ctx, Date.now(), currentBearing);
 
         if (green) {
           stoppedAtRef.current = null;
@@ -1301,6 +1506,8 @@ export default function SimulationMapView({
       }
     }
 
+    emitCurrentSignalStatus(nextNode, isRedLight, activeCachedSignal, currentBearing);
+
     if (isRedLight && stopProgressRef.current !== null) {
       if (stopProgressRef.current > progressRef.current) {
         const approachSpeed = baseSpeed * 0.28;
@@ -1315,6 +1522,7 @@ export default function SimulationMapView({
         progressRef.current = 0;
         stoppedAtRef.current = null;
         stopProgressRef.current = null;
+        emitCurrentSignalStatus(null, false, null, null);
       }
     }
 
@@ -1335,11 +1543,14 @@ export default function SimulationMapView({
       updateSignalIndicator(isRedLight, p);
 
       if (driveView) {
+        // 차량 뒤쪽에서 따라가는 추적 카메라입니다.
+        // heading 반대 방향으로 물러나고 높이를 조금 올려 차량과 전방 도로가 함께 보이도록 했습니다.
+        const cameraPos = offsetPointByMeters(p, routeHeadingDeg + 180, 42);
         viewer.camera.setView({
-          destination: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 140),
+          destination: Cesium.Cartesian3.fromDegrees(cameraPos.lon, cameraPos.lat, 44),
           orientation: {
             heading: Cesium.Math.toRadians(routeHeadingDeg),
-            pitch: Cesium.Math.toRadians(-22),
+            pitch: Cesium.Math.toRadians(-13),
             roll: 0,
           },
         });
