@@ -126,7 +126,7 @@ export default function SignalSimPanel({ intNo, intNm, onPhaseChange, phaseOverr
     <div style={{ fontSize: 13, color: "#e2e8f0", height: "100%", overflowY: "auto" }}>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#60a5fa" }}>🚦 {intNm}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#60a5fa" }}> {intNm}</div>
         <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace" }}>{now.toLocaleTimeString("ko-KR")}</div>
       </div>
 

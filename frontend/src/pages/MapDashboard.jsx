@@ -20,6 +20,7 @@ const TABS = [
 ];
 
 const CHAT_W = 480;
+const CHATBOT_ICON = "/icons/chatbot.webp";
 
 export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, onGoComplaints, selectedGu, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [] }) {
   const [time,         setTime]         = useState(new Date());
@@ -206,7 +207,19 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
                 >
                   {chatOpen
                     ? <span style={{ fontSize: 16, color: "rgba(255,255,255,0.55)" }}>✕</span>
-                    : <span style={{ fontSize: 27, lineHeight: 1 }}>🧑‍💼</span>
+                    : (
+                      <img
+                        src={CHATBOT_ICON}
+                        alt="AI 상담사"
+                        style={{
+                          width: 42,
+                          height: 42,
+                          objectFit: "contain",
+                          display: "block",
+                          transform: "translateY(1px)",
+                        }}
+                      />
+                    )
                   }
                 </button>
               </div>
