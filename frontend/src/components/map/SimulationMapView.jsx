@@ -500,6 +500,7 @@ export default function SimulationMapView({
   isOptimized = false,
   onStatsChange,
   onAutoWaypointsChange,
+  onRouteTrafficChange,
 }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
@@ -520,6 +521,7 @@ export default function SimulationMapView({
   const viaCrossroadsRef = useRef([]);
   const startRef = useRef(null);
   const endRef = useRef(null);
+  const routeTrafficRequestRef = useRef({ key: "", seq: 0 });
 
   const [crossroads, setCrossroads] = useState([]);
   const [cesiumReady, setCesiumReady] = useState(false);
@@ -554,6 +556,33 @@ export default function SimulationMapView({
   useEffect(() => {
     onAutoWaypointsChange?.(viaCrossroads);
   }, [start?.intNo, end?.intNo, viaCrossroads.map(cr => cr.intNo).join("|"), onAutoWaypointsChange]);
+
+  useEffect(() => {
+    const routeNodes = buildRouteTrafficNodes(start, viaCrossroads, end);
+    const key = routeNodes
+      .map(node => `${node.intNo || ""}:${node.lat}:${node.lon}`)
+      .join("|");
+
+    if (routeNodes.length < 2) {
+      routeTrafficRequestRef.current = { key: "", seq: routeTrafficRequestRef.current.seq + 1 };
+      onRouteTrafficChange?.(null);
+      return;
+    }
+
+    if (routePoints.length < 2) return;
+
+    if (routeTrafficRequestRef.current.key === key) return;
+
+    const seq = routeTrafficRequestRef.current.seq + 1;
+    routeTrafficRequestRef.current = { key, seq };
+    fetchRouteTraffic(routeNodes, seq);
+  }, [
+    start?.intNo,
+    end?.intNo,
+    viaCrossroads.map(cr => cr.intNo).join("|"),
+    routePoints.length,
+    onRouteTrafficChange,
+  ]);
 
   useEffect(() => {
     routePointsRef.current = routePoints;
@@ -977,6 +1006,64 @@ export default function SimulationMapView({
     ].filter(Boolean);
 
     targets.forEach(cr => fetchSignalCtx(cr.intNo));
+  }
+
+  function buildRouteTrafficNodes(startCr, viaList, endCr) {
+    const nodes = [
+      startCr,
+      ...(viaList || []),
+      endCr,
+    ].filter(Boolean);
+
+    const result = [];
+    for (const node of nodes) {
+      const ll = getCrLonLat(node);
+      if (!ll) continue;
+
+      const payload = {
+        intNo: node.intNo,
+        intNm: node.intNm,
+        lat: ll.lat,
+        lon: ll.lon,
+      };
+
+      const prev = result[result.length - 1];
+      if (prev && String(prev.intNo) === String(payload.intNo)) continue;
+      result.push(payload);
+    }
+    return result;
+  }
+
+  async function fetchRouteTraffic(routeNodes, seq) {
+    try {
+      const res = await fetch(`${API_BASE}/api/signal/simulation/route-traffic`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          routeNodes,
+          includeVertices: false,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      if (routeTrafficRequestRef.current.seq !== seq) return;
+
+      onRouteTrafficChange?.({
+        ...data,
+        requestedRouteNodes: routeNodes,
+      });
+    } catch (err) {
+      if (routeTrafficRequestRef.current.seq !== seq) return;
+      console.warn("TOPIS 경로 속도 데이터 로드 실패", err);
+      onRouteTrafficChange?.({
+        source: "topis",
+        realTime: false,
+        reason: err?.message || "route traffic fetch failed",
+        requestedRouteNodes: routeNodes,
+        segments: [],
+      });
+    }
   }
 
   async function fetchSignalCtx(intNo) {
