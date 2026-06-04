@@ -589,7 +589,6 @@ export default function SimulationMapView({
   const progressRef = useRef(0);
   const reverseProgressRef = useRef(1);
   const lastTickRef = useRef(null);
-  const reverseProgressRef = useRef(1);
 
   // 신호 기반 정지/출발용 refs
   const signalCacheRef = useRef({});
@@ -603,8 +602,6 @@ export default function SimulationMapView({
   const viaCrossroadsRef = useRef([]);
   const startRef = useRef(null);
   const endRef = useRef(null);
-  // 상행/하행 분리 시도
-  const reverseCarEntityRef = useRef(null);
   const routeTrafficRequestRef = useRef({ key: "", seq: 0 });
 
 
@@ -1425,46 +1422,6 @@ export default function SimulationMapView({
 
     if (!current || !prev) return getCarBearingDeg(points, progress);
     return routeBearingDeg(current, prev);
-  }
-
-
-  function offsetRoutePoints(points, offsetMeters) {
-    if (!points || points.length < 2) return [];
-
-    return points.map((point, idx) => {
-      const prev = points[Math.max(0, idx - 1)];
-      const next = points[Math.min(points.length - 1, idx + 1)];
-
-      const originLat = point.lat;
-      const p = lonLatToLocalMeters(point, originLat);
-      const a = lonLatToLocalMeters(prev, originLat);
-      const b = lonLatToLocalMeters(next, originLat);
-
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-
-      const nx = dy / len;
-      const ny = -dx / len;
-
-      const metersPerDegLat = 111320;
-      const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180) || 1;
-
-      return {
-        lon: point.lon + (nx * offsetMeters) / metersPerDegLon,
-        lat: point.lat + (ny * offsetMeters) / metersPerDegLat,
-      };
-    });
-  }
-
-  function getRoadMaskWidth(points) {
-    const distance = routeLengthMeters(points);
-    if (distance < 150) return 28;
-    if (distance < 350) return 35;
-    if (distance < 600) return 40;
-    if (distance < 1000) return 45;
-    if (distance < 2000) return 50;
-    return 60;
   }
 
 
