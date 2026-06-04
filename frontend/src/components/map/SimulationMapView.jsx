@@ -1119,7 +1119,6 @@ export default function SimulationMapView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           routeNodes,
-          includeVertices: false,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
