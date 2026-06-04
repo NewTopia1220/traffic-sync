@@ -575,6 +575,7 @@ export default function SimulationMapView({
   onStatsChange,
   onAutoWaypointsChange,
   onRouteTrafficChange,
+  onCurrentSignalChange,
 }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
