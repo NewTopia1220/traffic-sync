@@ -1625,6 +1625,8 @@ export default function SimulationMapView({
     const firstRight = rightLanePoints[0];
     const secondRight = rightLanePoints[1];
 
+    console.log("출발지 오른쪽 차선 차량 좌표:", firstRight);
+
     if (firstRight) {
       const position = Cesium.Cartesian3.fromDegrees(firstRight.lon, firstRight.lat, 2.2);
       const heading = secondRight
