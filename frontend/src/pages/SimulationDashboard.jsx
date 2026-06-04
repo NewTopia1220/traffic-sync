@@ -453,7 +453,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [sliderTarget, setSliderTarget] = useState("end");
   const [autoAdjustKey, setAutoAdjustKey] = useState(0);
   const [currentVehicleSignal, setCurrentVehicleSignal] = useState(null);
-  const [, setRouteTraffic] = useState(null);
+  const [routeTraffic, setRouteTraffic] = useState(null);
 
   const start = selectedList[0] ?? null;
   // const end = selectedList[1] ?? null;
