@@ -56,6 +56,16 @@ function metersToDegrees(meters, lat) {
   return { lon: lonDeg, lat: latDeg };
 }
 
+function offsetPointByMetersForCamera(point, bearingDeg, meters) {
+  const rad = bearingDeg * Math.PI / 180;
+  const dLat = (Math.cos(rad) * meters) / 111320;
+  const dLon = (Math.sin(rad) * meters) / (111320 * Math.cos(point.lat * Math.PI / 180) || 1);
+  return {
+    lon: point.lon + dLon,
+    lat: point.lat + dLat,
+  };
+}
+
 function lonLatToLocalMeters(point, originLat) {
   const metersPerDegLat = 111320;
   const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180);
@@ -143,6 +153,70 @@ function calcIsGreen(signalCtx, nowMs, carBearingDeg = null) {
 
   return dirs.some(dir => isDirMatchingBearing(dir, carBearingDeg));
 }
+
+function getCurrentPhaseNo(signalCtx, nowMs) {
+  if (!signalCtx?.phases?.length) return null;
+
+  const phases = signalCtx.phases;
+  const cycleVal = signalCtx.cycleVal || phases.reduce((sum, phase) => sum + Number(phase.sec || 0), 0) || 120;
+  const planStartSec = signalCtx.planStartSec ?? 0;
+  const nowSec = Math.floor(nowMs / 1000) % 86400;
+  const elapsed = ((nowSec - planStartSec) % cycleVal + cycleVal) % cycleVal;
+
+  let acc = 0;
+  for (const phase of phases) {
+    acc += Number(phase.sec || 0);
+    if (elapsed < acc) return phase.no;
+  }
+
+  return phases[0]?.no ?? null;
+}
+
+function getVehicleFollowingPhaseNo(signalCtx, carBearingDeg = null) {
+  if (!signalCtx?.phases?.length) return null;
+
+  const phases = signalCtx.phases;
+  if (carBearingDeg == null) {
+    const vehiclePhase = phases.find(phase =>
+      (phase.dirs || []).some(dir => dir !== "전적색" && dir !== "보행")
+    );
+    return vehiclePhase?.no ?? phases[0]?.no ?? null;
+  }
+
+  const matched = phases.find(phase =>
+    (phase.dirs || []).some(dir => isDirMatchingBearing(dir, carBearingDeg))
+  );
+
+  if (matched) return matched.no;
+
+  const fallback = phases.find(phase =>
+    (phase.dirs || []).some(dir => dir !== "전적색" && dir !== "보행")
+  );
+
+  return fallback?.no ?? phases[0]?.no ?? null;
+}
+
+function isCurrentPhaseGreenForVehicle(signalCtx, nowMs, carBearingDeg = null) {
+  if (!signalCtx?.phases?.length) return true;
+
+  const currentPhaseNo = getCurrentPhaseNo(signalCtx, nowMs);
+  const followingPhaseNo = getVehicleFollowingPhaseNo(signalCtx, carBearingDeg);
+  const currentPhase = signalCtx.phases.find(phase => String(phase.no) === String(currentPhaseNo));
+
+  if (!currentPhase) return true;
+
+  const dirs = currentPhase.dirs || [];
+  if (dirs.every(dir => dir === "전적색")) return false;
+  if (dirs.includes("보행")) return false;
+
+  if (carBearingDeg == null) {
+    return dirs.some(dir => dir !== "전적색" && dir !== "보행");
+  }
+
+  return String(currentPhaseNo) === String(followingPhaseNo)
+    && dirs.some(dir => isDirMatchingBearing(dir, carBearingDeg));
+}
+
 
 // "동↔서 직진", "남→북 좌회전" 같은 문자열과 차량 진행 방향을 비교
 function isDirMatchingBearing(dir, carBearingDeg) {
@@ -500,6 +574,8 @@ export default function SimulationMapView({
   isOptimized = false,
   onStatsChange,
   onAutoWaypointsChange,
+  onRouteTrafficChange,
+  onCurrentSignalChange,
 }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
@@ -507,9 +583,11 @@ export default function SimulationMapView({
   const markerEntitiesRef = useRef({});
   const overlayEntitiesRef = useRef([]);
   const carEntityRef = useRef(null);
+  const reverseCarEntityRef = useRef(null);
   const signalIndicatorRef = useRef(null);
   const animationRef = useRef(null);
   const progressRef = useRef(0);
+  const reverseProgressRef = useRef(1);
   const lastTickRef = useRef(null);
   const reverseProgressRef = useRef(1);
 
@@ -519,12 +597,16 @@ export default function SimulationMapView({
   const stopProgressRef = useRef(null);
   const reverseStoppedAtRef = useRef(null);
   const reverseStopProgressRef = useRef(null);
+  const currentSignalStatusRef = useRef(null);
+
   const routePointsRef = useRef([]);
   const viaCrossroadsRef = useRef([]);
   const startRef = useRef(null);
   const endRef = useRef(null);
   // 상행/하행 분리 시도
   const reverseCarEntityRef = useRef(null);
+  const routeTrafficRequestRef = useRef({ key: "", seq: 0 });
+
 
   const [crossroads, setCrossroads] = useState([]);
   const [cesiumReady, setCesiumReady] = useState(false);
@@ -559,6 +641,33 @@ export default function SimulationMapView({
   useEffect(() => {
     onAutoWaypointsChange?.(viaCrossroads);
   }, [start?.intNo, end?.intNo, viaCrossroads.map(cr => cr.intNo).join("|"), onAutoWaypointsChange]);
+
+  useEffect(() => {
+    const routeNodes = buildRouteTrafficNodes(start, viaCrossroads, end);
+    const key = routeNodes
+      .map(node => `${node.intNo || ""}:${node.lat}:${node.lon}`)
+      .join("|");
+
+    if (routeNodes.length < 2) {
+      routeTrafficRequestRef.current = { key: "", seq: routeTrafficRequestRef.current.seq + 1 };
+      onRouteTrafficChange?.(null);
+      return;
+    }
+
+    if (routePoints.length < 2) return;
+
+    if (routeTrafficRequestRef.current.key === key) return;
+
+    const seq = routeTrafficRequestRef.current.seq + 1;
+    routeTrafficRequestRef.current = { key, seq };
+    fetchRouteTraffic(routeNodes, seq);
+  }, [
+    start?.intNo,
+    end?.intNo,
+    viaCrossroads.map(cr => cr.intNo).join("|"),
+    routePoints.length,
+    onRouteTrafficChange,
+  ]);
 
   useEffect(() => {
     routePointsRef.current = routePoints;
@@ -730,6 +839,10 @@ export default function SimulationMapView({
       const viaIndex = viaCrossroads.findIndex(item => item.intNo === cr.intNo);
       const isVia = viaIndex >= 0;
 
+      // 주행뷰에서는 전체 파란 교차로 노드가 시야를 가려서
+      // 현재 경로에 필요한 출발지/경유지/목적지만 남깁니다.
+      if (driveView && !isStart && !isEnd && !isVia) return;
+
       const color = isStart ? "#22c55e" : isEnd ? "#ef4444" : isVia ? "#f59e0b" : "rgba(96,165,250,0.55)";
       const size = isStart || isEnd ? 18 : isVia ? 13 : 9;
       const markerText = isStart ? "출" : isEnd ? "도" : isVia ? String(viaIndex + 1) : "";
@@ -805,6 +918,7 @@ export default function SimulationMapView({
     start?.intNo,
     end?.intNo,
     viaCrossroads.map(cr => cr.intNo).join("|"),
+    driveView,
     cesiumReady,
     mapReady,
     onSelect,
@@ -911,6 +1025,7 @@ export default function SimulationMapView({
 
     if (!startLL) {
       onStatsChange?.(null);
+      emitCurrentSignalStatus(null, false, null, null);
       return;
     }
 
@@ -918,6 +1033,7 @@ export default function SimulationMapView({
 
     if (!endLL || routePoints.length < 2) {
       onStatsChange?.(null);
+      emitCurrentSignalStatus(null, false, null, null);
       return;
     }
 
@@ -957,16 +1073,7 @@ export default function SimulationMapView({
       const p = interpolateRoute(routePoints, progressRef.current || 0.02);
       const next = interpolateRoute(routePoints, Math.min((progressRef.current || 0.02) + 0.012, 1));
       if (p && next) {
-        const Cesium = window.Cesium;
-        viewerRef.current.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 140),
-          orientation: {
-            heading: Cesium.Math.toRadians(routeBearingDeg(p, next)),
-            pitch: Cesium.Math.toRadians(-22),
-            roll: 0,
-          },
-          duration: 0.6,
-        });
+        moveDriveCamera(p, routeBearingDeg(p, next), false);
       }
     } else {
       flyToSelectedArea();
@@ -982,6 +1089,64 @@ export default function SimulationMapView({
     ].filter(Boolean);
 
     targets.forEach(cr => fetchSignalCtx(cr.intNo));
+  }
+
+  function buildRouteTrafficNodes(startCr, viaList, endCr) {
+    const nodes = [
+      startCr,
+      ...(viaList || []),
+      endCr,
+    ].filter(Boolean);
+
+    const result = [];
+    for (const node of nodes) {
+      const ll = getCrLonLat(node);
+      if (!ll) continue;
+
+      const payload = {
+        intNo: node.intNo,
+        intNm: node.intNm,
+        lat: ll.lat,
+        lon: ll.lon,
+      };
+
+      const prev = result[result.length - 1];
+      if (prev && String(prev.intNo) === String(payload.intNo)) continue;
+      result.push(payload);
+    }
+    return result;
+  }
+
+  async function fetchRouteTraffic(routeNodes, seq) {
+    try {
+      const res = await fetch(`${API_BASE}/api/signal/simulation/route-traffic`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          routeNodes,
+          includeVertices: false,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      if (routeTrafficRequestRef.current.seq !== seq) return;
+
+      onRouteTrafficChange?.({
+        ...data,
+        requestedRouteNodes: routeNodes,
+      });
+    } catch (err) {
+      if (routeTrafficRequestRef.current.seq !== seq) return;
+      console.warn("TOPIS 경로 속도 데이터 로드 실패", err);
+      onRouteTrafficChange?.({
+        source: "topis",
+        realTime: false,
+        reason: err?.message || "route traffic fetch failed",
+        requestedRouteNodes: routeNodes,
+        segments: [],
+      });
+    }
   }
 
   async function fetchSignalCtx(intNo) {
@@ -1004,6 +1169,87 @@ export default function SimulationMapView({
     } catch (err) {
       console.warn("신호 데이터 로드 실패", intNo, err);
       return null;
+    }
+  }
+
+  function getRouteNodeType(node) {
+    if (!node) return "unknown";
+    if (startRef.current?.intNo === node.intNo) return "start";
+    if (endRef.current?.intNo === node.intNo) return "end";
+
+    const viaIndex = viaCrossroadsRef.current.findIndex(item => item.intNo === node.intNo);
+    if (viaIndex >= 0) {
+      const bottleneckIndex = viaCrossroadsRef.current.reduce((bestIdx, item, idx, arr) => {
+        const best = arr[bestIdx];
+        return Math.abs((item.routeProgress ?? 0.5) - 0.54) < Math.abs((best.routeProgress ?? 0.5) - 0.54)
+          ? idx
+          : bestIdx;
+      }, 0);
+
+      return viaIndex === bottleneckIndex ? "bottleneck" : "waypoint";
+    }
+
+    return "unknown";
+  }
+
+  function emitCurrentSignalStatus(nextNode, isRedLight, cached = null, carBearingDeg = null) {
+    if (!onCurrentSignalChange) return;
+
+    const nowMs = Date.now();
+    const byIntNo = buildRouteSignalStatusMap(nowMs);
+
+    if (!nextNode) {
+      const key = `none|${Object.values(byIntNo).map(v => `${v.intNo}:${v.currentPhaseNo ?? ""}:${v.phaseNo ?? ""}:${v.isRed ? "R" : "G"}`).join(",")}`;
+      if (currentSignalStatusRef.current !== key) {
+        currentSignalStatusRef.current = key;
+        onCurrentSignalChange({ byIntNo, activeIntNo: null, updatedAt: nowMs });
+      }
+      return;
+    }
+
+    const ctx = cached?.ctx || cached || null;
+    const currentPhaseNo = ctx ? getCurrentPhaseNo(ctx, nowMs) : null;
+    const vehiclePhaseNo = ctx ? getVehicleFollowingPhaseNo(ctx, carBearingDeg) : null;
+
+    const activeStatus = {
+      intNo: nextNode.intNo,
+      intNm: nextNode.intNm,
+      type: nextNode.type || getRouteNodeType(nextNode.node),
+      metersAhead: Math.max(0, Math.round(nextNode.metersAhead ?? 0)),
+      isRed: !!isRedLight,
+      isGreen: !isRedLight,
+      stateText: isRedLight ? "빨간불 정지/감속" : "초록불 통과",
+      currentPhaseNo,
+      phaseNo: vehiclePhaseNo,
+      carBearingDeg: carBearingDeg == null ? null : Math.round(carBearingDeg),
+      updatedAt: nowMs,
+    };
+
+    byIntNo[String(nextNode.intNo)] = {
+      ...(byIntNo[String(nextNode.intNo)] || {}),
+      ...activeStatus,
+    };
+
+    const status = {
+      ...activeStatus,
+      activeIntNo: nextNode.intNo,
+      byIntNo,
+    };
+
+    const key = [
+      status.intNo,
+      status.type,
+      status.isRed ? "red" : "green",
+      status.metersAhead,
+      status.currentPhaseNo ?? "",
+      status.phaseNo ?? "",
+      status.carBearingDeg ?? "",
+      Object.values(byIntNo).map(v => `${v.intNo}:${v.currentPhaseNo ?? ""}:${v.phaseNo ?? ""}:${v.isRed ? "R" : "G"}`).join(","),
+    ].join("|");
+
+    if (currentSignalStatusRef.current !== key) {
+      currentSignalStatusRef.current = key;
+      onCurrentSignalChange(status);
     }
   }
 
@@ -1040,6 +1286,61 @@ export default function SimulationMapView({
     };
   }
 
+  function getBearingAtProgress(progress) {
+    const points = routePointsRef.current;
+    if (!points || points.length < 2) return null;
+
+    const before = interpolateRoute(points, Math.max(0, progress - 0.008));
+    const after = interpolateRoute(points, Math.min(1, progress + 0.008));
+    if (!before || !after || distanceMeters(before, after) < 0.5) {
+      return getCarBearingDeg(points, progress);
+    }
+    return routeBearingDeg(before, after);
+  }
+
+  function buildRouteSignalStatusMap(nowMs = Date.now()) {
+    const nodes = [
+      startRef.current ? { ...startRef.current, type: "start" } : null,
+      ...viaCrossroadsRef.current.map(node => ({ ...node, type: getRouteNodeType(node) })),
+      endRef.current ? { ...endRef.current, type: "end" } : null,
+    ].filter(Boolean);
+
+    const result = {};
+
+    nodes.forEach(node => {
+      const routeInfo = getNodeRouteProgress(node);
+      const progress = routeInfo?.progress ?? node.routeProgress ?? null;
+      const bearing = progress == null ? null : getBearingAtProgress(progress);
+      const cached = signalCacheRef.current[node.intNo];
+      const ctx = cached?.ctx || null;
+      const currentPhaseNo = ctx ? getCurrentPhaseNo(ctx, nowMs) : null;
+      const vehiclePhaseNo = ctx ? getVehicleFollowingPhaseNo(ctx, bearing) : null;
+      const isGreen = ctx ? isCurrentPhaseGreenForVehicle(ctx, nowMs, bearing) : null;
+
+      result[String(node.intNo)] = {
+        intNo: node.intNo,
+        intNm: node.intNm,
+        type: node.type || getRouteNodeType(node),
+        metersAhead: progress == null || !routeLengthMeters(routePointsRef.current)
+          ? null
+          : Math.round((progress - progressRef.current) * routeLengthMeters(routePointsRef.current)),
+        isRed: isGreen == null ? false : !isGreen,
+        isGreen: isGreen == null ? false : isGreen,
+        stateText: isGreen == null ? "신호 확인 중" : isGreen ? "통과가능" : "정지/대기",
+        currentPhaseNo,
+        phaseNo: vehiclePhaseNo,
+        carBearingDeg: bearing == null ? null : Math.round(bearing),
+        updatedAt: nowMs,
+      };
+
+      if (ctx == null && node.intNo) {
+        fetchSignalCtx(node.intNo);
+      }
+    });
+
+    return result;
+  }
+
   function findNextSignalNode(currentProgress) {
     const points = routePointsRef.current;
     const totalLen = routeLengthMeters(points);
@@ -1066,6 +1367,8 @@ export default function SimulationMapView({
           nearest = {
             intNo: node.intNo,
             intNm: node.intNm,
+            type: getRouteNodeType(node),
+            node,
             progress: routeInfo.progress,
             metersAhead,
           };
@@ -1096,11 +1399,16 @@ export default function SimulationMapView({
       const progressDiff = currentProgress - routeInfo.progress;
       const metersAhead = progressDiff * totalLen;
 
+
+      // 하행 차량 기준 앞쪽 20~90m 범위의 교차로 신호를 확인합니다.
       if (metersAhead > 0 && metersAhead < 90) {
         if (!nearest || metersAhead < nearest.metersAhead) {
           nearest = {
             intNo: node.intNo,
             intNm: node.intNm,
+
+            type: getRouteNodeType(node),
+            node,
             progress: routeInfo.progress,
             metersAhead,
           };
@@ -1119,6 +1427,48 @@ export default function SimulationMapView({
     return routeBearingDeg(current, prev);
   }
 
+
+  function offsetRoutePoints(points, offsetMeters) {
+    if (!points || points.length < 2) return [];
+
+    return points.map((point, idx) => {
+      const prev = points[Math.max(0, idx - 1)];
+      const next = points[Math.min(points.length - 1, idx + 1)];
+
+      const originLat = point.lat;
+      const p = lonLatToLocalMeters(point, originLat);
+      const a = lonLatToLocalMeters(prev, originLat);
+      const b = lonLatToLocalMeters(next, originLat);
+
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+
+      const nx = dy / len;
+      const ny = -dx / len;
+
+      const metersPerDegLat = 111320;
+      const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180) || 1;
+
+      return {
+        lon: point.lon + (nx * offsetMeters) / metersPerDegLon,
+        lat: point.lat + (ny * offsetMeters) / metersPerDegLat,
+      };
+    });
+  }
+
+  function getRoadMaskWidth(points) {
+    const distance = routeLengthMeters(points);
+    if (distance < 150) return 28;
+    if (distance < 350) return 35;
+    if (distance < 600) return 40;
+    if (distance < 1000) return 45;
+    if (distance < 2000) return 50;
+    return 60;
+  }
+
+
+
   function clearOverlays() {
     const viewer = viewerRef.current;
     if (!viewer) return;
@@ -1134,7 +1484,8 @@ export default function SimulationMapView({
     if (reverseCarEntityRef.current) {
       viewer.entities.remove(reverseCarEntityRef.current);
       reverseCarEntityRef.current = null;
-    } 
+    }
+
 
     if (signalIndicatorRef.current) {
       viewer.entities.remove(signalIndicatorRef.current);
@@ -1273,9 +1624,6 @@ export default function SimulationMapView({
       }));
     }
 
-    // 경유지 마커는 위쪽 crossroads 마커 렌더링에서 이미 표시됩니다.
-    // 여기에 별도 point 마커를 한 번 더 올리면 특정 경유지가 겹쳐져 크게 보일 수 있어 제거했습니다.
-
     const bottleneckSegment = extractRouteSegment(routePoints, 0.46, 0.62);
 
     if (bottleneckSegment.length >= 2) {
@@ -1309,7 +1657,11 @@ export default function SimulationMapView({
       }));
     }
 
-    
+
+
+    // 상행/하행 차량을 도로 중심선에서 좌우로 분리해서 표시합니다.
+    // VWorld 위성도로의 기존 차량 이미지를 도로 레이어로 덮고,
+    // 두 차량이 서로 다른 차선을 따라 지나가는 것처럼 보이게 합니다.
     const rightLanePoints = offsetRoutePoints(routePoints, 10);
     const leftLanePoints = offsetRoutePoints(routePoints, -10);
 
@@ -1366,6 +1718,33 @@ export default function SimulationMapView({
         },
       });
     }
+  }
+
+  function moveDriveCamera(point, headingDeg, instant = true) {
+    if (!viewerRef.current || !window.Cesium || !point) return;
+
+    const Cesium = window.Cesium;
+
+    // 차량 뒤쪽에서 살짝 높은 위치로 따라가는 주행 시점입니다.
+    // 이전 값은 너무 낮아 차량 하부가 화면을 가려서, 뒤로 조금 빼고 높이를 올렸습니다.
+    const cameraPoint = offsetPointByMetersForCamera(point, headingDeg + 180, 50);
+    const destination = Cesium.Cartesian3.fromDegrees(cameraPoint.lon, cameraPoint.lat, 54);
+
+    const view = {
+      destination,
+      orientation: {
+        heading: Cesium.Math.toRadians(headingDeg),
+        pitch: Cesium.Math.toRadians(-17),
+        roll: 0,
+      },
+    };
+
+    if (instant) {
+      viewerRef.current.camera.setView(view);
+    } else {
+      viewerRef.current.camera.flyTo({ ...view, duration: 0.45 });
+    }
+
   }
 
   function offsetRoutePoints(points, offsetMeters) {
@@ -1428,7 +1807,7 @@ export default function SimulationMapView({
 
       if (cached?.ctx) {
         const carBearing = getCarBearingDeg(points, progressRef.current);
-        const green = calcIsGreen(cached.ctx, Date.now(), carBearing);
+        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing);
 
         if (!green && totalLen) {
           const stopProgress = Math.max(0, forwardNode.progress - (35 / totalLen));
@@ -1437,6 +1816,10 @@ export default function SimulationMapView({
             isForwardRedLight = true;
             stoppedAtRef.current = forwardNode.intNo;
             stopProgressRef.current = stopProgress;
+          } else if (forwardNode.metersAhead <= 18) {
+            isForwardRedLight = true;
+            stoppedAtRef.current = forwardNode.intNo;
+            stopProgressRef.current = progressRef.current;
           }
         }
       } else {
@@ -1449,7 +1832,7 @@ export default function SimulationMapView({
 
       if (cached?.ctx) {
         const carBearing = getCarBearingDeg(points, progressRef.current);
-        const green = calcIsGreen(cached.ctx, Date.now(), carBearing);
+        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing);
 
         if (green) {
           stoppedAtRef.current = null;
@@ -1466,6 +1849,20 @@ export default function SimulationMapView({
         fetchSignalCtx(stoppedAtRef.current);
       }
     }
+
+
+    const activeSignalNode = forwardNode || (stoppedAtRef.current
+      ? {
+          intNo: stoppedAtRef.current,
+          intNm: signalCacheRef.current[stoppedAtRef.current]?.ctx?.intNm || "",
+          type: "unknown",
+          metersAhead: 0,
+        }
+      : null);
+    const carBearingForStatus = getCarBearingDeg(points, progressRef.current);
+    const activeCached = activeSignalNode?.intNo ? signalCacheRef.current[activeSignalNode.intNo] : null;
+    emitCurrentSignalStatus(activeSignalNode, isForwardRedLight, activeCached, carBearingForStatus);
+
 
     if (isForwardRedLight && stopProgressRef.current !== null) {
       if (stopProgressRef.current > progressRef.current) {
@@ -1497,7 +1894,8 @@ export default function SimulationMapView({
 
       if (cached?.ctx) {
         const carBearing = getReverseCarBearingDeg(points, reverseProgressRef.current);
-        const green = calcIsGreen(cached.ctx, Date.now(), carBearing);
+        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing);
+
 
         if (!green && totalLen) {
           const stopProgress = Math.min(1, reverseNode.progress + (35 / totalLen));
@@ -1506,6 +1904,10 @@ export default function SimulationMapView({
             isReverseRedLight = true;
             reverseStoppedAtRef.current = reverseNode.intNo;
             reverseStopProgressRef.current = stopProgress;
+          } else if (reverseNode.metersAhead <= 18) {
+            isReverseRedLight = true;
+            reverseStoppedAtRef.current = reverseNode.intNo;
+            reverseStopProgressRef.current = reverseProgressRef.current;
           }
         }
       } else {
@@ -1518,7 +1920,7 @@ export default function SimulationMapView({
 
       if (cached?.ctx) {
         const carBearing = getReverseCarBearingDeg(points, reverseProgressRef.current);
-        const green = calcIsGreen(cached.ctx, Date.now(), carBearing);
+        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing);
 
         if (green) {
           reverseStoppedAtRef.current = null;
@@ -1539,14 +1941,10 @@ export default function SimulationMapView({
     if (isReverseRedLight && reverseStopProgressRef.current !== null) {
       if (reverseStopProgressRef.current < reverseProgressRef.current) {
         const approachSpeed = baseSpeed * 0.28;
-        reverseProgressRef.current = Math.max(
-          reverseStopProgressRef.current,
-          reverseProgressRef.current - approachSpeed * dt
-        );
+        reverseProgressRef.current = Math.max(reverseStopProgressRef.current, reverseProgressRef.current - approachSpeed * dt);
       }
     } else {
-      const reverseInBottleneck =
-        reverseProgressRef.current > 0.45 && reverseProgressRef.current < 0.64;
+      const reverseInBottleneck = reverseProgressRef.current > 0.45 && reverseProgressRef.current < 0.64;
       const reverseSpeed = reverseInBottleneck
         ? baseSpeed * (isOptimized ? 0.95 : 0.38)
         : baseSpeed;
@@ -1564,10 +1962,8 @@ export default function SimulationMapView({
     const leftLanePoints = offsetRoutePoints(points, -10);
 
     const forwardPos = interpolateRoute(rightLanePoints, progressRef.current);
-    const forwardNext = interpolateRoute(
-      rightLanePoints,
-      Math.min(progressRef.current + 0.012, 1)
-    );
+    const forwardNext = interpolateRoute(rightLanePoints, Math.min(progressRef.current + 0.012, 1));
+
 
     if (forwardPos && carEntityRef.current) {
       const position = Cesium.Cartesian3.fromDegrees(forwardPos.lon, forwardPos.lat, 2.2);
@@ -1585,22 +1981,13 @@ export default function SimulationMapView({
       updateSignalIndicator(isForwardRedLight, forwardPos);
 
       if (driveView) {
-        viewer.camera.setView({
-          destination: Cesium.Cartesian3.fromDegrees(forwardPos.lon, forwardPos.lat, 140),
-          orientation: {
-            heading: Cesium.Math.toRadians(routeHeadingDeg),
-            pitch: Cesium.Math.toRadians(-22),
-            roll: 0,
-          },
-        });
+        moveDriveCamera(forwardPos, routeHeadingDeg, true);
       }
     }
 
     const reversePos = interpolateRoute(leftLanePoints, reverseProgressRef.current);
-    const reverseNext = interpolateRoute(
-      leftLanePoints,
-      Math.max(reverseProgressRef.current - 0.012, 0)
-    );
+    const reverseNext = interpolateRoute(leftLanePoints, Math.max(reverseProgressRef.current - 0.012, 0));
+
 
     if (reversePos && reverseCarEntityRef.current) {
       const position = Cesium.Cartesian3.fromDegrees(reversePos.lon, reversePos.lat, 2.2);
@@ -1791,7 +2178,7 @@ function createSignalCanvas(isRed) {
   canvas.width = 36;
   canvas.height = 36;
   const ctx = canvas.getContext("2d");
-  const color = isRed ? "#ef4444" : "#22c55e";
+  const color = isRed ? "#ef4444" : "#3b82f6";
 
   ctx.clearRect(0, 0, 36, 36);
   ctx.shadowColor = color;
