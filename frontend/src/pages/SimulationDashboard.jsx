@@ -52,8 +52,12 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
     const { question, intNo: aIntNo, simulation: aSim } = autoTrigger;
     setMessages(prev => [...prev, { role: "user", text: question }]);
     setLoading(true);
+
     const body = { question, intNo: aIntNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
     if (aSim && aSim.length > 0) body.simulation = aSim;
+
+
+    console.log("AI 요청 body:", body);
     fetch(`${API_BASE}/api/simulation-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -74,6 +78,8 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
     try {
       const body = { question: q, intNo: intNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
       if (simulation && simulation.length > 0) body.simulation = simulation;
+      
+
       const res = await fetch(`${API_BASE}/api/simulation-chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1290,3 +1296,4 @@ function MetricBox({ label, value, color = "#e2e8f0", sub }) {
     </div>
   );
 }
+

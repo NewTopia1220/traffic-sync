@@ -603,6 +603,7 @@ export default function SimulationMapView({
   const startRef = useRef(null);
   const endRef = useRef(null);
   const routeTrafficRequestRef = useRef({ key: "", seq: 0 });
+  const startCarDirectionRef = useRef(null);
 
 
   const [crossroads, setCrossroads] = useState([]);
@@ -1115,12 +1116,15 @@ export default function SimulationMapView({
   }
 
   async function fetchRouteTraffic(routeNodes, seq) {
+    const travelDir = startCarDirectionRef.current; // "up" | "down" | null
+
     try {
       const res = await fetch(`${API_BASE}/api/signal/simulation/route-traffic`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           routeNodes,
+          travelDir,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1128,9 +1132,61 @@ export default function SimulationMapView({
       const data = await res.json();
       if (routeTrafficRequestRef.current.seq !== seq) return;
 
+      const rightLanePoints = offsetRoutePoints(routePointsRef.current, 10);
+      const startCarPos = rightLanePoints[0];
+
+      const firstSegment =
+        data?.segments?.find(seg => seg?.up?.vertices?.length || seg?.down?.vertices?.length)
+        ?? data?.segments?.[0];
+
+      const matched = mapCarToTrafficDirection(startCarPos, firstSegment);
+      if (matched?.direction && !travelDir) {
+        startCarDirectionRef.current = matched.direction;
+        
+        fetchRouteTraffic(routeNodes, seq);
+        return;
+      }
+
+      console.log("출발지 오른쪽 차선 차량 좌표:", startCarPos);
+      console.log("매칭 대상 segment:", firstSegment);
+
+      if (matched) {
+        console.log(
+          `오른쪽 차선 차량은 ${matched.direction === "up" ? "상행" : "하행"}으로 매핑됨`,
+          {
+            direction: matched.direction,
+            traffic: matched.traffic,
+            selectedDistanceMeters: matched.distanceMeters,
+            upDistanceMeters: matched.upDistanceMeters,
+            downDistanceMeters: matched.downDistanceMeters,
+          }
+        );
+        console.log("up vertices:", firstSegment?.up?.vertices);
+        console.log("down vertices:", firstSegment?.down?.vertices);
+        console.log("up vertices length:", firstSegment?.up?.vertices?.length);
+        console.log("down vertices length:", firstSegment?.down?.vertices?.length);
+      } else {
+        console.warn("오른쪽 차선 차량 상행/하행 매핑 실패", {
+          startCarPos,
+          firstSegment,
+          upVertices: firstSegment?.up?.vertices,
+          downVertices: firstSegment?.down?.vertices,
+          upVerticesLength: firstSegment?.up?.vertices?.length,
+          downVerticesLength: firstSegment?.down?.vertices?.length,
+        });
+      }
+
+      
+
       onRouteTrafficChange?.({
         ...data,
         requestedRouteNodes: routeNodes,
+        startCarTraffic: matched?.traffic ?? null,
+        startCarDirection: matched?.direction ?? null,
+        startCarTrafficDistanceMeters: matched?.distanceMeters ?? null,
+        startCarUpDistanceMeters: matched?.upDistanceMeters ?? null,
+        startCarDownDistanceMeters: matched?.downDistanceMeters ?? null,
+        updatedAt: Date.now(),
       });
     } catch (err) {
       if (routeTrafficRequestRef.current.seq !== seq) return;
@@ -2202,4 +2258,66 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.lineTo(x, y + radius);
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
+}
+
+function distanceToPolylineMeters(point, vertices) {
+  if (!point || !vertices?.length) return Infinity;
+
+  if (vertices.length === 1) {
+    return distanceMeters(point, vertices[0]);
+  }
+
+  let minDistance = Infinity;
+
+  for (let i = 0; i < vertices.length - 1; i++) {
+    const start = vertices[i];
+    const end = vertices[i + 1];
+
+    if (!start || !end) continue;
+
+    const originLat = (start.lat + end.lat) / 2;
+
+    const p = lonLatToLocalMeters(point, originLat);
+    const a = lonLatToLocalMeters(start, originLat);
+    const b = lonLatToLocalMeters(end, originLat);
+
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy || 1;
+
+    const t = Math.max(
+      0,
+      Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq)
+    );
+
+    const closestX = a.x + dx * t;
+    const closestY = a.y + dy * t;
+
+    const distance = Math.hypot(p.x - closestX, p.y - closestY);
+    minDistance = Math.min(minDistance, distance);
+  }
+
+  return minDistance;
+}
+
+function mapCarToTrafficDirection(carPos, segment) {
+  if (!carPos || !segment) return null;
+
+  const upDistance = distanceToPolylineMeters(carPos, segment.up?.vertices);
+  const downDistance = distanceToPolylineMeters(carPos, segment.down?.vertices);
+
+  if (!Number.isFinite(upDistance) && !Number.isFinite(downDistance)) {
+    return null;
+  }
+
+  const direction = upDistance <= downDistance ? "up" : "down";
+  const traffic = segment[direction];
+
+  return {
+    direction, // "up" 또는 "down"
+    traffic,
+    distanceMeters: direction === "up" ? upDistance : downDistance,
+    upDistanceMeters: upDistance,
+    downDistanceMeters: downDistance,
+  };
 }
