@@ -38,7 +38,25 @@ const smallLabel = {
   marginBottom: 5,
 };
 
-function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
+// 경로 구간 속도 정제 — 일단 상행(up) 고정, 팀원이 travelDir 붙여주면 한 줄만 변경
+function resolveSegments(segments) {
+  if (!segments?.length) return [];
+  return segments
+    .map(seg => {
+      const speed = seg.up; // TODO: seg.travelDir === "상행" ? seg.up : seg.down
+      if (!speed?.speedKph) return null;
+      return {
+        fromIntNo:  seg.fromIntNo,
+        toIntNo:    seg.toIntNo,
+        axisName:   seg.axisName,
+        speedKph:   speed.speedKph,
+        congestion: speed.congestion,
+      };
+    })
+    .filter(Boolean);
+}
+
+function SimulationChatBot({ intNo, intNm, simulation, routeTraffic, autoTrigger }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
     { role: "ai", text: "교차로를 클릭하면 신호계획 분석을 도와드립니다.\n현재 현시, 최적화 방안 등 자유롭게 질문하세요." },
@@ -46,18 +64,30 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const buildBody = (question, intNoVal, simVal, autoTriggerRouteTraffic) => {
+    const body = {
+      question,
+      intNo: intNoVal ?? null,
+      userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
+    };
+    if (simVal?.length > 0) body.simulation = simVal;
+    // autoTrigger에서 넘어온 routeTraffic 우선, 없으면 prop 사용
+    const rt = autoTriggerRouteTraffic ?? routeTraffic;
+    const resolved = resolveSegments(rt?.segments);
+    if (resolved.length > 0) body.routeTraffic = resolved;
+    return body;
+  };
+
   useEffect(() => {
     if (!autoTrigger || !autoTrigger.question) return;
     setIsOpen(true);
-    const { question, intNo: aIntNo, simulation: aSim } = autoTrigger;
+    const { question, intNo: aIntNo, simulation: aSim, routeTraffic: aRt } = autoTrigger;
     setMessages(prev => [...prev, { role: "user", text: question }]);
     setLoading(true);
-    const body = { question, intNo: aIntNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
-    if (aSim && aSim.length > 0) body.simulation = aSim;
     fetch(`${API_BASE}/api/simulation-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(buildBody(question, aIntNo, aSim, aRt)),
     })
       .then(r => r.json())
       .then(data => setMessages(prev => [...prev, { role: "ai", text: data.answer }]))
@@ -72,12 +102,10 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
     setInput("");
     setLoading(true);
     try {
-      const body = { question: q, intNo: intNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
-      if (simulation && simulation.length > 0) body.simulation = simulation;
       const res = await fetch(`${API_BASE}/api/simulation-chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(buildBody(q, intNo, simulation, null)),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -87,7 +115,7 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
     } finally {
       setLoading(false);
     }
-  }, [input, loading, intNo, simulation]);
+  }, [input, loading, intNo, simulation, routeTraffic]);
 
   const btn = (style) => ({
     borderRadius: 2,
@@ -234,7 +262,7 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
   );
 }
 
-function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk, autoAdjustKey = 0, autoAdjustEnabled = false, onAutoApplied }) {
+function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk, autoAdjustKey = 0, autoAdjustEnabled = false, onAutoApplied, aiSuggestedValues = null, aiAdjustKey = 0 }) {
   const [phases, setPhases] = useState([]);
   const [cycleVal, setCycleVal] = useState(null);
   const [sliders, setSliders] = useState({});
@@ -242,6 +270,7 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk, autoAdjustKey = 0, au
   const [loading, setLoading] = useState(false);
   const [autoAnimating, setAutoAnimating] = useState(false);
   const lastAutoAdjustKeyRef = useRef(0);
+  const lastAiAdjustKeyRef = useRef(0);
 
   useEffect(() => {
     if (!intNo) return;
@@ -337,6 +366,54 @@ function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk, autoAdjustKey = 0, au
 
     return () => clearInterval(timer);
   }, [autoAdjustKey, autoAdjustEnabled, phases]);
+
+  // AI 제안값으로 슬라이더 애니메이션
+  useEffect(() => {
+    if (!aiAdjustKey || !phases.length || !aiSuggestedValues) return;
+    if (lastAiAdjustKeyRef.current === aiAdjustKey) return;
+    lastAiAdjustKeyRef.current = aiAdjustKey;
+
+    const fromValues = Object.fromEntries(phases.map(p => [p.no, Number(sliders[p.no] ?? p.sec ?? 0)]));
+    // AI가 제안한 현시만 override, 나머지는 현재값 유지
+    const toValues = { ...fromValues };
+    Object.entries(aiSuggestedValues).forEach(([no, sec]) => {
+      toValues[Number(no)] = sec;
+    });
+
+    const steps = 22;
+    let step = 0;
+    setAutoAnimating(true);
+    setSaved(false);
+
+    const timer = setInterval(() => {
+      step += 1;
+      const t = step / steps;
+      const eased = 1 - Math.pow(1 - t, 3);
+      const next = {};
+      phases.forEach(p => {
+        const start = Number(fromValues[p.no] ?? p.sec ?? 0);
+        const end = Number(toValues[p.no] ?? p.sec ?? start);
+        next[p.no] = Math.round(start + (end - start) * eased);
+      });
+      setSliders(next);
+
+      if (step >= steps) {
+        clearInterval(timer);
+        setSliders(toValues);
+        setAutoAnimating(false);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 1800);
+        const simulation = phases.map(p => ({
+          no: p.no,
+          sec: toValues[p.no] ?? p.sec,
+          dirs: p.dirs,
+        }));
+        onAutoApplied?.(simulation);
+      }
+    }, 45);
+
+    return () => clearInterval(timer);
+  }, [aiAdjustKey, aiSuggestedValues, phases]);
 
   if (!intNo) return null;
   if (loading) return <div style={{ padding: "12px 0", fontSize: 12, color: "#64748b", textAlign: "center" }}>슬라이더 데이터 로딩 중...</div>;
@@ -449,11 +526,22 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [destContext, setDestContext] = useState(null);
   const [autoWaypoints, setAutoWaypoints] = useState([]);
   const [selectedWaypointIndex, setSelectedWaypointIndex] = useState(0);
+  const [selectedBottleneckIndex, setSelectedBottleneckIndex] = useState(0);
   const [autoTrigger, setAutoTrigger] = useState(null);
   const [sliderTarget, setSliderTarget] = useState("end");
   const [autoAdjustKey, setAutoAdjustKey] = useState(0);
   const [currentVehicleSignal, setCurrentVehicleSignal] = useState(null);
   const [routeTraffic, setRouteTraffic] = useState(null);
+  const [routeAnalysis, setRouteAnalysis] = useState(null);
+  const [routeAnalysisLoading, setRouteAnalysisLoading] = useState(false);
+  const [aiAdjustment, setAiAdjustment] = useState(null);
+  const [aiAdjustKey, setAiAdjustKey] = useState(0);
+  const [aiAdjustmentsMap, setAiAdjustmentsMap] = useState({});
+  const [carReady, setCarReady] = useState(false);
+  const [speedUnavailable, setSpeedUnavailable] = useState(false);
+  const [bottleneckCrossroads, setBottleneckCrossroads] = useState([]);
+  const llmCalledRouteRef = useRef(null);
+  const llmTimerRef = useRef(null);
 
   const start = selectedList[0] ?? null;
   // const end = selectedList[1] ?? null;
@@ -466,13 +554,17 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const bottleneckWaypoint = waypointList.length
     ? [...waypointList].sort((a, b) => Math.abs((a.routeProgress ?? 0.5) - 0.54) - Math.abs((b.routeProgress ?? 0.5) - 0.54))[0]
     : null;
+  const clampedBottleneckIndex = bottleneckCrossroads.length
+    ? Math.min(Math.max(selectedBottleneckIndex, 0), bottleneckCrossroads.length - 1)
+    : 0;
+  const selectedBottleneck = bottleneckCrossroads[clampedBottleneckIndex] ?? null;
 
   const sliderCrossroad = sliderTarget === "start"
     ? start
     : sliderTarget === "waypoint"
       ? selectedWaypoint
       : sliderTarget === "bottleneck"
-        ? bottleneckWaypoint
+        ? selectedBottleneck
         : end;
 
   const activeSignalKey = sliderTarget === "waypoint" && sliderCrossroad
@@ -511,7 +603,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       label: "병목지",
       signalTitle: "병목지 신호체계",
       adjustTitle: "병목지 신호 조정",
-      crossroad: bottleneckWaypoint,
+      crossroad: selectedBottleneck,
       emptyText: "병목지가 탐색되면 신호체계가 표시됩니다",
       onPhaseChange: setWaypointPhaseIdx,
       onContextChange: setWaypointContext,
@@ -531,12 +623,207 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
   const activeSignal = selectedSignalConfig[sliderTarget] ?? selectedSignalConfig.end;
   const hasActiveSignalCrossroad = !!activeSignal.crossroad;
-  const bottleneckSignalKey = bottleneckWaypoint ? `bottleneck:${bottleneckWaypoint.intNo}` : "bottleneck";
+  const bottleneckSignalKey = selectedBottleneck ? `bottleneck:${selectedBottleneck.intNo}` : "bottleneck";
+
+  // AI 제안 교차로가 현재 슬라이더 교차로와 일치하면 적용값 계산
+  const aiSuggestedValues = (() => {
+    if (!sliderCrossroad) return null;
+    const adj = aiAdjustmentsMap[String(sliderCrossroad.intNo)]
+      || (aiAdjustment && String(aiAdjustment.intNo) === String(sliderCrossroad.intNo) ? aiAdjustment : null);
+    if (!adj) return null;
+    return Object.fromEntries(adj.phases.map(p => [p.no, p.sec]));
+  })();
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // 병목지 탭 이동 시 해당 교차로 AI 조정값 있으면 자동 애니메이션
+  useEffect(() => {
+    if (!sliderCrossroad?.intNo) return;
+    if (aiAdjustmentsMap[String(sliderCrossroad.intNo)]) {
+      setAiAdjustKey(k => k + 1);
+    }
+  }, [sliderCrossroad?.intNo, sliderTarget]);
+
+  // ── LLM 호출 헬퍼 ─────────────────────────────────────────────────────────
+  const applyAdjustment = useCallback((adj) => {
+    if (!adj?.intNo || !adj?.phases?.length) return;
+    setAiAdjustment(adj);
+    setAiAdjustKey(k => k + 1);
+    const adjIntNo = String(adj.intNo);
+    const bIdx = bottleneckCrossroads.findIndex(b => String(b.intNo) === adjIntNo);
+    if (bIdx !== -1) {
+      setSliderTarget("bottleneck");
+      setSelectedBottleneckIndex(bIdx);
+    } else if (end && String(end.intNo) === adjIntNo) {
+      setSliderTarget("end");
+    } else if (start && String(start.intNo) === adjIntNo) {
+      setSliderTarget("start");
+    } else {
+      const wpIdx = waypointList.findIndex(w => String(w.intNo) === adjIntNo);
+      if (wpIdx !== -1) { setSliderTarget("waypoint"); setSelectedWaypointIndex(wpIdx); }
+    }
+  }, [bottleneckCrossroads, end, start, waypointList]);
+
+  const callLLM = useCallback((resolved) => {
+    if (!end?.intNo) return;
+
+    const bottleneckIntNos = resolved
+      .filter(seg => seg.speedKph < 15)
+      .map(seg => seg.toIntNo)
+      .filter((v, i, arr) => arr.indexOf(v) === i);
+
+    setAiAdjustment(null);
+    setSpeedUnavailable(false);
+
+    // 병목 없으면 LLM 호출 생략
+    if (bottleneckIntNos.length === 0) {
+      setRouteAnalysis("현재 경로에 15km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
+      setRouteAnalysisLoading(false);
+      setCarReady(true);
+      return;
+    }
+
+    setRouteAnalysis(null);
+    setRouteAnalysisLoading(true);
+
+    const body = {
+      question: "각 병목 교차로의 신호계획을 분석해서 15km/h 이하 구간 전체의 신호를 최적화해줘.",
+      routeTraffic: resolved,
+      userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
+    };
+    if (bottleneckIntNos.length > 0) {
+      body.bottleneckIntNos = bottleneckIntNos;
+    } else {
+      body.intNo = bottleneckWaypoint?.intNo ?? end.intNo;
+    }
+
+    fetch(`${API_BASE}/api/simulation-chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => {
+        setRouteAnalysis(data.answer ?? null);
+        const adjs = data.adjustments?.length ? data.adjustments
+          : data.adjustment?.intNo ? [data.adjustment]
+          : [];
+        if (adjs.length > 0) {
+          const map = {};
+          adjs.forEach(adj => { map[String(adj.intNo)] = adj; });
+          setAiAdjustmentsMap(map);
+          applyAdjustment(adjs[0]); // 첫 번째 병목으로 이동
+        }
+      })
+      .catch(() => setRouteAnalysis(null))
+      .finally(() => {
+        setRouteAnalysisLoading(false);
+        setCarReady(true);
+      });
+  }, [bottleneckWaypoint, end, start, waypointList, applyAdjustment]);
+
+  // ── 경로 확정 시 10초 타이머 시작 ──────────────────────────────────────────
+  // 10초 안에 routeTraffic 속도 안 오면 → 속도 수집 불가 표시, 차량 출발
+  useEffect(() => {
+    if (!end?.intNo || !stats?.distanceMeters) return;
+
+    setSpeedUnavailable(false);
+    setRouteAnalysis(null);
+    setRouteAnalysisLoading(true);
+    llmCalledRouteRef.current = null;
+
+    if (llmTimerRef.current) clearTimeout(llmTimerRef.current);
+
+    llmTimerRef.current = setTimeout(() => {
+      llmTimerRef.current = null;
+      if (llmCalledRouteRef.current) return; // 이미 속도 포함 호출됨
+      setRouteAnalysisLoading(false);
+      setSpeedUnavailable(true);
+      setCarReady(true);
+    }, 10000);
+
+    return () => {
+      if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
+    };
+  }, [end?.intNo, stats?.distanceMeters]);
+
+  // ── routeTraffic 도착 시 타이머 취소 + LLM 호출 ───────────────────────────
+  useEffect(() => {
+    if (!routeTraffic || !end?.intNo) return;
+
+    // 타이머 취소 (속도 도착했으니 10초 대기 불필요)
+    if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
+
+    const routeKey = `${start?.intNo ?? ""}:${end.intNo}`;
+    if (llmCalledRouteRef.current === routeKey) return;
+
+    const resolved = resolveSegments(routeTraffic.segments);
+    if (!resolved.length) {
+      // routeTraffic 왔지만 유효 속도 없음 → 수집 불가
+      setRouteAnalysisLoading(false);
+      setSpeedUnavailable(true);
+      setCarReady(true);
+      return;
+    }
+
+    llmCalledRouteRef.current = routeKey;
+    callLLM(resolved);
+  }, [routeTraffic]);
+
+  // routeTraffic 도착 시 실제 TOPIS 속도로 stats 재계산
+  useEffect(() => {
+    if (!routeTraffic?.segments?.length || !stats?.distanceMeters) return;
+
+    const speeds = routeTraffic.segments
+      .map(seg => seg.up?.speedKph)
+      .filter(s => typeof s === "number" && s > 0);
+
+    if (!speeds.length) return;
+
+    const distance = stats.distanceMeters;
+    const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+    // 15km/h 미만 구간 수 (정체 기준)
+    const slowSegs = speeds.filter(s => s < 15);
+    const bottleneckCount = slowSegs.length === speeds.length && slowSegs.length > 0
+      ? speeds.length  // 전 구간 정체
+      : slowSegs.length;
+
+    const beforeSec = Math.round(distance / (avgSpeed / 3.6));
+
+    // 신호제어 후: 15km/h 미만 정체 구간 35% 개선 가정
+    const improvedSpeeds = speeds.map(s => (s < 15 ? Math.min(s * 1.35, 20) : s));
+    const afterAvg = improvedSpeeds.reduce((a, b) => a + b, 0) / improvedSpeeds.length;
+    const afterSec = Math.round(distance / (afterAvg / 3.6));
+
+    setStats(prev => ({
+      ...prev,
+      beforeSec,
+      afterSec,
+      savedSec: Math.max(0, beforeSec - afterSec),
+      beforeSpeedKph: Math.round(avgSpeed * 10) / 10,
+      afterSpeedKph:  Math.round(afterAvg  * 10) / 10,
+      bottleneckCount,
+    }));
+
+    // 실제 병목 교차로 목록 (15km/h 미만 toIntNo)
+    const nodeMap = {};
+    (routeTraffic.requestedRouteNodes || []).forEach(n => { nodeMap[String(n.intNo)] = n; });
+    const bCrossroads = routeTraffic.segments
+      .filter(seg => (seg.up?.speedKph ?? 999) < 15)
+      .map(seg => {
+        const node = nodeMap[String(seg.toIntNo)];
+        return {
+          intNo: seg.toIntNo,
+          intNm: node?.intNm || `교차로 ${seg.toIntNo}`,
+          speedKph: seg.up?.speedKph,
+        };
+      })
+      .filter((v, i, arr) => arr.findIndex(x => x.intNo === v.intNo) === i); // 중복 제거
+    setBottleneckCrossroads(bCrossroads);
+  }, [routeTraffic]);
 
   useEffect(() => {
     setSimPhases(null);
@@ -589,6 +876,16 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setAutoAdjustKey(0);
     setCurrentVehicleSignal(null);
     setRouteTraffic(null);
+    setRouteAnalysis(null);
+    setRouteAnalysisLoading(false);
+    setAiAdjustment(null);
+    setAiAdjustKey(0);
+    setAiAdjustmentsMap({});
+    setCarReady(false);
+    setSpeedUnavailable(false);
+    setBottleneckCrossroads([]);
+    llmCalledRouteRef.current = null;
+    if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
   };
 
   const handleManualSave = (simulation) => {
@@ -613,12 +910,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const handleAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(activeSignalKey);
-    setAutoTrigger({
-      question: `관제사가 ${sliderCrossroad?.intNm || "선택 교차로"} 신호를 조정했습니다. 제어 전후 효과를 분석해주세요.`,
-      intNo: sliderCrossroad?.intNo ?? null,
-      simulation,
-      _t: Date.now(),
-    });
+    // 자동 적용 시 AI 자동 트리거 없음 — 저장 & AI 분석 버튼으로 수동 요청
   };
 
   const handleBottleneckManualSave = (simulation) => {
@@ -630,12 +922,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const handleBottleneckAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(bottleneckSignalKey);
-    setAutoTrigger({
-      question: `관제사가 ${bottleneckWaypoint?.intNm || "병목구간"} 병목 완화를 위해 신호 시간을 자동 조정했습니다. 제어 전후 효과를 분석해주세요.`,
-      intNo: bottleneckWaypoint?.intNo ?? null,
-      simulation,
-      _t: Date.now(),
-    });
+    // 자동 적용 시 AI 자동 트리거 없음 — 저장 & AI 분석 버튼으로 수동 요청
   };
 
   const panelTitle = activeSignal.adjustTitle;
@@ -668,6 +955,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               onAutoWaypointsChange={setAutoWaypoints}
               onRouteTrafficChange={setRouteTraffic}
               onCurrentSignalChange={setCurrentVehicleSignal}
+              carReady={carReady}
+              routeTraffic={routeTraffic}
             />
           </div>
           <div style={{
@@ -678,7 +967,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
             pointerEvents: "auto",
           }}>
 
-            <SimulationChatBot intNo={activeChatCrossroad?.intNo} intNm={activeChatCrossroad?.intNm} simulation={simPhases} autoTrigger={autoTrigger} />
+            <SimulationChatBot intNo={activeChatCrossroad?.intNo} intNm={activeChatCrossroad?.intNm} simulation={simPhases} routeTraffic={routeTraffic} autoTrigger={autoTrigger} />
           </div>
         </div>
 
@@ -690,7 +979,20 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
               <RoutePointCard type="start" title="출발지" crossroad={start} empty="지도에서 첫 번째 마커를 클릭하세요" />
-              <RoutePointCard type="waypoint" title="병목 경유지" crossroad={bottleneckWaypoint} empty={end ? "자동 경유지가 없는 경로입니다" : "목적지를 선택하면 자동 탐색됩니다"} />
+              {bottleneckCrossroads.length > 0
+                ? bottleneckCrossroads.map((cr, i) => (
+                    <RoutePointCard
+                      key={cr.intNo}
+                      type="waypoint"
+                      title={`병목 ${i + 1} (${cr.speedKph}km/h)`}
+                      crossroad={cr}
+                      empty=""
+                    />
+                  ))
+                : !carReady && (
+                    <RoutePointCard type="waypoint" title="병목 경유지" crossroad={null} empty={end ? "속도 수집 후 표시됩니다" : "목적지를 선택하면 자동 탐색됩니다"} />
+                  )
+              }
               <RoutePointCard type="end" title="목적지" crossroad={end} empty="지도에서 두 번째 마커를 클릭하세요" />
             </div>
           </div>
@@ -701,12 +1003,31 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
                   <MetricBox label="전체 거리" value={formatDistance(stats.distanceMeters)} />
-                  <MetricBox label="병목구간" value={`${stats.bottleneckCount}개`} />
+                  <MetricBox label="병목구간" value={
+                    stats.bottleneckCount != null
+                      ? `${stats.bottleneckCount}개`
+                      : routeAnalysisLoading ? "수집 중..." : "-"
+                  } />
                 </div>
-                <div style={{ padding: 10, borderRadius: 5, background: isOptimized ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${isOptimized ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.25)"}`, color: isOptimized ? "#bbf7d0" : "#fecaca", fontSize: 12, lineHeight: 1.6 }}>
-                  {isOptimized
-                    ? "관제사가 병목구간의 직진 신호 시간을 늘려 통과속도가 개선된 상태입니다."
-                    : "경로 중간 구간에서 속도 저하가 발생했습니다. 신호제어를 적용하면 예상 도착시간을 줄일 수 있습니다."}
+                <div style={{
+                  padding: 10, borderRadius: 5, fontSize: 12, lineHeight: 1.6,
+                  background: routeAnalysisLoading
+                    ? "rgba(96,165,250,0.06)"
+                    : isOptimized ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+                  border: `1px solid ${routeAnalysisLoading
+                    ? "rgba(96,165,250,0.2)"
+                    : isOptimized ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.25)"}`,
+                  color: isOptimized ? "#bbf7d0" : "#fecaca",
+                }}>
+                  {speedUnavailable
+                    ? <span style={{ color: "#64748b" }}>속도 수집 불가 — TOPIS 미수집 구간입니다. 신호계획 기반으로 수동 조정하세요.</span>
+                    : routeAnalysisLoading
+                      ? <AnalysisLoadingBlock />
+                      : routeAnalysis
+                        ? routeAnalysis
+                        : isOptimized
+                          ? "관제사가 병목구간의 직진 신호 시간을 늘려 통과속도가 개선된 상태입니다."
+                          : "경로 중간 구간에서 속도 저하가 발생했습니다. 신호제어를 적용하면 예상 도착시간을 줄일 수 있습니다."}
                 </div>
               </>
             ) : (
@@ -716,11 +1037,11 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
           <div style={cardStyle}>
             <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 14, marginBottom: 10 }}>도착시간 비교</div>
-            {stats ? (
+            {stats?.beforeSec != null ? (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <MetricBox label="제어 전" value={formatSec(stats.beforeSec)} color="#ef4444" sub={`${stats.beforeSpeedKph}km/h`} />
-                  <MetricBox label="제어 후" value={formatSec(stats.afterSec)} color="#22c55e" sub={`${stats.afterSpeedKph}km/h`} />
+                  <MetricBox label="제어 전" value={formatSec(stats.beforeSec)} color="#ef4444" sub={`${stats.beforeSpeedKph}km/h`} animate />
+                  <MetricBox label="제어 후" value={formatSec(stats.afterSec)} color="#22c55e" sub={`${stats.afterSpeedKph}km/h`} animate />
                 </div>
                 <div style={{ padding: "12px 10px", borderRadius: 5, background: "rgba(34,197,94,0.10)", border: "1px solid rgba(34,197,94,0.35)", textAlign: "center" }}>
                   <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>예상 단축 시간</div>
@@ -728,27 +1049,28 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 </div>
               </>
             ) : (
-              <div style={{ color: "#64748b", fontSize: 13 }}>경로 선택 후 비교 결과가 표시됩니다.</div>
+              <div style={{ color: "#64748b", fontSize: 13 }}>
+                {stats ? "속도 데이터 수집 후 표시됩니다." : "경로 선택 후 비교 결과가 표시됩니다."}</div>
             )}
           </div>
 
-          <button
-            onClick={applySignalControl}
-            disabled={!canOptimize || isOptimized}
-            style={{
-              border: "none",
-              borderRadius: 6,
-              padding: "14px 16px",
-              cursor: !canOptimize || isOptimized ? "default" : "pointer",
-              background: isOptimized ? "#166534" : canOptimize ? "#2563eb" : "#1f2937",
-              color: !canOptimize ? "#64748b" : "#fff",
-              fontSize: 14,
-              fontWeight: 900,
-              fontFamily: "inherit",
-            }}
-          >
-            {isOptimized ? "✓ 병목 신호제어 적용 완료" : " 관제사 병목 신호제어 적용"}
-          </button>
+          {/* AI 자동 신호 제어 상태 표시 — 버튼 대신 상태 뱃지 */}
+          <div style={{
+            border: "none", borderRadius: 6, padding: "14px 16px", textAlign: "center",
+            background: isOptimized ? "#166534" : routeAnalysisLoading ? "rgba(96,165,250,0.1)" : "#1f2937",
+            color: isOptimized ? "#fff" : routeAnalysisLoading ? "#60a5fa" : "#64748b",
+            fontSize: 14, fontWeight: 900,
+          }}>
+            {isOptimized
+              ? "✓ AI 신호 최적화 적용 완료"
+              : routeAnalysisLoading
+                ? "● AI 신호 분석 중..."
+                : bottleneckCrossroads.length === 0 && carReady
+                  ? "현재 경로 병목 없음 — AI 개입 불필요"
+                  : canOptimize
+                    ? "속도 데이터 수집 후 AI가 자동 조정합니다"
+                    : "경로를 선택하면 AI가 신호를 최적화합니다"}
+          </div>
 
           <div style={{ ...cardStyle, flexShrink: 0 }}>
             <div style={{ fontWeight: 800, color: "#cbd5e1", fontSize: 13, marginBottom: 8 }}>사용 방법</div>
@@ -778,7 +1100,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               <button onClick={() => setSliderTarget("end")} disabled={!end} style={tabButtonStyle(sliderTarget === "end", !!end)}>
                 목적지
               </button>
-              <button onClick={() => setSliderTarget("bottleneck")} disabled={!bottleneckWaypoint} style={tabButtonStyle(sliderTarget === "bottleneck", !!bottleneckWaypoint)}>
+              <button onClick={() => setSliderTarget("bottleneck")} disabled={!bottleneckCrossroads.length} style={tabButtonStyle(sliderTarget === "bottleneck", !!bottleneckCrossroads.length)}>
                 병목지
               </button>
             </div>
@@ -789,6 +1111,16 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               waypoints={waypointList}
               currentIndex={clampedWaypointIndex}
               onChange={setSelectedWaypointIndex}
+              label="경유지"
+            />
+          )}
+
+          {sliderTarget === "bottleneck" && bottleneckCrossroads.length > 1 && (
+            <WaypointSlideControl
+              waypoints={bottleneckCrossroads}
+              currentIndex={clampedBottleneckIndex}
+              onChange={setSelectedBottleneckIndex}
+              label="병목지"
             />
           )}
 
@@ -837,6 +1169,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 autoAdjustKey={autoAdjustKey}
                 autoAdjustEnabled={sliderTarget === "bottleneck" && isOptimized}
                 onAutoApplied={handleAutoApplied}
+                aiSuggestedValues={aiSuggestedValues}
+                aiAdjustKey={aiAdjustKey}
               />
             </div>
           )}
@@ -1103,7 +1437,7 @@ function VehicleAwareSignalSimPanel({
 
 
 
-function WaypointSlideControl({ waypoints, currentIndex, onChange }) {
+function WaypointSlideControl({ waypoints, currentIndex, onChange, label = "경유지" }) {
   const current = waypoints[currentIndex] ?? null;
   const prev = () => onChange(index => Math.max(0, index - 1));
   const next = () => onChange(index => Math.min(waypoints.length - 1, index + 1));
@@ -1122,7 +1456,7 @@ function WaypointSlideControl({ waypoints, currentIndex, onChange }) {
 
         <div style={{ flex: 1, minWidth: 0, textAlign: "center" }}>
           <div style={{ color: "#f59e0b", fontSize: 13, fontWeight: 900 }}>
-            경유지 {currentIndex + 1} / {waypoints.length}
+            {label} {currentIndex + 1} / {waypoints.length}
           </div>
           <div style={{ marginTop: 4, color: "#e2e8f0", fontSize: 14, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {current?.intNm || "경유지 선택 필요"}
@@ -1183,6 +1517,21 @@ function slideButtonStyle(enabled) {
   };
 }
 
+function AnalysisLoadingBlock() {
+  return (
+    <span style={{ color: "#94a3b8", display: "flex", alignItems: "center", gap: 6 }}>
+      {[0, 1, 2].map(i => (
+        <span key={i} style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: "#60a5fa", display: "inline-block",
+          animation: `chatDotBlink 1.2s ease ${i * 0.2}s infinite`,
+        }} />
+      ))}
+      <span style={{ fontSize: 12 }}>AI 분석 중...</span>
+    </span>
+  );
+}
+
 function EmptySignalBox({ text }) {
   return (
     <div style={{ minHeight: 120, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#64748b", fontSize: 13, lineHeight: 1.6 }}>
@@ -1221,11 +1570,47 @@ function RoutePointCard({ type, title, crossroad, empty }) {
   );
 }
 
-function MetricBox({ label, value, color = "#e2e8f0", sub }) {
+function useCountUp(target, duration = 700) {
+  const [display, setDisplay] = useState(target);
+  const prevRef = useRef(target);
+  const rafRef  = useRef(null);
+
+  useEffect(() => {
+    if (target == null) return;
+    const from = prevRef.current ?? 0;
+    const to   = target;
+    prevRef.current = to;
+    if (from === to) return;
+
+    let start = null;
+    const step = (ts) => {
+      if (!start) start = ts;
+      const p = Math.min((ts - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setDisplay(Math.round(from + (to - from) * eased));
+      if (p < 1) rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => rafRef.current && cancelAnimationFrame(rafRef.current);
+  }, [target, duration]);
+
+  return display;
+}
+
+function MetricBox({ label, value, color = "#e2e8f0", sub, animate = false }) {
+  const numMatch = typeof value === "string" ? value.match(/^[\d.]+/) : null;
+  const numPart  = numMatch ? parseFloat(numMatch[0]) : null;
+  const suffix   = numMatch ? value.slice(numMatch[0].length) : "";
+  const counted  = useCountUp(animate && numPart != null ? numPart : null);
+
+  const displayValue = animate && numPart != null
+    ? `${counted}${suffix}`
+    : value;
+
   return (
     <div style={{ padding: 10, borderRadius: 5, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)" }}>
       <div style={smallLabel}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 900, color }}>{value}</div>
+      <div style={{ fontSize: 18, fontWeight: 900, color, transition: "color 0.4s" }}>{displayValue}</div>
       {sub && <div style={{ marginTop: 2, fontSize: 11, color: "#64748b" }}>{sub}</div>}
     </div>
   );

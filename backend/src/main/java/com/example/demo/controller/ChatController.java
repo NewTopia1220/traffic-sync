@@ -5,8 +5,10 @@ import com.example.demo.service.ChatService;
 import com.example.demo.service.SupplementalDataCacheService;
 import com.example.demo.service.TrafficCacheService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Map;
@@ -51,18 +53,37 @@ public class ChatController {
         return ResponseEntity.ok(Map.of("result", result));
     }
 
-    // 시뮬레이션 페이지 챗봇 — 관제사 조정값 포함 AI 분석
+    // 시뮬레이션 페이지 챗봇 — 관제사 조정값 + 경로 속도 포함 AI 분석
     @PostMapping("/simulation-chat")
-    public ResponseEntity<Map<String, String>> simulationChat(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<Map<String, Object>> simulationChat(@RequestBody Map<String, Object> body) {
         String intNo = (String) body.get("intNo");
         String question = (String) body.get("question");
         String userEmail = (String) body.get("userEmail");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> simulation = (List<Map<String, Object>>) body.get("simulation");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> routeTraffic = (List<Map<String, Object>>) body.get("routeTraffic");
+        @SuppressWarnings("unchecked")
+        List<String> bottleneckIntNos = (List<String>) body.get("bottleneckIntNos");
         if (question == null || question.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
-        String answer = chatService.simulationChat(intNo, question, simulation, userEmail);
-        return ResponseEntity.ok(Map.of("answer", answer));
+        Map<String, Object> result = chatService.simulationChat(intNo, question, simulation, routeTraffic, bottleneckIntNos, userEmail);
+        return ResponseEntity.ok(result);
+    }
+
+    // 시뮬레이션 챗 스트리밍 — Python SSE 프록시
+    @PostMapping(value = "/simulation-chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> simulationChatStream(@RequestBody Map<String, Object> body) {
+        String intNo = (String) body.get("intNo");
+        String question = (String) body.get("question");
+        String userEmail = (String) body.get("userEmail");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> simulation = (List<Map<String, Object>>) body.get("simulation");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> routeTraffic = (List<Map<String, Object>>) body.get("routeTraffic");
+        @SuppressWarnings("unchecked")
+        List<String> bottleneckIntNos = (List<String>) body.get("bottleneckIntNos");
+        return chatService.simulationChatStream(intNo, simulation, routeTraffic, bottleneckIntNos, question, userEmail);
     }
 }

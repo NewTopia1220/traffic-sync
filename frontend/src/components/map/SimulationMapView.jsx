@@ -501,12 +501,16 @@ export default function SimulationMapView({
   onStatsChange,
   onAutoWaypointsChange,
   onRouteTrafficChange,
+  onCurrentSignalChange,
+  carReady = false,
+  routeTraffic = null,
 }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
   const vworldMapRef = useRef(null);
   const markerEntitiesRef = useRef({});
   const overlayEntitiesRef = useRef([]);
+  const bottleneckEntitiesRef = useRef([]);
   const carEntityRef = useRef(null);
   const signalIndicatorRef = useRef(null);
   const animationRef = useRef(null);
@@ -556,6 +560,59 @@ export default function SimulationMapView({
   useEffect(() => {
     onAutoWaypointsChange?.(viaCrossroads);
   }, [start?.intNo, end?.intNo, viaCrossroads.map(cr => cr.intNo).join("|"), onAutoWaypointsChange]);
+
+  // AI 분석 완료(carReady=true) 시 차량 출발
+  useEffect(() => {
+    if (!carReady || !mapReady || routePointsRef.current.length < 2) return;
+    progressRef.current = 0;
+    startCarAnimation();
+  }, [carReady, mapReady]);
+
+  // routeTraffic 기반 실제 병목 구간 빨간 선 표시
+  useEffect(() => {
+    if (!mapReady || !viewerRef.current || !window.Cesium) return;
+    const viewer = viewerRef.current;
+    const Cesium = window.Cesium;
+
+    bottleneckEntitiesRef.current.forEach(e => { try { viewer.entities.remove(e); } catch {} });
+    bottleneckEntitiesRef.current = [];
+
+    if (!routeTraffic?.segments?.length || !routeTraffic?.requestedRouteNodes?.length) return;
+
+    const nodeCoords = {};
+    routeTraffic.requestedRouteNodes.forEach(n => {
+      if (n.lat && n.lon) nodeCoords[String(n.intNo)] = { lat: n.lat, lon: n.lon };
+    });
+
+    routeTraffic.segments.forEach(seg => {
+      const spd = seg.up?.speedKph;
+      if (spd == null || spd >= 15) return;
+
+      const from = nodeCoords[String(seg.fromIntNo)];
+      const to   = nodeCoords[String(seg.toIntNo)];
+      if (!from || !to) return;
+
+      const entity = viewer.entities.add({
+        polyline: {
+          positions: Cesium.Cartesian3.fromDegreesArray([from.lon, from.lat, to.lon, to.lat]),
+          width: 14,
+          clampToGround: true,
+          material: new Cesium.PolylineGlowMaterialProperty({
+            glowPower: 0.45,
+            taperPower: 0.9,
+            color: Cesium.Color.fromCssColorString("#ef4444").withAlpha(0.95),
+          }),
+          zIndex: 32,
+        },
+      });
+      bottleneckEntitiesRef.current.push(entity);
+    });
+
+    return () => {
+      bottleneckEntitiesRef.current.forEach(e => { try { viewer.entities.remove(e); } catch {} });
+      bottleneckEntitiesRef.current = [];
+    };
+  }, [routeTraffic, mapReady]);
 
   useEffect(() => {
     const routeNodes = buildRouteTrafficNodes(start, viaCrossroads, end);
@@ -744,6 +801,23 @@ export default function SimulationMapView({
     Object.values(markerEntitiesRef.current).forEach(e => viewer.entities.remove(e));
     markerEntitiesRef.current = {};
 
+    // intNo → 속도 맵 (routeTraffic 세그먼트에서 구성)
+    const speedByIntNo = {};
+    (routeTraffic?.segments || []).forEach(seg => {
+      const spd = seg.up?.speedKph;
+      if (spd != null) {
+        speedByIntNo[String(seg.toIntNo)]   = spd;
+        speedByIntNo[String(seg.fromIntNo)] = speedByIntNo[String(seg.fromIntNo)] ?? spd;
+      }
+    });
+
+    const speedColor = (spd) => {
+      if (spd == null) return "#94a3b8";
+      if (spd < 15)   return "#ef4444";
+      if (spd < 25)   return "#f59e0b";
+      return "#22c55e";
+    };
+
     crossroads.forEach(cr => {
       const lon = toCoord(cr.xCoord);
       const lat = toCoord(cr.yCoord);
@@ -758,6 +832,11 @@ export default function SimulationMapView({
       const size = isStart || isEnd ? 18 : isVia ? 13 : 9;
       const markerText = isStart ? "출" : isEnd ? "도" : isVia ? String(viaIndex + 1) : "";
 
+      const spd = speedByIntNo[String(cr.intNo)];
+      const spdLabel = spd != null ? ` · ${spd}km/h` : "";
+      const labelColor = (isVia && spd != null) ? speedColor(spd)
+        : isStart ? "#22c55e" : isEnd ? "#ef4444" : "#f59e0b";
+
       const entity = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(lon, lat, 10),
         billboard: {
@@ -767,9 +846,11 @@ export default function SimulationMapView({
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: (isStart || isEnd || isVia) ? {
-          text: isVia ? `경유 ${viaIndex + 1} · ${cr.intNm}` : `${isStart ? "출발" : "도착"} · ${cr.intNm}`,
+          text: isVia
+            ? `경유 ${viaIndex + 1} · ${cr.intNm}${spdLabel}`
+            : `${isStart ? "출발" : "도착"} · ${cr.intNm}${spdLabel}`,
           font: "bold 12px Malgun Gothic",
-          fillColor: Cesium.Color.fromCssColorString(isStart ? "#22c55e" : isEnd ? "#ef4444" : "#f59e0b"),
+          fillColor: Cesium.Color.fromCssColorString(labelColor),
           outlineColor: Cesium.Color.BLACK,
           outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
@@ -832,6 +913,7 @@ export default function SimulationMapView({
     cesiumReady,
     mapReady,
     onSelect,
+    routeTraffic,  // 속도 도착 시 마커 레이블 갱신
   ]);
 
 
@@ -952,27 +1034,19 @@ export default function SimulationMapView({
 
     renderRouteSimulation();
     prefetchSignals(viaCrossroads, start, end);
-    startCarAnimation();
+    // carReady가 true일 때만 출발 (AI 분석 완료 후)
 
-    const before = estimateTrip(routePoints, false);
-    const after = estimateTrip(routePoints, true);
-
-    if (!before || !after) {
+    // 실제 경로 거리만 계산 — 속도/시간/병목은 routeTraffic 도착 후 Dashboard에서 계산
+    const distance = routeLengthMeters(routePoints);
+    if (!distance) {
       onStatsChange?.(null);
       return;
     }
-
     onStatsChange?.({
-      distanceMeters: Math.round(before.distance),
-      beforeSec: before.totalSec,
-      afterSec: after.totalSec,
-      savedSec: Math.max(0, before.totalSec - after.totalSec),
-      beforeSpeedKph: before.avgSpeedKph,
-      afterSpeedKph: after.avgSpeedKph,
-      bottleneckCount: 1,
+      distanceMeters: Math.round(distance),
       viaCount: viaCrossroads.length,
     });
-  }, [selectedList, isOptimized, cesiumReady, mapReady, routePlan, driveView]);
+  }, [selectedList, isOptimized, cesiumReady, mapReady, routePlan, driveView, routeTraffic]);
 
 
   useEffect(() => {
@@ -1292,37 +1366,41 @@ export default function SimulationMapView({
     // 경유지 마커는 위쪽 crossroads 마커 렌더링에서 이미 표시됩니다.
     // 여기에 별도 point 마커를 한 번 더 올리면 특정 경유지가 겹쳐져 크게 보일 수 있어 제거했습니다.
 
-    const bottleneckSegment = extractRouteSegment(routePoints, 0.46, 0.62);
+    // 실제 속도 기반 병목 라벨 — routeTraffic에서 15km/h 미만 구간 있을 때만
+    const hasRealBottleneck = (routeTraffic?.segments || [])
+      .some(seg => seg.up?.speedKph != null && seg.up.speedKph < 15);
 
-    if (bottleneckSegment.length >= 2) {
-      overlayEntitiesRef.current.push(viewer.entities.add({
-        polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray(bottleneckSegment.flatMap(p => [p.lon, p.lat])),
-          width: 14,
-          clampToGround: true,
-          material: new Cesium.PolylineGlowMaterialProperty({
-            glowPower: 0.32,
-            taperPower: 0.7,
-            color: Cesium.Color.fromCssColorString(isOptimized ? "#22c55e" : "#ef4444").withAlpha(0.95),
-          }),
-          zIndex: 25,
-        },
-      }));
-    }
-
-    const bottleneckPoint = interpolateRoute(routePoints, 0.54);
-    if (bottleneckPoint) {
-      overlayEntitiesRef.current.push(viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(bottleneckPoint.lon, bottleneckPoint.lat, 20),
-        billboard: {
-          image: createBottleneckCanvas(isOptimized),
-          width: 118,
-          height: 42,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        },
-      }));
+    if (hasRealBottleneck || isOptimized) {
+      const bottleneckSegment = extractRouteSegment(routePoints, 0.46, 0.62);
+      if (bottleneckSegment.length >= 2) {
+        overlayEntitiesRef.current.push(viewer.entities.add({
+          polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArray(bottleneckSegment.flatMap(p => [p.lon, p.lat])),
+            width: 14,
+            clampToGround: true,
+            material: new Cesium.PolylineGlowMaterialProperty({
+              glowPower: 0.32,
+              taperPower: 0.7,
+              color: Cesium.Color.fromCssColorString(isOptimized ? "#22c55e" : "#ef4444").withAlpha(0.95),
+            }),
+            zIndex: 25,
+          },
+        }));
+      }
+      const bottleneckPoint = interpolateRoute(routePoints, 0.54);
+      if (bottleneckPoint) {
+        overlayEntitiesRef.current.push(viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(bottleneckPoint.lon, bottleneckPoint.lat, 20),
+          billboard: {
+            image: createBottleneckCanvas(isOptimized),
+            width: 118,
+            height: 42,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+        }));
+      }
     }
 
     const first = routePoints[0];
