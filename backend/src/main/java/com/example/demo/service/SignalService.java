@@ -76,6 +76,7 @@ public class SignalService {
     public Map<String, Object> getSimulationContext(String intNo) {
         // SIGNAL_CROSSROAD 테이블에서 intNo로 교차로 기본정보 조회
         SignalCrossroadEntity crossroad = crossroadRepo.findById(intNo).orElse(null);
+        System.out.println(crossroad);
         // 교차로 자체가 DB에 없으면 에러 반환
         if (crossroad == null) return Map.of("error", "교차로 없음: " + intNo);
 

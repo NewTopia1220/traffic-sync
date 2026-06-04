@@ -453,6 +453,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [sliderTarget, setSliderTarget] = useState("end");
   const [autoAdjustKey, setAutoAdjustKey] = useState(0);
   const [currentVehicleSignal, setCurrentVehicleSignal] = useState(null);
+  const [routeTraffic, setRouteTraffic] = useState(null);
 
   const start = selectedList[0] ?? null;
   // const end = selectedList[1] ?? null;
@@ -601,6 +602,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setSliderTarget("end");
     setAutoAdjustKey(0);
     setCurrentVehicleSignal(null);
+    setRouteTraffic(null);
   };
 
   const handleManualSave = (simulation) => {
@@ -678,6 +680,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               isOptimized={isOptimized}
               onStatsChange={setStats}
               onAutoWaypointsChange={setAutoWaypoints}
+              onRouteTrafficChange={setRouteTraffic}
               onCurrentSignalChange={setCurrentVehicleSignal}
             />
           </div>
