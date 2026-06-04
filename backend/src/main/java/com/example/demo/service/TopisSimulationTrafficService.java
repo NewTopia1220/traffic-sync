@@ -1,0 +1,568 @@
+package com.example.demo.service;
+
+import com.example.demo.entity.SignalCrossroadEntity;
+import com.example.demo.entity.TopisAxisLinkEntity;
+import com.example.demo.entity.TopisLinkVertexEntity;
+import com.example.demo.entity.TopisRoadAxisEntity;
+import com.example.demo.model.context.GeoPoint;
+import com.example.demo.model.context.RoadSpeedSnapshot;
+import com.example.demo.model.context.TopisLinkGeometry;
+import com.example.demo.repository.SignalCrossroadRepository;
+import com.example.demo.repository.TopisAxisLinkRepository;
+import com.example.demo.repository.TopisLinkVertexRepository;
+import com.example.demo.repository.TopisRoadAxisRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class TopisSimulationTrafficService {
+
+    private final SignalCrossroadRepository signalCrossroadRepository;
+    private final TopisRoadAxisRepository roadAxisRepository;
+    private final TopisAxisLinkRepository axisLinkRepository;
+    private final TopisLinkVertexRepository linkVertexRepository;
+    private final TopisApiService topisApiService;
+    private final SupplementalDataCacheService supplementalDataCacheService;
+
+    @Value("${topis.route-traffic.max-match-distance-meters:90}")
+    private double maxMatchDistanceMeters;
+
+    @Value("${topis.route-traffic.max-bearing-diff-degrees:45}")
+    private double maxBearingDiffDegrees;
+
+    @Value("${topis.route-traffic.max-links-per-direction:10}")
+    private int maxLinksPerDirection;
+
+    @Value("${topis.route-traffic.master-cache-ttl-ms:60000}")
+    private long masterCacheTtlMs;
+
+    private volatile MasterCache masterCache;
+
+    public Map<String, Object> buildRouteTraffic(Map<String, Object> request) {
+        List<RouteNode> nodes = routeNodes(request == null ? null : request.get("routeNodes"));
+
+        Map<String, Object> response = new LinkedHashMap<>();
+
+        if (nodes.size() < 2) {
+            response.put("segments", List.of());
+            response.put("reason", "routeNodes must contain at least two nodes");
+            return response;
+        }
+
+        MasterCache cache = loadMasterCache();
+        if (cache.axisLinksByLinkId().isEmpty()) {
+            response.put("segments", List.of());
+            response.put("reason", "TOPIS_AXIS_LINK is empty. Sync LinkWithLoad master data first.");
+            return response;
+        }
+
+        Map<String, Optional<RoadSpeedSnapshot>> speedCache = new HashMap<>();
+        List<Map<String, Object>> segments = new ArrayList<>();
+
+        for (int i = 0; i < nodes.size() - 1; i++) {
+            RouteNode from = nodes.get(i);
+            RouteNode to = nodes.get(i + 1);
+            SegmentResult segmentResult = buildSegmentTraffic(from, to, cache, speedCache);
+            segments.add(segmentResult.payload());
+        }
+
+        response.put("segments", segments);
+        return response;
+    }
+
+    private SegmentResult buildSegmentTraffic(
+            RouteNode from,
+            RouteNode to,
+            MasterCache cache,
+            Map<String, Optional<RoadSpeedSnapshot>> speedCache
+    ) {
+        Map<String, Object> segment = new LinkedHashMap<>();
+        segment.put("fromIntNo", from.intNo());
+        segment.put("toIntNo", to.intNo());
+
+        List<CandidateLink> candidates = candidateLinks(from.point(), to.point(), cache);
+        if (candidates.isEmpty()) {
+            segment.put("axisCd", null);
+            segment.put("axisName", null);
+            segment.put("up", null);
+            segment.put("down", null);
+            segment.put("reason", "No TOPIS LinkWithLoad links near this route segment");
+            return new SegmentResult(segment, List.of(), null);
+        }
+
+        String axisCd = bestAxisCd(candidates);
+        TopisRoadAxisEntity axis = cache.axesByAxisCd().get(axisCd);
+        List<CandidateLink> axisCandidates = candidates.stream()
+                .filter(candidate -> axisCd.equals(candidate.link().getAxisCd()))
+                .toList();
+
+        segment.put("axisCd", axisCd);
+        segment.put("axisName", axis == null ? null : axis.getAxisName());
+
+        Map<String, List<CandidateLink>> byDirection = axisCandidates.stream()
+                .collect(Collectors.groupingBy(
+                        candidate -> safeDirection(candidate.link().getAxisDir()),
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+
+        List<Double> segmentSpeeds = new ArrayList<>();
+        Bottleneck bottleneck = null;
+        segment.put("up", null);
+        segment.put("down", null);
+
+        for (Map.Entry<String, List<CandidateLink>> entry : byDirection.entrySet()) {
+            CandidateLink link = entry.getValue().stream()
+                    .sorted(Comparator.comparingDouble(this::candidateScore)
+                            .thenComparing((CandidateLink candidate) -> candidate.link().getLinkSeq(), Comparator.nullsLast(Integer::compareTo)))
+                    .findFirst()
+                    .orElse(null);
+
+            if (link == null) {
+                continue;
+            }
+
+            LinkResult linkResult = buildLink(entry.getKey(), link, speedCache);
+            String key = directionKey(entry.getKey());
+            if (key != null) {
+                segment.put(key, linkResult.payload());
+            }
+            segmentSpeeds.addAll(linkResult.speedValues());
+            if (linkResult.bottleneck() != null
+                    && (bottleneck == null || linkResult.bottleneck().speedKph() < bottleneck.speedKph())) {
+                bottleneck = linkResult.bottleneck();
+            }
+        }
+
+        return new SegmentResult(segment, segmentSpeeds, bottleneck);
+    }
+
+    private LinkResult buildLink(
+            String axisDir,
+            CandidateLink candidate,
+            Map<String, Optional<RoadSpeedSnapshot>> speedCache
+    ) {
+        List<Double> speeds = new ArrayList<>();
+        Bottleneck bottleneck = null;
+
+        String linkId = candidate.link().getLinkId();
+        Optional<RoadSpeedSnapshot> speed = speedForLink(linkId, speedCache);
+        Map<String, Object> linkPayload = new LinkedHashMap<>();
+        linkPayload.put("linkId", linkId);
+
+        if (speed.isPresent()) {
+            RoadSpeedSnapshot snapshot = speed.get();
+            linkPayload.put("speedKph", snapshot.getSpeedKph());
+            linkPayload.put("congestion", generalRoadCongestion(snapshot.getSpeedKph()));
+            if (snapshot.getSpeedKph() != null) {
+                speeds.add(snapshot.getSpeedKph());
+                bottleneck = new Bottleneck(linkId, axisDir, snapshot.getSpeedKph());
+            }
+        } else {
+            linkPayload.put("speedKph", null);
+            linkPayload.put("congestion", generalRoadCongestion(null));
+        }
+
+        return new LinkResult(linkPayload, speeds, bottleneck);
+    }
+
+    private Optional<RoadSpeedSnapshot> speedForLink(
+            String linkId,
+            Map<String, Optional<RoadSpeedSnapshot>> speedCache
+    ) {
+        if (linkId == null || linkId.isBlank()) {
+            return Optional.empty();
+        }
+
+        Optional<RoadSpeedSnapshot> cached = speedCache.get(linkId);
+        if (cached != null) {
+            return cached;
+        }
+
+        Optional<RoadSpeedSnapshot> speed = supplementalDataCacheService.getSpeed(linkId);
+        if (speed.isPresent() && !speed.get().isStale()) {
+            speedCache.put(linkId, speed);
+            return speed;
+        }
+
+        if (topisApiService.isConfigured()) {
+            try {
+                speed = topisApiService.fetchSpeed(linkId);
+                speed.ifPresent(supplementalDataCacheService::updateSpeed);
+            } catch (Exception e) {
+                log.debug("TrafficInfo fetch failed for linkId={}: {}", linkId, e.getMessage());
+                if (speed.isEmpty()) {
+                    speed = supplementalDataCacheService.getSpeed(linkId);
+                }
+            }
+        }
+
+        speedCache.put(linkId, speed);
+        return speed;
+    }
+
+    private List<CandidateLink> candidateLinks(GeoPoint from, GeoPoint to, MasterCache cache) {
+        List<CandidateLink> candidates = new ArrayList<>();
+        double routeBearing = bearingDegrees(from, to);
+        GeoPoint routeMiddle = interpolate(from, to, 0.5);
+
+        for (TopisAxisLinkEntity link : cache.axisLinksByLinkId().values()) {
+            TopisLinkGeometry geometry = cache.geometriesByLinkId().get(link.getLinkId());
+            if (geometry == null || geometry.getVertices() == null || geometry.getVertices().size() < 2) {
+                continue;
+            }
+            double distance = GeoDistanceUtils.distanceToPolylineMeters(routeMiddle, geometry.getVertices());
+            if (distance > maxMatchDistanceMeters) {
+                continue;
+            }
+            double linkBearing = bearingDegrees(
+                    geometry.getVertices().get(0),
+                    geometry.getVertices().get(geometry.getVertices().size() - 1)
+            );
+            double bearingPenalty = bidirectionalBearingDiffDegrees(routeBearing, linkBearing);
+            if (bearingPenalty > maxBearingDiffDegrees) {
+                continue;
+            }
+            double linkLengthMeters = polylineLengthMeters(geometry.getVertices());
+            candidates.add(new CandidateLink(link, geometry, distance, linkBearing, bearingPenalty, linkLengthMeters));
+        }
+
+        return candidates;
+    }
+
+    private double candidateScore(CandidateLink candidate) {
+        return candidate.matchDistanceMeters() + candidate.bearingPenalty() * 0.35;
+    }
+
+    private String bestAxisCd(List<CandidateLink> candidates) {
+        return candidates.stream()
+                .collect(Collectors.groupingBy(candidate -> candidate.link().getAxisCd()))
+                .entrySet()
+                .stream()
+                .min(Comparator.comparingDouble(entry -> axisScore(entry.getValue())))
+                .map(Map.Entry::getKey)
+                .orElse(null);
+    }
+
+    private double axisScore(List<CandidateLink> candidates) {
+        double avgDistance = candidates.stream()
+                .mapToDouble(CandidateLink::matchDistanceMeters)
+                .average()
+                .orElse(Double.MAX_VALUE);
+        double avgBearingPenalty = candidates.stream()
+                .mapToDouble(CandidateLink::bearingPenalty)
+                .average()
+                .orElse(90.0);
+        return avgDistance + avgBearingPenalty * 0.35 - Math.min(candidates.size(), 8) * 4.0;
+    }
+
+    private MasterCache loadMasterCache() {
+        MasterCache current = masterCache;
+        long now = System.currentTimeMillis();
+        if (current != null && now - current.loadedAtMs() < masterCacheTtlMs) {
+            return current;
+        }
+
+        synchronized (this) {
+            current = masterCache;
+            now = System.currentTimeMillis();
+            if (current != null && now - current.loadedAtMs() < masterCacheTtlMs) {
+                return current;
+            }
+
+            Map<String, TopisRoadAxisEntity> axesByAxisCd = roadAxisRepository.findAll().stream()
+                    .filter(axis -> axis.getAxisCd() != null && !axis.getAxisCd().isBlank())
+                    .collect(Collectors.toMap(TopisRoadAxisEntity::getAxisCd, Function.identity(), (a, b) -> a, LinkedHashMap::new));
+
+            Map<String, TopisAxisLinkEntity> axisLinksByLinkId = axisLinkRepository.findAll().stream()
+                    .filter(link -> link.getLinkId() != null && !link.getLinkId().isBlank())
+                    .collect(Collectors.toMap(TopisAxisLinkEntity::getLinkId, Function.identity(), (a, b) -> a, LinkedHashMap::new));
+
+            Map<String, TopisLinkGeometry> geometriesByLinkId = loadDbGeometries();
+            if (geometriesByLinkId.isEmpty() && !axisLinksByLinkId.isEmpty()) {
+                try {
+                    geometriesByLinkId = topisApiService.fetchLinkGeometries(axisLinksByLinkId.keySet());
+                } catch (Exception e) {
+                    log.debug("TOPIS link geometry fallback failed: {}", e.getMessage());
+                    geometriesByLinkId = Map.of();
+                }
+            }
+
+            current = new MasterCache(axesByAxisCd, axisLinksByLinkId, geometriesByLinkId, now);
+            masterCache = current;
+            return current;
+        }
+    }
+
+    private Map<String, TopisLinkGeometry> loadDbGeometries() {
+        List<TopisLinkVertexEntity> vertices = linkVertexRepository.findAllByOrderByIdLinkIdAscIdVerSeqAsc();
+        if (vertices.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, List<GeoPoint>> grouped = new LinkedHashMap<>();
+        for (TopisLinkVertexEntity vertex : vertices) {
+            if (vertex.getId() == null || vertex.getId().getLinkId() == null
+                    || vertex.getLat() == null || vertex.getLon() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(vertex.getId().getLinkId(), ignored -> new ArrayList<>())
+                    .add(new GeoPoint(vertex.getLat(), vertex.getLon()));
+        }
+
+        Map<String, TopisLinkGeometry> geometries = new LinkedHashMap<>();
+        grouped.forEach((linkId, points) -> geometries.put(linkId, TopisLinkGeometry.builder()
+                .linkId(linkId)
+                .vertices(points)
+                .build()));
+        return geometries;
+    }
+
+    private List<RouteNode> routeNodes(Object raw) {
+        if (!(raw instanceof List<?> rawNodes)) {
+            return List.of();
+        }
+
+        List<RouteNode> result = new ArrayList<>();
+        for (Object item : rawNodes) {
+            if (!(item instanceof Map<?, ?> nodeMap)) {
+                continue;
+            }
+
+            String intNo = stringValue(nodeMap, "intNo");
+            String intNm = stringValue(nodeMap, "intNm");
+            Double lon = doubleValue(nodeMap, "lon");
+            Double lat = doubleValue(nodeMap, "lat");
+
+            if ((lon == null || lat == null) && intNo != null && !intNo.isBlank()) {
+                SignalCrossroadEntity crossroad = signalCrossroadRepository.findById(intNo).orElse(null);
+                if (crossroad != null) {
+                    if (intNm == null || intNm.isBlank()) {
+                        intNm = crossroad.getIntNm();
+                    }
+                    lon = parseCoord(crossroad.getXCoord());
+                    lat = parseCoord(crossroad.getYCoord());
+                }
+            }
+
+            if (lon == null || lat == null) {
+                continue;
+            }
+            result.add(new RouteNode(intNo, intNm, new GeoPoint(lat, lon)));
+        }
+
+        return result;
+    }
+
+    private Map<String, Object> summary(List<Double> speeds, Bottleneck bottleneck) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("realTime", !speeds.isEmpty());
+        summary.put("avgSpeedKph", average(speeds));
+        summary.put("minSpeedKph", min(speeds));
+        if (bottleneck != null) {
+            summary.put("bottleneckLinkId", bottleneck.linkId());
+            summary.put("bottleneckAxisDir", bottleneck.axisDir());
+            summary.put("bottleneckSpeedKph", bottleneck.speedKph());
+        }
+        return summary;
+    }
+
+    private List<Map<String, Object>> verticesPayload(Collection<GeoPoint> vertices) {
+        if (vertices == null || vertices.isEmpty()) {
+            return List.of();
+        }
+        return vertices.stream()
+                .map(vertex -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("lat", vertex.getLat());
+                    item.put("lon", vertex.getLon());
+                    return item;
+                })
+                .toList();
+    }
+
+    private static double polylineLengthMeters(List<GeoPoint> vertices) {
+        if (vertices == null || vertices.size() < 2) {
+            return 0.0;
+        }
+        double total = 0.0;
+        for (int i = 0; i < vertices.size() - 1; i++) {
+            total += GeoDistanceUtils.haversineMeters(vertices.get(i), vertices.get(i + 1));
+        }
+        return total;
+    }
+
+    private static GeoPoint interpolate(GeoPoint from, GeoPoint to, double ratio) {
+        return new GeoPoint(
+                from.getLat() + (to.getLat() - from.getLat()) * ratio,
+                from.getLon() + (to.getLon() - from.getLon()) * ratio
+        );
+    }
+
+    private static double bearingDegrees(GeoPoint from, GeoPoint to) {
+        double lat1 = Math.toRadians(from.getLat());
+        double lat2 = Math.toRadians(to.getLat());
+        double dLon = Math.toRadians(to.getLon() - from.getLon());
+        double y = Math.sin(dLon) * Math.cos(lat2);
+        double x = Math.cos(lat1) * Math.sin(lat2)
+                - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+        return (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0;
+    }
+
+    private static double angleDiffDegrees(double a, double b) {
+        double diff = Math.abs(((a - b + 540.0) % 360.0) - 180.0);
+        return Math.min(diff, 360.0 - diff);
+    }
+
+    private static double bidirectionalBearingDiffDegrees(double routeBearing, double linkBearing) {
+        double sameDirection = angleDiffDegrees(routeBearing, linkBearing);
+        double oppositeDirection = angleDiffDegrees((routeBearing + 180.0) % 360.0, linkBearing);
+        return Math.min(sameDirection, oppositeDirection);
+    }
+
+    private static Double average(List<Double> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        return Math.round(values.stream().mapToDouble(Double::doubleValue).average().orElse(0.0) * 10.0) / 10.0;
+    }
+
+    private static Double min(List<Double> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        return Math.round(values.stream().mapToDouble(Double::doubleValue).min().orElse(0.0) * 10.0) / 10.0;
+    }
+
+    private static Double round1(double value) {
+        if (!Double.isFinite(value)) {
+            return null;
+        }
+        return Math.round(value * 10.0) / 10.0;
+    }
+
+    private static String generalRoadCongestion(Double speedKph) {
+        if (speedKph == null) {
+            return "\uC815\uBCF4\uC5C6\uC74C";
+        }
+        if (speedKph < 15.0) {
+            return "\uC815\uCCB4";
+        }
+        if (speedKph < 25.0) {
+            return "\uC11C\uD589";
+        }
+        return "\uC6D0\uD65C";
+    }
+
+    private static String congestion(Double speedKph) {
+        if (speedKph == null) {
+            return "미확인";
+        }
+        if (speedKph <= 15.0) {
+            return "정체";
+        }
+        if (speedKph <= 25.0) {
+            return "서행";
+        }
+        return "원활";
+    }
+
+    private static String directionKey(String axisDir) {
+        String direction = safeDirection(axisDir).trim();
+        if ("\uC0C1\uD589".equals(direction)) {
+            return "up";
+        }
+        if ("\uD558\uD589".equals(direction)) {
+            return "down";
+        }
+        return null;
+    }
+
+    private static String safeDirection(String axisDir) {
+        return axisDir == null || axisDir.isBlank() ? "미확인" : axisDir;
+    }
+
+    private static boolean booleanValue(Map<String, Object> map, String key) {
+        Object value = map == null ? null : map.get(key);
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return value != null && Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private static String stringValue(Map<?, ?> map, String key) {
+        Object value = map == null ? null : map.get(key);
+        return value == null ? null : String.valueOf(value).trim();
+    }
+
+    private static Double doubleValue(Map<?, ?> map, String key) {
+        Object value = map == null ? null : map.get(key);
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value == null || String.valueOf(value).isBlank()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value).trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static Double parseCoord(String value) {
+        try {
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            return Double.parseDouble(value) / 10_000_000.0;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private record RouteNode(String intNo, String intNm, GeoPoint point) {
+    }
+
+    private record CandidateLink(
+            TopisAxisLinkEntity link,
+            TopisLinkGeometry geometry,
+            double matchDistanceMeters,
+            double bearingDegrees,
+            double bearingPenalty,
+            double linkLengthMeters
+    ) {
+    }
+
+    private record Bottleneck(String linkId, String axisDir, double speedKph) {
+    }
+
+    private record SegmentResult(Map<String, Object> payload, List<Double> speedValues, Bottleneck bottleneck) {
+    }
+
+    private record LinkResult(Map<String, Object> payload, List<Double> speedValues, Bottleneck bottleneck) {
+    }
+
+    private record MasterCache(
+            Map<String, TopisRoadAxisEntity> axesByAxisCd,
+            Map<String, TopisAxisLinkEntity> axisLinksByLinkId,
+            Map<String, TopisLinkGeometry> geometriesByLinkId,
+            long loadedAtMs
+    ) {
+    }
+}

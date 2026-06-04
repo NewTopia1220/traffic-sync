@@ -1,6 +1,8 @@
 package com.example.demo.controller;
 
 import com.example.demo.service.SignalService;
+import com.example.demo.service.TopisMasterDataService;
+import com.example.demo.service.TopisSimulationTrafficService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +17,8 @@ import java.util.Map;
 public class SignalController {
 
     private final SignalService signalService;
+    private final TopisMasterDataService topisMasterDataService;
+    private final TopisSimulationTrafficService topisSimulationTrafficService;
 
     // 교차로 전체 목록 (지도에 핀 표시용)
     @GetMapping("/crossroads")
@@ -36,5 +40,28 @@ public class SignalController {
         Map<String, Object> data = signalService.getSimulationContext(intNo);
         if (data.containsKey("error")) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(data);
+    }
+
+    @PostMapping("/topis/master/sync")
+    public ResponseEntity<Map<String, Object>> syncTopisMasterData() {
+        try {
+            return ResponseEntity.ok(topisMasterDataService.syncMasterData());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "source", "topis-master-sync",
+                    "success", false,
+                    "error", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/topis/master/status")
+    public ResponseEntity<Map<String, Object>> getTopisMasterDataStatus() {
+        return ResponseEntity.ok(topisMasterDataService.masterDataStatus());
+    }
+
+    @PostMapping("/simulation/route-traffic")
+    public ResponseEntity<Map<String, Object>> getRouteTraffic(@RequestBody Map<String, Object> request) {
+        return ResponseEntity.ok(topisSimulationTrafficService.buildRouteTraffic(request));
     }
 }
