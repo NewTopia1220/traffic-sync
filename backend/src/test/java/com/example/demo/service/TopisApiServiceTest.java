@@ -1,13 +1,18 @@
 package com.example.demo.service;
 
 import com.example.demo.model.context.RoadSpeedSnapshot;
+import com.example.demo.model.context.TopisAxisLinkInfo;
 import com.example.demo.model.context.TopisLinkGeometry;
+import com.example.demo.model.context.TopisLinkVertexInfo;
+import com.example.demo.model.context.TopisRoadAxisInfo;
+import com.example.demo.model.context.TopisRoadDivInfo;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -118,6 +123,100 @@ class TopisApiServiceTest {
         assertThat(geometries.get("L100").getVertices()).hasSize(2);
         assertThat(geometries.get("L100").getVertices().get(0).getLon()).isEqualTo(127.1000);
         assertThat(geometries.get("L100").getVertices().get(1).getLon()).isEqualTo(127.1002);
+    }
+
+    @Test
+    void parsesTopisLinkVerInfoRows() throws Exception {
+        String response = """
+                <LinkVerInfo>
+                  <list_total_count>2</list_total_count>
+                  <row>
+                    <LINK_ID>L200</LINK_ID>
+                    <VER_SEQ>2</VER_SEQ>
+                    <GRS80TM_X>127.2002</GRS80TM_X>
+                    <GRS80TM_Y>37.6002</GRS80TM_Y>
+                  </row>
+                  <row>
+                    <LINK_ID>L200</LINK_ID>
+                    <VER_SEQ>1</VER_SEQ>
+                    <GRS80TM_X>127.2000</GRS80TM_X>
+                    <GRS80TM_Y>37.6000</GRS80TM_Y>
+                  </row>
+                </LinkVerInfo>
+                """;
+
+        List<TopisLinkVertexInfo> vertices = service.parseLinkVertexInfoResponse(response);
+        Map<String, TopisLinkGeometry> geometries = service.parseVertexResponse(response);
+
+        assertThat(vertices).hasSize(2);
+        assertThat(vertices.get(0).linkId()).isEqualTo("L200");
+        assertThat(vertices.get(0).verSeq()).isEqualTo(2);
+        assertThat(vertices.get(0).grs80tmX()).isEqualTo(127.2002);
+        assertThat(geometries.get("L200").getVertices()).hasSize(2);
+        assertThat(geometries.get("L200").getVertices().get(0).getLon()).isEqualTo(127.2000);
+    }
+
+    @Test
+    void parsesTopisRoadDivResponse() throws Exception {
+        String response = """
+                <RoadDivInfo>
+                  <list_total_count>1</list_total_count>
+                  <row>
+                    <ROAD_DIV_CD>001</ROAD_DIV_CD>
+                    <ROAD_DIV_NM>도시고속도로</ROAD_DIV_NM>
+                  </row>
+                </RoadDivInfo>
+                """;
+
+        List<TopisRoadDivInfo> rows = service.parseRoadDivResponse(response);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).roadDivCd()).isEqualTo("001");
+        assertThat(rows.get(0).roadDivNm()).isEqualTo("도시고속도로");
+    }
+
+    @Test
+    void parsesTopisRoadAxisResponse() throws Exception {
+        String response = """
+                {
+                  "RoadInfo": {
+                    "list_total_count": 1,
+                    "row": [
+                      {"ROAD_DIV_CD":"001","AXIS_CD":"204","AXIS_NAME":"양재대로"}
+                    ]
+                  }
+                }
+                """;
+
+        List<TopisRoadAxisInfo> rows = service.parseRoadAxisResponse(response);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).roadDivCd()).isEqualTo("001");
+        assertThat(rows.get(0).axisCd()).isEqualTo("204");
+        assertThat(rows.get(0).axisName()).isEqualTo("양재대로");
+    }
+
+    @Test
+    void parsesTopisAxisLinkResponse() throws Exception {
+        String response = """
+                <LinkWithLoad>
+                  <list_total_count>1</list_total_count>
+                  <row>
+                    <AXIS_CD>204</AXIS_CD>
+                    <AXIS_DIR>상행</AXIS_DIR>
+                    <LINK_SEQ>12</LINK_SEQ>
+                    <LINK_ID>1240005900</LINK_ID>
+                  </row>
+                </LinkWithLoad>
+                """;
+
+        List<TopisAxisLinkInfo> rows = service.parseAxisLinkResponse(response);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).axisCd()).isEqualTo("204");
+        assertThat(rows.get(0).axisDir()).isEqualTo("상행");
+        assertThat(rows.get(0).linkSeq()).isEqualTo(12);
+        assertThat(rows.get(0).linkId()).isEqualTo("1240005900");
     }
 
     @Test

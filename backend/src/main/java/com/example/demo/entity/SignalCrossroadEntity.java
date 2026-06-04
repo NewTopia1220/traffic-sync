@@ -28,4 +28,16 @@ public class SignalCrossroadEntity {
 
     @Column(name = "UPD_DTIME")
     private String updDtime;        // 데이터 갱신 일시
+
+    @Override
+    public String toString() {
+        return "SignalCrossroadEntity{" +
+                "intNo='" + intNo + '\'' +
+                ", intNm='" + intNm + '\'' +
+                ", regionCd='" + regionCd + '\'' +
+                ", xCoord='" + xCoord + '\'' +
+                ", yCoord='" + yCoord + '\'' +
+                ", updDtime='" + updDtime + '\'' +
+                '}';
+    }
 }
