@@ -5,6 +5,7 @@ const VWORLD_KEY = import.meta.env.VITE_VWORLD_API_KEY || "";
 const CAR_MODEL_URI = "/models/car.glb";
 const CAR_MODEL_SCALE = 0.06;
 const CAR_MODEL_HEADING_OFFSET_DEG = -90; // 차량 모델 방향이 맞지 않으면 90, -90, 180 중 하나로 조정
+const SIMULATION_TIME_SCALE = 18; // 실제 km/h 기반 이동을 화면에서 확인하기 위한 공통 시간 압축 배율
 
 function getVWorldApiKey() {
   const raw = String(VWORLD_KEY || "").trim();
@@ -547,24 +548,127 @@ function routeLengthMeters(points) {
   return total;
 }
 
-function estimateTrip(routePoints, isOptimized) {
+function normalizeCongestion(value) {
+  const text = String(value || "").trim();
+  if (!text) return "정보없음";
+  if (text.includes("정체") || text.includes("혼잡")) return "정체";
+  if (text.includes("서행")) return "서행";
+  if (text.includes("원활") || text.includes("원할")) return "원활";
+  return text;
+}
+
+
+function getDirectionalSpeedKph(segment, directionKey) {
+  const n = Number(segment?.[directionKey]?.speedKph);
+  return Number.isFinite(n) ? n : null;
+}
+
+function getDirectionalCongestion(segment, directionKey) {
+  const direct = normalizeCongestion(segment?.[directionKey]?.congestion);
+  if (direct !== "정보없음" && direct !== "알 수 없음") return direct;
+
+  const speed = getDirectionalSpeedKph(segment, directionKey);
+  if (speed == null) return "정보없음";
+  if (speed < 15) return "정체";
+  if (speed < 25) return "서행";
+  return "원활";
+}
+
+function getSelectedTraffic(segment) {
+  // 팀원 속도 API 매핑 결과를 우선 사용합니다.
+  // 예전처럼 화면 중앙선 기준으로 상행/하행을 직접 판정하지 않고,
+  // 백엔드가 노드 좌표와 API 좌표 거리로 매핑한 selectedTraffic을 신뢰합니다.
+  return segment?.selectedTraffic ?? segment?.up ?? segment?.down ?? null;
+}
+
+function getSegmentSpeedValues(segment) {
+  return [segment?.selectedTraffic?.speedKph, segment?.up?.speedKph, segment?.down?.speedKph]
+    .map(Number)
+    .filter(Number.isFinite);
+}
+
+function getSegmentSpeedKph(segment) {
+  const selected = Number(getSelectedTraffic(segment)?.speedKph);
+  if (Number.isFinite(selected)) return selected;
+
+  const speeds = getSegmentSpeedValues(segment);
+  if (!speeds.length) return null;
+  return Math.min(...speeds);
+}
+
+function getSegmentCongestion(segment) {
+  const selected = normalizeCongestion(getSelectedTraffic(segment)?.congestion);
+  if (selected !== "정보없음" && selected !== "알 수 없음") return selected;
+
+  const speed = getSegmentSpeedKph(segment);
+  if (speed == null) return "정보없음";
+  if (speed < 15) return "정체";
+  if (speed < 25) return "서행";
+  return "원활";
+}
+
+function getCongestionColor(congestion) {
+  const normalized = normalizeCongestion(congestion);
+  if (normalized === "정체") return "#ff2d2d";
+  if (normalized === "서행") return "#ffb020";
+  if (normalized === "원활") return "#34d399";
+  return "#94a3b8";
+}
+
+function getRouteTrafficSegments(routeTraffic) {
+  return Array.isArray(routeTraffic?.segments) ? routeTraffic.segments : [];
+}
+
+function findBottleneckSegmentIndex(routeTraffic) {
+  const segments = getRouteTrafficSegments(routeTraffic);
+  return segments.findIndex(segment => getSegmentCongestion(segment) === "정체");
+}
+
+function getSpeedAtProgress(routeTraffic, progress) {
+  const segments = getRouteTrafficSegments(routeTraffic);
+  if (!segments.length) return null;
+  const idx = Math.max(0, Math.min(segments.length - 1, Math.floor(Math.max(0, Math.min(0.999999, progress)) * segments.length)));
+  return getSegmentSpeedKph(segments[idx]);
+}
+
+function estimateTripFromTraffic(routePoints, routeTraffic) {
   const distance = routeLengthMeters(routePoints);
-  if (!distance) return null;
+  const segments = getRouteTrafficSegments(routeTraffic);
+  if (!distance || !segments.length) return null;
 
-  const normalSpeedKph = 28;
-  const bottleneckSpeedKph = isOptimized ? 24 : 10;
-  const normalRatio = 0.72;
-  const bottleneckRatio = 0.28;
+  const segmentDistance = distance / segments.length;
+  let totalSec = 0;
+  let speedCount = 0;
+  let speedSum = 0;
+  let minSpeedKph = null;
+  let missingSpeedCount = 0;
+  let bottleneckCount = 0;
 
-  const normalSec = (distance * normalRatio) / (normalSpeedKph / 3.6);
-  const bottleneckSec = (distance * bottleneckRatio) / (bottleneckSpeedKph / 3.6);
-  const waitSec = isOptimized ? 20 : 75;
-  const totalSec = Math.round(normalSec + bottleneckSec + waitSec);
+  segments.forEach(segment => {
+    const speed = getSegmentSpeedKph(segment);
+    const congestion = getSegmentCongestion(segment);
+    if (congestion === "정체") bottleneckCount += 1;
+
+    if (speed == null || speed <= 0) {
+      missingSpeedCount += 1;
+      return;
+    }
+
+    totalSec += segmentDistance / (speed / 3.6);
+    speedSum += speed;
+    speedCount += 1;
+    minSpeedKph = minSpeedKph == null ? speed : Math.min(minSpeedKph, speed);
+  });
 
   return {
     distance,
-    totalSec,
-    avgSpeedKph: Math.round((distance / Math.max(totalSec, 1)) * 3.6),
+    totalSec: missingSpeedCount === 0 && speedCount > 0 ? Math.round(totalSec) : null,
+    avgSpeedKph: speedCount > 0 ? Math.round(speedSum / speedCount) : null,
+    minSpeedKph: minSpeedKph == null ? null : Math.round(minSpeedKph),
+    bottleneckCount,
+    speedMissing: missingSpeedCount > 0,
+    realTimeSpeed: speedCount > 0,
+    segmentsCount: segments.length,
   };
 }
 
@@ -576,6 +680,8 @@ export default function SimulationMapView({
   onAutoWaypointsChange,
   onRouteTrafficChange,
   onCurrentSignalChange,
+  onDriveViewChange,
+  carReady = true,
 }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
@@ -602,6 +708,7 @@ export default function SimulationMapView({
   const startRef = useRef(null);
   const endRef = useRef(null);
   const routeTrafficRequestRef = useRef({ key: "", seq: 0 });
+  const routeTrafficRef = useRef(null);
 
   const [crossroads, setCrossroads] = useState([]);
   const [cesiumReady, setCesiumReady] = useState(false);
@@ -609,6 +716,12 @@ export default function SimulationMapView({
   const [driveView, setDriveView] = useState(false);
   const [status, setStatus] = useState("VWorld 3D 지도 로딩 중...");
   const [routePlan, setRoutePlan] = useState({ points: [], viaCrossroads: [] });
+  const [routeTraffic, setRouteTraffic] = useState(null);
+  const [simulationCompleted, setSimulationCompleted] = useState(false);
+
+  useEffect(() => {
+    onDriveViewChange?.(driveView);
+  }, [driveView, onDriveViewChange]);
 
   const start = selectedList[0] ?? null;
   const end = selectedList.length >= 2 ? selectedList[selectedList.length - 1] : null;
@@ -645,6 +758,8 @@ export default function SimulationMapView({
 
     if (routeNodes.length < 2) {
       routeTrafficRequestRef.current = { key: "", seq: routeTrafficRequestRef.current.seq + 1 };
+      routeTrafficRef.current = null;
+      setRouteTraffic(null);
       onRouteTrafficChange?.(null);
       return;
     }
@@ -675,6 +790,18 @@ export default function SimulationMapView({
     start?.intNo,
     end?.intNo,
   ]);
+
+  useEffect(() => {
+    routeTrafficRef.current = routeTraffic;
+  }, [routeTraffic]);
+
+  // AI 분석/속도 수집이 끝난 뒤(carReady=true) 차량 애니메이션을 시작합니다.
+  useEffect(() => {
+    if (!carReady || !mapReady || routePointsRef.current.length < 2) return;
+    if (simulationCompleted) return;
+    if (animationRef.current) return;
+    requestAnimationFrame(startCarAnimation);
+  }, [carReady, mapReady, simulationCompleted]);
 
   useEffect(() => {
     // VWorld WebGL 3D API(webglMapInit.js.do)는 내부에서 document.write를 사용합니다.
@@ -736,19 +863,21 @@ export default function SimulationMapView({
     const center = startLL || { lon: 127.0396, lat: 37.5126 };
     const previousCallback = vw.ws3dInitCallBack;
 
-    const completeInit = () => {
-      const viewer = window.ws3d?.viewer;
-      if (!viewer) {
-        setStatus("VWorld 3D viewer 초기화 대기 중...");
-        setTimeout(completeInit, 200);
-        return;
-      }
+    const applyViewerOptions = (viewer) => {
+      if (!viewer || viewer.isDestroyed?.()) return false;
 
       viewer.scene.globe.enableLighting = false;
       viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#0a0f1e");
       viewer.scene.screenSpaceCameraController.enableRotate = true;
       viewer.scene.screenSpaceCameraController.enableTilt = true;
       viewer.scene.screenSpaceCameraController.enableZoom = true;
+
+      // 100% 화면 비율에서 흐릿하게 보이는 현상을 줄이기 위해
+      // 브라우저 디바이스 픽셀 비율을 Cesium 렌더링 해상도에 반영합니다.
+      viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 2);
+      if (viewer.scene.postProcessStages?.fxaa) {
+        viewer.scene.postProcessStages.fxaa.enabled = true;
+      }
 
       try {
         vworldMapRef.current?.getElementById?.("facility_build")?.show?.();
@@ -771,33 +900,59 @@ export default function SimulationMapView({
       viewerRef.current = viewer;
       setMapReady(true);
       setStatus(null);
+      return true;
+    };
+
+    const completeInit = () => {
+      const viewer = window.ws3d?.viewer;
+      if (!viewer) {
+        setStatus("VWorld 3D viewer 초기화 대기 중...");
+        setTimeout(completeInit, 200);
+        return;
+      }
+      applyViewerOptions(viewer);
     };
 
     try {
-      const options = {
-        mapId: containerRef.current.id,
-        initPosition: new vw.CameraPosition(
-          new vw.CoordZ(center.lon, center.lat, 1200),
-          new vw.Direction(0, -45, 0)
-        ),
-        logo: true,
-        navigation: true,
-      };
+      // VWorld WebGL은 전역 window.ws3d.viewer를 한 번만 정의합니다.
+      // 다른 페이지를 다녀온 뒤 다시 map.start()를 호출하면
+      // "Cannot redefine property: viewer"가 발생하므로 기존 viewer를 재사용합니다.
+      const existingViewer = window.ws3d?.viewer;
+      if (existingViewer && !existingViewer.isDestroyed?.()) {
+        applyViewerOptions(existingViewer);
+      } else {
+        const options = {
+          mapId: containerRef.current.id,
+          initPosition: new vw.CameraPosition(
+            new vw.CoordZ(center.lon, center.lat, 1200),
+            new vw.Direction(0, -45, 0)
+          ),
+          // VWorld 로고는 옵션으로 숨김 처리합니다.
+          // 하단 저작권/이용안내 문구는 VWorld API 고지 영역이라 제거 대상에서 제외합니다.
+          logo: false,
+          navigation: true,
+        };
 
-      vw.ws3dInitCallBack = () => {
-        previousCallback?.();
-        completeInit();
-      };
+        vw.ws3dInitCallBack = () => {
+          previousCallback?.();
+          completeInit();
+        };
 
-      const map = new vw.Map();
-      map.setOption(options);
-      map.start();
-      vworldMapRef.current = map;
+        const map = new vw.Map();
+        map.setOption(options);
+        map.start();
+        vworldMapRef.current = map;
 
-      setTimeout(completeInit, 600);
+        setTimeout(completeInit, 600);
+      }
     } catch (err) {
       console.error(err);
-      setStatus(`VWorld 3D 지도 초기화 실패: ${err.message}`);
+      const existingViewer = window.ws3d?.viewer;
+      if (existingViewer && !existingViewer.isDestroyed?.()) {
+        applyViewerOptions(existingViewer);
+      } else {
+        setStatus(`VWorld 3D 지도 초기화 실패: ${err.message}`);
+      }
     }
 
     return () => {
@@ -806,6 +961,10 @@ export default function SimulationMapView({
       const viewer = viewerRef.current;
       if (viewer && !viewer.isDestroyed?.()) {
         Object.values(markerEntitiesRef.current).forEach(e => viewer.entities.remove(e));
+        if (viewer._routeSimClickHandler) {
+          viewer._routeSimClickHandler.destroy?.();
+          viewer._routeSimClickHandler = null;
+        }
       }
       markerEntitiesRef.current = {};
       viewerRef.current = null;
@@ -920,6 +1079,42 @@ export default function SimulationMapView({
   ]);
 
 
+  function buildStableMarkerGraphRoute(from, to, crossroads, totalDist) {
+    const fromLL = getCrLonLat(from);
+    const toLL = getCrLonLat(to);
+    const fallback = { points: fromLL && toLL ? [fromLL, toLL] : [], viaCrossroads: [] };
+
+    const forwardRoute = buildMarkerGraphRoute(from, to, crossroads, totalDist);
+    const reverseRawRoute = buildMarkerGraphRoute(to, from, crossroads, totalDist);
+    const reverseRoute = reverseRawRoute.points.length >= 2
+      ? {
+          points: [...reverseRawRoute.points].reverse(),
+          viaCrossroads: [...reverseRawRoute.viaCrossroads].reverse(),
+        }
+      : { points: [], viaCrossroads: [] };
+
+    const candidates = [forwardRoute, reverseRoute]
+      .filter(route => route.points?.length >= 2)
+      .map(route => ({
+        ...route,
+        distance: routeLengthMeters(route.points),
+      }))
+      .filter(route => Number.isFinite(route.distance) && route.distance > 0);
+
+    if (!candidates.length) return fallback;
+
+    // 노드 선택 순서를 반대로 잡아도 비슷한 경로가 나오도록
+    // 정방향 탐색과 역방향 탐색 결과를 모두 계산한 뒤 더 짧고 안정적인 경로를 사용합니다.
+    candidates.sort((a, b) => {
+      const aPenalty = Math.max(0, a.distance - totalDist);
+      const bPenalty = Math.max(0, b.distance - totalDist);
+      return (a.distance + aPenalty * 0.35) - (b.distance + bPenalty * 0.35);
+    });
+
+    return candidates[0];
+  }
+
+
   function buildRouteFromSelectedList(selectedList, crossroads) {
     if (!selectedList || selectedList.length < 2) {
       return { points: [], viaCrossroads: [] };
@@ -938,7 +1133,7 @@ export default function SimulationMapView({
       if (!fromLL || !toLL) continue;
 
       const totalDist = distanceMeters(fromLL, toLL);
-      const segmentRoute = buildMarkerGraphRoute(from, to, crossroads, totalDist);
+      const segmentRoute = buildStableMarkerGraphRoute(from, to, crossroads, totalDist);
 
       const segmentPoints = segmentRoute.points.length >= 2
         ? segmentRoute.points
@@ -1039,27 +1234,44 @@ export default function SimulationMapView({
 
     renderRouteSimulation();
     prefetchSignals(viaCrossroads, start, end);
-    startCarAnimation();
+    // carReady가 true일 때만 차량 출발
+    if (carReady) startCarAnimation();
 
-    const before = estimateTrip(routePoints, false);
-    const after = estimateTrip(routePoints, true);
+    const currentStats = estimateTripFromTraffic(routePoints, routeTraffic);
 
-    if (!before || !after) {
-      onStatsChange?.(null);
+    if (!currentStats) {
+      onStatsChange?.({
+        distanceMeters: Math.round(routeLengthMeters(routePoints)),
+        beforeSec: null,
+        afterSec: null,
+        savedSec: null,
+        beforeSpeedKph: null,
+        afterSpeedKph: null,
+        minSpeedKph: null,
+        bottleneckCount: 0,
+        viaCount: viaCrossroads.length,
+        speedMissing: true,
+        realTimeSpeed: false,
+        segmentsCount: 0,
+      });
       return;
     }
 
     onStatsChange?.({
-      distanceMeters: Math.round(before.distance),
-      beforeSec: before.totalSec,
-      afterSec: after.totalSec,
-      savedSec: Math.max(0, before.totalSec - after.totalSec),
-      beforeSpeedKph: before.avgSpeedKph,
-      afterSpeedKph: after.avgSpeedKph,
-      bottleneckCount: 1,
+      distanceMeters: Math.round(currentStats.distance),
+      beforeSec: currentStats.totalSec,
+      afterSec: null,
+      savedSec: null,
+      beforeSpeedKph: currentStats.avgSpeedKph,
+      afterSpeedKph: null,
+      minSpeedKph: currentStats.minSpeedKph,
+      bottleneckCount: currentStats.bottleneckCount,
       viaCount: viaCrossroads.length,
+      speedMissing: currentStats.speedMissing,
+      realTimeSpeed: currentStats.realTimeSpeed,
+      segmentsCount: currentStats.segmentsCount,
     });
-  }, [selectedList, isOptimized, cesiumReady, mapReady, routePlan, driveView]);
+  }, [selectedList, isOptimized, cesiumReady, mapReady, routePlan, driveView, routeTraffic, carReady]);
 
 
   useEffect(() => {
@@ -1127,20 +1339,26 @@ export default function SimulationMapView({
       const data = await res.json();
       if (routeTrafficRequestRef.current.seq !== seq) return;
 
-      onRouteTrafficChange?.({
+      const payload = {
         ...data,
         requestedRouteNodes: routeNodes,
-      });
+      };
+      routeTrafficRef.current = payload;
+      setRouteTraffic(payload);
+      onRouteTrafficChange?.(payload);
     } catch (err) {
       if (routeTrafficRequestRef.current.seq !== seq) return;
       console.warn("TOPIS 경로 속도 데이터 로드 실패", err);
-      onRouteTrafficChange?.({
+      const payload = {
         source: "topis",
         realTime: false,
         reason: err?.message || "route traffic fetch failed",
         requestedRouteNodes: routeNodes,
         segments: [],
-      });
+      };
+      routeTrafficRef.current = payload;
+      setRouteTraffic(payload);
+      onRouteTrafficChange?.(payload);
     }
   }
 
@@ -1484,16 +1702,28 @@ export default function SimulationMapView({
     }
   }
 
-  function stopAnimation() {
+  function stopAnimation(resetProgress = true) {
     if (animationRef.current) cancelAnimationFrame(animationRef.current);
     animationRef.current = null;
     lastTickRef.current = null;
-    progressRef.current = 0;
-    reverseProgressRef.current = 1;
+
+    if (resetProgress) {
+      progressRef.current = 0;
+      reverseProgressRef.current = 1;
+      setSimulationCompleted(false);
+    }
+
     stoppedAtRef.current = null;
     stopProgressRef.current = null;
     reverseStoppedAtRef.current = null;
     reverseStopProgressRef.current = null;
+  }
+
+  function restartRouteAnimation() {
+    if (!routePointsRef.current || routePointsRef.current.length < 2) return;
+
+    stopAnimation(true);
+    requestAnimationFrame(startCarAnimation);
   }
 
   function flyToSelectedArea() {
@@ -1553,7 +1783,7 @@ export default function SimulationMapView({
         ),
         width: maskWidth,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        material: Cesium.Color.fromCssColorString("#30363a").withAlpha(0.9),
+        material: Cesium.Color.fromCssColorString("#202428").withAlpha(0.92),
         outline: false,
         cornerType: Cesium.CornerType.MITERED,
         zIndex: 18,
@@ -1572,17 +1802,19 @@ export default function SimulationMapView({
       overlayEntitiesRef.current.push(roadMask);
     }
 
+    // 중앙선: 상행/하행 상태선의 기준이 되는 노란 점선입니다.
     overlayEntitiesRef.current.push(viewer.entities.add({
       polyline: {
         positions: Cesium.Cartesian3.fromDegreesArray(routePoints.flatMap(p => [p.lon, p.lat])),
-        width: 9,
+        width: 4,
         clampToGround: true,
-        material: new Cesium.PolylineGlowMaterialProperty({
-          glowPower: 0.18,
-          taperPower: 0.7,
-          color: Cesium.Color.fromCssColorString(isOptimized ? "#22c55e" : "#38bdf8").withAlpha(0.82),
-        }),
-        zIndex: 20,
+        material: Cesium.PolylineDashMaterialProperty
+          ? new Cesium.PolylineDashMaterialProperty({
+              color: Cesium.Color.fromCssColorString("#ffd21f").withAlpha(1),
+              dashLength: 14,
+            })
+          : Cesium.Color.fromCssColorString("#ffd21f").withAlpha(1),
+        zIndex: 34,
       },
     }));
 
@@ -1592,50 +1824,10 @@ export default function SimulationMapView({
       endLL,
     ].filter(Boolean);
 
-    if (signalNodePoints.length >= 2) {
-      overlayEntitiesRef.current.push(viewer.entities.add({
-        polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray(signalNodePoints.flatMap(p => [p.lon, p.lat])),
-          width: 3,
-          clampToGround: true,
-          material: Cesium.Color.fromCssColorString("#fbbf24").withAlpha(0.55),
-          zIndex: 35,
-        },
-      }));
-    }
+    addRouteTrafficSegmentOverlays(viewer, Cesium, signalNodePoints);
 
-    const bottleneckSegment = extractRouteSegment(routePoints, 0.46, 0.62);
-
-    if (bottleneckSegment.length >= 2) {
-      overlayEntitiesRef.current.push(viewer.entities.add({
-        polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray(bottleneckSegment.flatMap(p => [p.lon, p.lat])),
-          width: 14,
-          clampToGround: true,
-          material: new Cesium.PolylineGlowMaterialProperty({
-            glowPower: 0.32,
-            taperPower: 0.7,
-            color: Cesium.Color.fromCssColorString(isOptimized ? "#22c55e" : "#ef4444").withAlpha(0.95),
-          }),
-          zIndex: 25,
-        },
-      }));
-    }
-
-    const bottleneckPoint = interpolateRoute(routePoints, 0.54);
-    if (bottleneckPoint) {
-      overlayEntitiesRef.current.push(viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(bottleneckPoint.lon, bottleneckPoint.lat, 20),
-        billboard: {
-          image: createBottleneckCanvas(isOptimized),
-          width: 118,
-          height: 42,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        },
-      }));
-    }
+    // 병목구간 별도 말풍선은 제거했습니다.
+    // 상행/하행 상태선과 속도 라벨만으로 정체·서행 구간을 표시합니다.
 
     // 상행/하행 차량을 도로 중심선에서 좌우로 분리해서 표시합니다.
     // VWorld 위성도로의 기존 차량 이미지를 도로 레이어로 덮고,
@@ -1698,6 +1890,83 @@ export default function SimulationMapView({
     }
   }
 
+
+  function addRouteTrafficSegmentOverlays(viewer, Cesium, signalNodePoints) {
+    const segments = getRouteTrafficSegments(routeTrafficRef.current);
+    if (!viewer || !Cesium || !signalNodePoints || signalNodePoints.length < 2 || !segments.length) return;
+
+    const count = Math.min(segments.length, signalNodePoints.length - 1);
+
+    for (let i = 0; i < count; i++) {
+      const from = signalNodePoints[i];
+      const to = signalNodePoints[i + 1];
+      if (!from || !to) continue;
+
+      const segment = segments[i];
+
+      const lanes = [
+        { key: "up", label: "상행", offset: 12, labelOffset: 28 },
+        { key: "down", label: "하행", offset: -12, labelOffset: -28 },
+      ];
+
+      // 선택 경로의 실제 속도는 selectedTraffic을 우선 사용합니다.
+      // 상행/하행 상태선은 참고용으로 둘 다 유지하고, 말풍선은 API 매핑 결과가 있는 방향을 우선 표시합니다.
+      const selectedLabelDirectionKey = segment?.selectedTraffic
+        ? (segment.selectedTraffic === segment.down ? "down" : "up")
+        : "up";
+
+      lanes.forEach(lane => {
+        const speed = getDirectionalSpeedKph(segment, lane.key);
+        const congestion = getDirectionalCongestion(segment, lane.key);
+        const color = getCongestionColor(congestion);
+        const lanePoints = offsetRoutePoints([from, to], lane.offset);
+        const labelPoints = offsetRoutePoints([from, to], lane.labelOffset);
+
+        if (lanePoints.length < 2) return;
+
+        overlayEntitiesRef.current.push(viewer.entities.add({
+          polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArray(lanePoints.flatMap(p => [p.lon, p.lat])),
+            width: normalizeCongestion(congestion) === "정체" ? 10 : 8,
+            clampToGround: true,
+            material: new Cesium.PolylineGlowMaterialProperty({
+              glowPower: normalizeCongestion(congestion) === "정체" ? 0.42 : 0.28,
+              taperPower: 0.65,
+              color: Cesium.Color.fromCssColorString(color).withAlpha(1),
+            }),
+            zIndex: 42,
+          },
+        }));
+
+        if (lane.key !== selectedLabelDirectionKey) return;
+
+        const mid = labelPoints.length >= 2
+          ? {
+              lon: (labelPoints[0].lon + labelPoints[1].lon) / 2,
+              lat: (labelPoints[0].lat + labelPoints[1].lat) / 2,
+            }
+          : {
+              lon: (from.lon + to.lon) / 2,
+              lat: (from.lat + to.lat) / 2,
+            };
+
+        const isBottleneckLabel = normalizeCongestion(congestion) === "정체";
+
+        overlayEntitiesRef.current.push(viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(mid.lon, mid.lat, isBottleneckLabel ? 38 : 30),
+          billboard: {
+            image: createDirectionalSpeedLabelCanvas(lane.label, speed, congestion, segment?.axisName),
+            width: isBottleneckLabel ? 138 : 124,
+            height: isBottleneckLabel ? 66 : 46,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            heightReference: Cesium.HeightReference.NONE,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+        }));
+      });
+    }
+  }
+
   function moveDriveCamera(point, headingDeg, instant = true) {
     if (!viewerRef.current || !window.Cesium || !point) return;
 
@@ -1740,7 +2009,14 @@ export default function SimulationMapView({
     const dt = lastTickRef.current ? Math.min((timestamp - lastTickRef.current) / 1000, 0.08) : 0.016;
     lastTickRef.current = timestamp;
 
-    const baseSpeed = isOptimized ? 0.055 : 0.035;
+    const speedAtProgress = getSpeedAtProgress(routeTrafficRef.current, progressRef.current);
+    const reverseSpeedAtProgress = getSpeedAtProgress(routeTrafficRef.current, reverseProgressRef.current);
+    const baseSpeed = speedAtProgress == null || !totalLen
+      ? 0
+      : (speedAtProgress / 3.6) * SIMULATION_TIME_SCALE / totalLen;
+    const reverseBaseSpeed = reverseSpeedAtProgress == null || !totalLen
+      ? 0
+      : (reverseSpeedAtProgress / 3.6) * SIMULATION_TIME_SCALE / totalLen;
 
     let isForwardRedLight = false;
     let isReverseRedLight = false;
@@ -1813,15 +2089,10 @@ export default function SimulationMapView({
         progressRef.current = Math.min(stopProgressRef.current, progressRef.current + approachSpeed * dt);
       }
     } else {
-      const inBottleneck = progressRef.current > 0.45 && progressRef.current < 0.64;
-      const speed = inBottleneck
-        ? baseSpeed * (isOptimized ? 0.95 : 0.38)
-        : baseSpeed;
+      progressRef.current += baseSpeed * dt;
 
-      progressRef.current += speed * dt;
-
-      if (progressRef.current > 1) {
-        progressRef.current = 0;
+      if (progressRef.current >= 1) {
+        progressRef.current = 1;
         stoppedAtRef.current = null;
         stopProgressRef.current = null;
       }
@@ -1879,19 +2150,14 @@ export default function SimulationMapView({
 
     if (isReverseRedLight && reverseStopProgressRef.current !== null) {
       if (reverseStopProgressRef.current < reverseProgressRef.current) {
-        const approachSpeed = baseSpeed * 0.28;
+        const approachSpeed = reverseBaseSpeed * 0.28;
         reverseProgressRef.current = Math.max(reverseStopProgressRef.current, reverseProgressRef.current - approachSpeed * dt);
       }
     } else {
-      const reverseInBottleneck = reverseProgressRef.current > 0.45 && reverseProgressRef.current < 0.64;
-      const reverseSpeed = reverseInBottleneck
-        ? baseSpeed * (isOptimized ? 0.95 : 0.38)
-        : baseSpeed;
+      reverseProgressRef.current -= reverseBaseSpeed * dt;
 
-      reverseProgressRef.current -= reverseSpeed * dt;
-
-      if (reverseProgressRef.current < 0) {
-        reverseProgressRef.current = 1;
+      if (reverseProgressRef.current <= 0) {
+        reverseProgressRef.current = 0;
         reverseStoppedAtRef.current = null;
         reverseStopProgressRef.current = null;
       }
@@ -1941,6 +2207,17 @@ export default function SimulationMapView({
     }
 
     viewer.scene.requestRender();
+
+    const forwardArrived = progressRef.current >= 1;
+    const reverseArrived = reverseProgressRef.current <= 0;
+
+    if (forwardArrived && reverseArrived) {
+      animationRef.current = null;
+      lastTickRef.current = null;
+      setSimulationCompleted(true);
+      return;
+    }
+
     animationRef.current = requestAnimationFrame(startCarAnimation);
   }
 
@@ -1983,7 +2260,6 @@ export default function SimulationMapView({
       <div style={{ position: "absolute", top: 14, left: 14, zIndex: 10, padding: "10px 14px", borderRadius: 6, background: "rgba(18,16,10,0.88)", border: "1px solid rgba(255,255,255,0.12)", color: "#dbeafe", fontSize: 12 }}>
         <div style={{ fontWeight: 800, color: "#60a5fa", marginBottom: 4 }}>VWorld WebGL 3D 신호 시뮬레이션</div>
         <div>1. 출발지 마커 클릭 → 2. 목적지 마커 클릭</div>
-        <div style={{ color: "#fbbf24", marginTop: 3 }}>기존 노드 경로 유지 · 주행뷰 · VWorld 3D 건물</div>
       </div>
 
 
@@ -2002,7 +2278,7 @@ export default function SimulationMapView({
             boxShadow: "0 8px 20px rgba(0,0,0,0.28)",
           }}
         >
-          3D 조감도
+          3D 시뮬레이션
         </button>
         <button
           onClick={() => setDriveView(true)}
@@ -2021,6 +2297,26 @@ export default function SimulationMapView({
         >
           주행뷰
         </button>
+
+        {start && end && (
+          <button
+            onClick={restartRouteAnimation}
+            disabled={!routePoints.length}
+            style={{
+              border: "1px solid rgba(255,255,255,0.18)",
+              borderRadius: 999,
+              padding: "9px 14px",
+              cursor: routePoints.length ? "pointer" : "not-allowed",
+              color: "#fff",
+              fontWeight: 800,
+              opacity: routePoints.length ? 1 : 0.45,
+              background: simulationCompleted ? "#f59e0b" : "rgba(15,23,42,0.82)",
+              boxShadow: "0 8px 20px rgba(0,0,0,0.28)",
+            }}
+          >
+            다시 실행
+          </button>
+        )}
       </div>
 
       {start && !end && (
@@ -2031,7 +2327,7 @@ export default function SimulationMapView({
 
       {start && end && (
         <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 10, padding: "8px 14px", borderRadius: 999, background: isOptimized ? "rgba(34,197,94,0.16)" : "rgba(239,68,68,0.13)", border: `1px solid ${isOptimized ? "rgba(34,197,94,0.5)" : "rgba(239,68,68,0.4)"}`, color: isOptimized ? "#bbf7d0" : "#fecaca", fontSize: 12, fontWeight: 800 }}>
-          {isOptimized ? "신호제어 적용: 병목 완화 구간 통과 중" : "현행 운영: 병목구간 발생"}
+          {simulationCompleted ? "시뮬레이션 완료 · 목적지 정지" : isOptimized ? "신호제어 적용 중 · 실시간 속도 재수집 기준" : "현행 운영 · 실시간 속도 기준"}
           {viaCrossroads.length > 0 ? ` · 자동 경유 ${viaCrossroads.length}개` : ""}
         </div>
       )}
@@ -2119,7 +2415,7 @@ function createSignalCanvas(isRed) {
 
   ctx.clearRect(0, 0, 36, 36);
   ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
+  ctx.shadowBlur = 16;
   ctx.beginPath();
   ctx.arc(18, 18, 13, 0, Math.PI * 2);
   ctx.fillStyle = color;
@@ -2135,6 +2431,127 @@ function createSignalCanvas(isRed) {
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.stroke();
+
+  return canvas.toDataURL();
+}
+
+
+function createDirectionalSpeedLabelCanvas(directionLabel, speedKph, congestion, axisName = "") {
+  const normalized = normalizeCongestion(congestion);
+  const isBottleneck = normalized === "정체";
+  const canvas = document.createElement("canvas");
+  canvas.width = isBottleneck ? 276 : 248;
+  canvas.height = isBottleneck ? 132 : 92;
+  const ctx = canvas.getContext("2d");
+  const color = getCongestionColor(congestion);
+  const speedText = speedKph == null ? "수집 중" : `${Math.round(speedKph)}km/h`;
+  const roadText = axisName ? String(axisName).slice(0, 8) : "";
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = isBottleneck ? 20 : 12;
+  roundRect(ctx, 10, 10, canvas.width - 20, canvas.height - 22, isBottleneck ? 14 : 12);
+  ctx.fillStyle = isBottleneck ? "rgba(69,10,10,0.97)" : "rgba(3,7,18,0.96)";
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.lineWidth = isBottleneck ? 5 : 4;
+  ctx.strokeStyle = color;
+  roundRect(ctx, 10, 10, canvas.width - 20, canvas.height - 22, isBottleneck ? 14 : 12);
+  ctx.stroke();
+
+  if (isBottleneck) {
+    // 관제센터 스타일: 정체 구간은 곧 병목지로 명확히 표시합니다.
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    roundRect(ctx, 24, 22, canvas.width - 48, 30, 8);
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 24px Malgun Gothic";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🚨 병목지", canvas.width / 2, 38);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 28px Malgun Gothic";
+    ctx.fillText(speedText, canvas.width / 2, 78);
+
+    ctx.fillStyle = "#fecaca";
+    ctx.font = "bold 15px Malgun Gothic";
+    const subText = roadText ? `${directionLabel} · ${roadText}` : directionLabel;
+    ctx.fillText(subText, canvas.width / 2, 105);
+
+    return canvas.toDataURL();
+  }
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(34, 42, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 24px Malgun Gothic";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(speedText, 50, 35);
+
+  ctx.fillStyle = color;
+  ctx.font = "bold 14px Malgun Gothic";
+  ctx.fillText(`${directionLabel} · ${normalized}`, 50, 59);
+
+  if (roadText) {
+    ctx.fillStyle = "rgba(226,232,240,0.78)";
+    ctx.font = "bold 11px Malgun Gothic";
+    ctx.textAlign = "right";
+    ctx.fillText(roadText, 226, 59);
+  }
+
+  return canvas.toDataURL();
+}
+
+function createSpeedLabelCanvas(speedKph, congestion, axisName = "") {
+  const canvas = document.createElement("canvas");
+  canvas.width = 236;
+  canvas.height = 88;
+  const ctx = canvas.getContext("2d");
+  const color = getCongestionColor(congestion);
+  const speedText = speedKph == null ? "수집 중" : `${Math.round(speedKph)}km/h`;
+  const title = normalizeCongestion(congestion);
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+  roundRect(ctx, 10, 10, 216, 62, 12);
+  ctx.fillStyle = "rgba(15,23,42,0.92)";
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = color;
+  roundRect(ctx, 10, 10, 216, 62, 12);
+  ctx.stroke();
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(35, 41, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 24px Malgun Gothic";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(speedText, 52, 35);
+
+  ctx.fillStyle = color;
+  ctx.font = "bold 15px Malgun Gothic";
+  ctx.fillText(title, 52, 58);
+
+  if (axisName) {
+    ctx.fillStyle = "rgba(226,232,240,0.84)";
+    ctx.font = "bold 12px Malgun Gothic";
+    ctx.textAlign = "right";
+    ctx.fillText(String(axisName).slice(0, 8), 214, 58);
+  }
 
   return canvas.toDataURL();
 }

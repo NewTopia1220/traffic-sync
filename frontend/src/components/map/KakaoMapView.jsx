@@ -642,9 +642,9 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
 
   // ── SDK 미로드 시 로딩 화면 ─────────────────────────────────────────────────
   if (!ready) return (
-    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0a1020", gap: 10 }}>
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0a1020", gap: 8 }}>
       <div style={{ width: 28, height: 28, border: "3px solid rgba(59,130,246,0.3)", borderTop: "3px solid #3b82f6", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-      <div style={{ fontSize: 14, color: "#6b7280" }}>카카오맵 로딩 중...</div>
+      <div style={{ fontSize: 12, color: "#6b7280" }}>카카오맵 로딩 중...</div>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes complaint-pulse{0%,100%{box-shadow:0 0 14px 4px rgba(255,180,0,0.7),0 2px 8px rgba(0,0,0,0.6)}50%{box-shadow:0 0 22px 8px rgba(255,180,0,0.95),0 2px 8px rgba(0,0,0,0.6)}}`}</style>
     </div>
   );
@@ -659,20 +659,20 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
 
       {/* 우상단: 교통 상태 범례 (pointerEvents:none → 지도 클릭 방해 안 함) */}
-      <div style={{ position: "absolute", top: 14, right: 14, background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "10px 14px", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
-        <div style={{ fontSize: 12, color: "#aab4c8", fontWeight: 700, marginBottom: 8 }}>교통 상태</div>
+      <div style={{ position: "absolute", top: 10, right: 10, background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "8px 11px", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
+        <div style={{ fontSize: 11, color: "#aab4c8", fontWeight: 700, marginBottom: 8 }}>교통 상태</div>
         {[["#2ee07a", "원활 (40km/h+)"], ["#ffaa33", "서행 (20~40km/h)"], ["#ff5566", "혼잡 (~20km/h)"]].map(([c, l]) => (
           <div key={l} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
             <div style={{ width: 9, height: 9, borderRadius: "50%", background: c }} />
-            <span style={{ fontSize: 12, color: "#aab4c8" }}>{l}</span>
+            <span style={{ fontSize: 11, color: "#aab4c8" }}>{l}</span>
           </div>
         ))}
       </div>
 
       {/* 좌상단: 교차로 수 안내 + CCTV 마커 토글 버튼 */}
-      <div style={{ position: "absolute", top: 14, left: 14, display: "flex", gap: 7, zIndex: 10 }}>
+      <div style={{ position: "absolute", top: 10, left: 10, display: "flex", gap: 7, zIndex: 10 }}>
         {/* 교차로 수 안내 (pointerEvents:none) */}
-        <div style={{ background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "7px 14px", fontSize: 14, fontWeight: 700, color: "#aab4c8", pointerEvents: "none", backdropFilter: "blur(4px)" }}>
+        <div style={{ background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 700, color: "#aab4c8", pointerEvents: "none", backdropFilter: "blur(4px)" }}>
           {selectedAreaName} 반경 2.5km · V2X 실시간 · {crossroads.length}개 교차로
         </div>
         {/* 신호등 마커 토글 버튼 */}
@@ -681,7 +681,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
           style={{
             background: showSignal ? "rgba(78,166,255,0.15)" : "rgba(18,14,10,0.88)",
             border: `1px solid ${showSignal ? "rgba(78,166,255,0.55)" : "rgba(255,255,255,0.08)"}`,
-            borderRadius: 8, padding: "7px 14px", fontSize: 14, fontWeight: 700,
+            borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 700,
             color: showSignal ? "#4ea6ff" : "#aab4c8",
             cursor: "pointer", fontFamily: "inherit", backdropFilter: "blur(4px)",
           }}>
@@ -694,7 +694,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
           style={{
             background: showCctv ? "rgba(34,197,94,0.15)" : "rgba(18,14,10,0.88)",
             border: `1px solid ${showCctv ? "rgba(34,197,94,0.55)" : "rgba(255,255,255,0.08)"}`,
-            borderRadius: 8, padding: "7px 14px", fontSize: 14, fontWeight: 700,
+            borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 700,
             color: showCctv ? "#22c55e" : "#aab4c8",
             cursor: "pointer", fontFamily: "inherit", backdropFilter: "blur(4px)",
           }}>
@@ -707,7 +707,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
           style={{
             background: showTraffic ? "rgba(139,90,43,0.18)" : "rgba(18,14,10,0.88)",
             border: `1px solid ${showTraffic ? "rgba(216,180,138,0.65)" : "rgba(255,255,255,0.08)"}`,
-            borderRadius: 8, padding: "7px 14px", fontSize: 14, fontWeight: 700,
+            borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 700,
             color: showTraffic ? "#d8b48a" : "#aab4c8",
             cursor: "pointer", backdropFilter: "blur(4px)",
           }}>
@@ -717,7 +717,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
 
       {/* 하단 중앙: 클러스터 모드 안내 (zoom < 5일 때만 표시) */}
       {zoom >= CLUSTER_LEVEL && (
-        <div style={{ position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, padding: "5px 14px", fontSize: 12, color: "#aab4c8", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
+        <div style={{ position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)", background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, padding: "4px 10px", fontSize: 11, color: "#aab4c8", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
           클러스터 모드 · 확대하면 마커별 위치 표시
         </div>
       )}

@@ -48,25 +48,25 @@ export default function AppHeader({
   };
 
   return (
-    <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 24px", height: 72, display: "flex", alignItems: "center", gap: 18, flexShrink: 0, position: "sticky", top: 0, zIndex: 100, fontFamily: V.sans }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 260 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}` }}>
+    <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 12px", height: 60, display: "flex", alignItems: "center", gap: 8, flexShrink: 0, position: "sticky", top: 0, zIndex: 100, fontFamily: V.sans, overflow: "hidden", whiteSpace: "nowrap" }}>
+      <button onClick={onGoMain} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 210, flexShrink: 0, background: "transparent", border: 0, padding: 0, cursor: "pointer", textAlign: "left", fontFamily: V.sans }}>
+        <div style={{ width: 24, height: 24, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}` }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: V.grn, display: "block" }} />
         </div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 19, color: V.ink0 }}>Traffic-Sync 관제 시스템</div>
-          <div style={{ fontSize: 13, color: V.ink2 }}>V2X 공공 API 기반 실시간 교통 관제 플랫폼</div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: V.ink0 }}>Traffic-Sync 관제 시스템</div>
+          <div style={{ fontSize: 10, color: V.ink2 }}>V2X 공공 API 기반 실시간 교통 관제 플랫폼</div>
         </div>
-      </div>
+      </button>
 
-      <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3 }}>
+      <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3, flexShrink: 0 }}>
         {tabs.map(([label, tab]) => {
           const isActive = tab === activePage;
           const isCivil  = tab === "complaints";
           const dotColor = isActive ? V.blu : isCivil ? V.org : V.ink3;
           return (
             <button key={tab} onClick={() => go(tab)}
-              style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "7px 15px", borderRadius: 999, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans, position: "relative" }}>
+              style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "6px 10px", borderRadius: 999, fontSize: 13, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans, position: "relative", whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1.15 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
               {label}
               {/* 미처리 민원 배지 */}
@@ -81,26 +81,26 @@ export default function AppHeader({
       </div>
 
       {selectedGu && (
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 13px", borderRadius: 2, background: "#1a1206", border: "1px solid #3a2a14", color: V.org, fontSize: 12, fontWeight: 600 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "4px 9px", borderRadius: 2, background: "#1a1206", border: "1px solid #3a2a14", color: V.org, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
           {selectedGu.name} 선택됨
         </div>
       )}
 
-      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, whiteSpace: "nowrap" }}>
         {statusText && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", border: `1px solid ${V.line}`, background: V.bg0, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink1 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", border: `1px solid ${V.line}`, background: V.bg0, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink1, whiteSpace: "nowrap" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusLive ? V.grn : V.ink3, display: "inline-block" }} />
             {statusText}
           </span>
         )}
         {rightExtra}
-        <span style={{ fontFamily: V.mono, fontSize: 13, color: V.ink0, letterSpacing: ".3px" }}>
+        <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink0, letterSpacing: ".3px" }}>
           <span style={{ color: V.ink2, marginRight: 6 }}>{time.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}</span>
           {time.toLocaleTimeString("ko-KR")}
         </span>
-        {onGoMyPage && <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 999, padding: "7px 15px", color: "#fff", fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>마이페이지</button>}
-        {onLogout && <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: "1px solid #3a1820", borderRadius: 999, padding: "7px 15px", color: V.red, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>로그아웃</button>}
+        {onGoMyPage && <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 999, padding: "6px 10px", color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: V.sans, whiteSpace: "nowrap", flexShrink: 0 }}>마이페이지</button>}
+        {onLogout && <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: "1px solid #3a1820", borderRadius: 999, padding: "6px 10px", color: V.red, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: V.sans, whiteSpace: "nowrap", flexShrink: 0 }}>로그아웃</button>}
       </div>
     </div>
   );

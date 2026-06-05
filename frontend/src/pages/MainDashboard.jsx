@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { GU_LIST, calcDistKm } from "../constants/seoulGeoData";
 import SeoulSvgMap from "../components/map/SeoulSvgMap";
 import ReActToastContainer, { triggerReActToast } from "../components/common/ReActToast";
+import AppHeader from "../components/common/AppHeader";
 
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
@@ -44,7 +45,7 @@ function BottleneckEmailBtn({ district, apiBase }) {
 
   return (
     <button onClick={handleClick} disabled={status === "loading"} style={{
-      fontSize: 17, padding: "7px 12px", borderRadius: 999, fontWeight: 500,
+      fontSize: 15, padding: "6px 10px", borderRadius: 999, fontWeight: 500,
       border: "1px solid #1a1a1a", background: "transparent",
       color: "#fff", cursor: status === "loading" ? "wait" : "pointer",
       fontFamily: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif", transition: "all 0.2s", boxShadow: "none", letterSpacing: "0"
@@ -132,7 +133,7 @@ function KpiCard({ value, unit, label, sub, status }) {
     : status === "위험" || status === "서행" || status === "피크" || status === "주의" ? { c: V.org, bg: "#1a1206", bd: "#3a2a14" }
     : { c: V.ink1, bg: V.bg0, bd: V.line };
   return (
-    <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "18px 22px", position: "relative", minHeight: 118 }}>
+    <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "14px 18px", position: "relative", minHeight: 96 }}>
       {/* 우측 상단 상태 배지 */}
       {status && (
         <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 2, background: s.bg, border: `1px solid ${s.bd}`, color: s.c, position: "absolute", top: 14, right: 16 }}>
@@ -140,11 +141,11 @@ function KpiCard({ value, unit, label, sub, status }) {
         </span>
       )}
       {/* 큰 숫자 */}
-      <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 52, color: "#fff", letterSpacing: "-1.8px", lineHeight: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
-        {value}<span style={{ fontSize: 16, color: V.ink2, fontWeight: 500 }}>{unit}</span>
+      <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 44, color: "#fff", letterSpacing: "-1.8px", lineHeight: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
+        {value}<span style={{ fontSize: 14, color: V.ink2, fontWeight: 500 }}>{unit}</span>
       </div>
-      <div style={{ fontSize: 17, color: V.ink0, fontWeight: 600, marginTop: 8 }}>{label}</div>
-      <div style={{ fontSize: 14, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>{sub}</div>
+      <div style={{ fontSize: 15, color: V.ink0, fontWeight: 600, marginTop: 7 }}>{label}</div>
+      <div style={{ fontSize: 12, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>{sub}</div>
     </div>
   );
 }
@@ -230,7 +231,7 @@ function LivCard({ name, color, speed, sparkData }) {
   const trend = cnt >= 2 ? Math.round(sparkData[cnt - 1] - sparkData[Math.max(0, cnt - 6)]) : null;
 
   return (
-    <div style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "16px 18px 12px", display: "flex", flexDirection: "column", gap: 10, minHeight: 200 }}>
+    <div style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "14px 16px 10px", display: "flex", flexDirection: "column", gap: 8, minHeight: 172 }}>
       {/* 헤더: 색상 막대 + 교차로명 + 상태 배지 */}
       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
         <span style={{ display: "inline-block", width: 14, height: 3, background: color, borderRadius: 1, marginRight: 9 }} />
@@ -239,8 +240,8 @@ function LivCard({ name, color, speed, sparkData }) {
       </div>
       {/* 속도 수치 + 추세 */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontFamily: V.mono, flexShrink: 0 }}>
-        <span style={{ fontSize: 54, fontWeight: 700, color: "#fff", lineHeight: 1, letterSpacing: "-1px" }}>{speed ?? "—"}</span>
-        <span style={{ fontSize: 16, color: V.ink2 }}>km/h</span>
+        <span style={{ fontSize: 44, fontWeight: 700, color: "#fff", lineHeight: 1, letterSpacing: "-1px" }}>{speed ?? "—"}</span>
+        <span style={{ fontSize: 14, color: V.ink2 }}>km/h</span>
         {trend !== null && (
           <span style={{ marginLeft: "auto", fontSize: 13, color: trend >= 0 ? V.grn : V.red }}>
             {trend >= 0 ? "▲" : "▼"} {Math.abs(trend)} km/h
@@ -283,8 +284,8 @@ function DonutChart({ name, score, grade }) {
   const dash = ready ? (riskPercent(score) / 100) * circ : 0; // 채워질 길이
 
   return (
-    <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 10, minHeight: 300 }}>
-      <svg viewBox="0 0 220 220" style={{ width: "100%", maxHeight: 260, display: "block" }}>
+    <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: 8, minHeight: 230 }}>
+      <svg viewBox="0 0 220 220" style={{ width: "100%", maxHeight: 210, display: "block" }}>
         {/* 배경 트랙 (회색 원) */}
         <circle cx="110" cy="110" r={r} fill="none" stroke="#141414" strokeWidth={sw} />
         {/* 진행률 원: -90도 회전해서 12시 방향부터 시작 */}
@@ -295,7 +296,7 @@ function DonutChart({ name, score, grade }) {
       {/* 중앙 텍스트 오버레이 */}
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", pointerEvents: "none" }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 6 }}>{name || "—"}</div>
-        <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 72, color: "#fff", letterSpacing: "-3px", lineHeight: 1 }}>
+        <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 56, color: "#fff", letterSpacing: "-3px", lineHeight: 1 }}>
           {ready ? score : "—"}<span style={{ fontSize: 15, color: V.ink2, fontWeight: 500, marginLeft: 3 }}>점</span>
         </div>
         <div style={{ marginTop: 8, fontFamily: V.mono, fontSize: 13, padding: "4px 12px", borderRadius: 2, border: `1px solid ${color}`, color, background: `${color}20`, fontWeight: 700 }}>{level}</div>
@@ -354,7 +355,7 @@ function ForecastChart({ up = [], down = [], name }) {
       </div>
 
       {/* 차트 본체 */}
-      <div style={{ display: "flex", flex: 1, minHeight: 200 }}>
+      <div style={{ display: "flex", flex: 1, minHeight: 170 }}>
         {/* Y축 레이블 */}
         <div style={{ width: 44, display: "flex", flexDirection: "column", justifyContent: "space-between", padding: "6px 8px 28px 0", fontFamily: V.mono, fontSize: 11, color: V.ink2, borderRight: `1px dashed ${V.line}`, textAlign: "right" }}>
           {axisVals.map((v, i) => <span key={i}>{v}</span>)}
@@ -625,7 +626,20 @@ const CARD_COLORS = [V.red, V.org, V.grn];
  *   wsData    - App에서 관리하는 WebSocket 교차로 신호 데이터 배열
  */
 
-export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu }) {
+export default function MainDashboard({
+  onGoMap,
+  onGoCctv,
+  onGoNews,
+  onGoSimulation,
+  onGoComplaints,
+  onGoMyPage,
+  onLogout,
+  wsData,
+  stations = [],
+  setStations,
+  selectedGu,
+  onSelectGu,
+}) {
   const [time, setTime] = useState(new Date());
   const [loading, setLoading] = useState(false);
   // "송파구 · 12개 교차로 수집됨" 같은 임시 메시지 (3초 후 사라짐)
@@ -916,81 +930,49 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
 
   // ── 렌더링 ──────────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, minHeight: "100vh", display: "flex", flexDirection: "column", overflowY: "auto" }}>
+    <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, minHeight: "100vh", display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden" }}>
 
       <ReActToastContainer />
 
       {/* ── 헤더 (sticky) ── */}
-      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 24px", height: 72, display: "flex", alignItems: "center", gap: 18, flexShrink: 0, position: "sticky", top: 0, zIndex: 100 }}>
-        {/* 로고 영역 */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 260 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}` }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: V.grn, display: "block" }} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 19 }}>Traffic-Sync 관제 시스템</div>
-            <div style={{ fontSize: 13, color: V.ink2 }}>V2X 공공 API 기반 실시간 교통 관제 플랫폼</div>
-          </div>
-        </div>
-
-        {/* 페이지 탭: 통합 대시보드(현재) / 실시간 지도 / CCTV 관제 */}
-        <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3 }}>
-          {[["통합 대시보드", "main"], ["실시간 지도", "map"], ["뉴스", "news"], ["CCTV 관제", "cctv"], ["신호 시뮬레이션", "simulation"]].map(([label, tab]) => {
-            const isActive = tab === "main";
-            const onClick = tab === "map" ? () => onGoMap(selectedGu)
-              : tab === "cctv" ? onGoCctv
-              : tab === "news" ? onGoNews
-              : tab === "simulation" ? onGoSimulation
-              : undefined;
-            return (
-              <button key={tab}
-                onClick={onClick}
-                style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "7px 15px", borderRadius: 999, fontSize: 15, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? V.blu : V.ink3, display: "inline-block" }} />
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* 선택된 구 배지 */}
-        {selectedGu && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 13px", borderRadius: 2, background: "#1a1206", border: "1px solid #3a2a14", color: V.org, fontSize: 12, fontWeight: 600 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
-              {selectedGu.name} 선택됨
-            </div>
-            <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
-          </div>
+      <AppHeader
+        activePage="main"
+        selectedGu={selectedGu}
+        statusText={isLive ? "LIVE · V2X 연결됨" : undefined}
+        statusLive={isLive}
+        onGoMain={() => {}}
+        onGoMap={onGoMap}
+        onGoNews={onGoNews}
+        onGoCctv={onGoCctv}
+        onGoSimulation={onGoSimulation}
+        onGoComplaints={onGoComplaints}
+        onGoMyPage={onGoMyPage}
+        onLogout={onLogout}
+        rightExtra={(
+          <>
+            {selectedGu && (
+              <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
+            )}
+            {fetchMsg && (
+              <span style={{
+                fontSize: 12,
+                color: V.grn,
+                padding: "3px 10px",
+                borderRadius: 2,
+                border: "1px solid #1a3a24",
+                background: "#0c1a12",
+                fontFamily: V.mono,
+                whiteSpace: "nowrap",
+              }}>
+                ✓ {fetchMsg}
+              </span>
+            )}
+          </>
         )}
-        {/* 데이터 수집 결과 메시지 (3초 표시) */}
-        {fetchMsg && (
-          <div style={{ fontSize: 12, color: V.grn, padding: "3px 10px", borderRadius: 2, border: "1px solid #1a3a24", background: "#0c1a12", fontFamily: V.mono }}>✓ {fetchMsg}</div>
-        )}
-
-        {/* 우측: LIVE 뱃지 + 날짜/시계 + 마이페이지 + 로그아웃 */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-          {isLive && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", border: `1px solid ${V.line}`, background: V.bg0, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink1 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.grn, display: "inline-block" }} />
-              LIVE · V2X 연결됨
-            </span>
-          )}
-          <span style={{ fontFamily: V.mono, fontSize: 13, color: V.ink0, letterSpacing: ".3px" }}>
-            <span style={{ color: V.ink2, marginRight: 6 }}>{time.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}</span>
-            {time.toLocaleTimeString("ko-KR")}
-          </span>
-          <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 999, padding: "7px 15px", color: "#fff", fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>
-            마이페이지
-          </button>
-          <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: `1px solid #3a1820`, borderRadius: 999, padding: "7px 15px", color: V.red, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: V.sans }}>
-            로그아웃
-          </button>
-        </div>
-      </div>
+      />
 
       {/* ── KPI 카드 4개 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, padding: "8px 14px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, padding: "6px 10px" }}>
         <KpiCard value={activeData.length || 0} unit="개" label="모니터링 교차로" sub={guLabel} status="정상" />
         <KpiCard value={riskReadyData.length ? highRisk : "—"} unit={riskReadyData.length ? "개" : ""} label="위험 교차로" sub={riskReadyData.length ? "등급 3 이상" : "위험도 수집 대기"} status={riskStatus} />
         <KpiCard value={avgSpeed} unit="km/h" label="현재 평균 속도" sub="전 교차로 추정" status={speedStatus === "혼잡" ? "혼잡" : speedStatus === "서행" ? "서행" : "정상"} />
@@ -998,12 +980,12 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
       </div>
 
       {/* ── 2행: 실시간 속도 + 서울 지도 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, padding: "0 14px", alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 6, padding: "0 10px", alignItems: "stretch" }}>
 
         {/* 실시간 구간 속도 패널 */}
         <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: `1px solid ${V.line}`, background: "#080808", flexWrap: "wrap", flexShrink: 0 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808", flexWrap: "wrap", flexShrink: 0 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>실시간 구간 속도
             </span>
             {/* 교차로 선택 드롭다운 */}
@@ -1012,13 +994,13 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
               {isLive ? "● LIVE · 수집 중" : "대기 중"}
             </div>
           </div>
-          <div style={{ padding: 12, flex: 1, display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: 10, flex: 1, display: "flex", flexDirection: "column" }}>
             {/* LivCard 3개 */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, flex: 1 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, flex: 1 }}>
               {displayCards.map((c, i) => <LivCard key={i} {...c} />)}
             </div>
             {/* 하단 상태 바 */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "9px 12px", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink2, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "7px 10px", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink2, flexShrink: 0 }}>
               <span>마지막 갱신 {isLive ? time.toLocaleTimeString("ko-KR") : "—"}</span>
               <span style={{ color: V.ink3 }}>·</span>
               <span>누적 —분 / 최대 60분</span>
@@ -1028,9 +1010,9 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
         </div>
 
         {/* 서울 SVG 지도 */}
-        <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column", minHeight: 460 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", borderBottom: `1px solid ${V.line}`, background: "#080808", flexShrink: 0 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
+        <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column", minHeight: 360 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808", flexShrink: 0 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>서울 교통 현황
             </span>
             <button onClick={() => onGoMap(selectedGu)} style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11, color: V.ink1, padding: "3px 8px", border: `1px solid ${V.line}`, borderRadius: 2, background: V.bg0, cursor: "pointer" }}>
@@ -1046,12 +1028,12 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
 
       
       {/* ── 3행: 위험도 패널 + 예측 차트 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, padding: "8px 14px 24px", alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 6, padding: "6px 10px 16px", alignItems: "stretch" }}>
 
         {/* 위험도 패널 */}
         <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>교차로별 위험도
             </span>
             <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 12, color: isLive ? V.grn : V.ink2, padding: "3px 8px", border: `1px solid ${isLive ? "#1a3a24" : V.line}`, borderRadius: 2, background: isLive ? "#0c1a12" : V.bg0 }}>
@@ -1060,7 +1042,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
           </div>
           <div style={{ padding: 12 }}>
             {/* 관심 교차로 등록 바 */}
-            <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 14px", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "8px 12px", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, marginBottom: 10 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>
                 <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>◉</span>관심 교차로 등록
               </span>
@@ -1070,7 +1052,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             </div>
 
             {/* 8슬롯 그리드 (클릭 → 도넛/예측 차트 연동) */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", border: `1px solid ${V.line}`, borderRadius: 2, background: V.bg1, marginBottom: 12, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", border: `1px solid ${V.line}`, borderRadius: 2, background: V.bg1, marginBottom: 10, overflow: "hidden" }}>
               {Array.from({ length: 8 }).map((_, i) => {
                 const d = displayWatch[i];
                 const isManual = d && watchList.some(w => w.id === d.id);
@@ -1079,7 +1061,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
                 return d ? (
                   <div key={i} onClick={() => setRiskIdx(i)} style={{
                     display: "grid", gridTemplateColumns: "auto 1fr auto", alignItems: "center", gap: 10,
-                    padding: "14px 16px", background: isSel ? "#141414" : "transparent",
+                    padding: "10px 12px", background: isSel ? "#141414" : "transparent",
                     borderRight: `1px solid ${V.line}`, borderBottom: `1px solid ${V.line}`,
                     cursor: "pointer",
                     boxShadow: isSel ? `inset 2px 0 0 ${color}` : "none", // 선택 강조: 좌측 색상 막대
@@ -1097,7 +1079,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
                   </div>
                 ) : (
                   // 빈 슬롯
-                  <div key={i} style={{ padding: "14px 16px", borderRight: `1px solid ${V.line}`, borderBottom: `1px solid ${V.line}`, display: "flex", alignItems: "center", justifyContent: "center", border: `1px dashed ${V.line}`, color: V.ink3, fontSize: 11, fontFamily: V.mono }}>
+                  <div key={i} style={{ padding: "10px 12px", borderRight: `1px solid ${V.line}`, borderBottom: `1px solid ${V.line}`, display: "flex", alignItems: "center", justifyContent: "center", border: `1px dashed ${V.line}`, color: V.ink3, fontSize: 11, fontFamily: V.mono }}>
                     #{i + 1} 빈 슬롯
                   </div>
                 );
@@ -1105,20 +1087,20 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             </div>
 
             {/* 도넛 차트 + 위험도 breakdown */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <DonutChart name={selectedRisk?.name} score={selectedRisk?.score} grade={selectedRisk?.grade} />
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {bdItems.map((b, i) => (
-                  <div key={i} style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "16px 18px", display: "grid", gridTemplateColumns: "1fr auto", rowGap: 12 }}>
+                  <div key={i} style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "12px 14px", display: "grid", gridTemplateColumns: "1fr auto", rowGap: 12 }}>
                     <div style={{ fontSize: 14, color: "#fff", fontWeight: 600 }}>
                       {b.label}
                       <small style={{ display: "block", color: V.ink2, fontSize: 11, fontFamily: V.mono, fontWeight: 500, marginTop: 3 }}>{b.sub}</small>
                     </div>
-                    <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 28, color: "#fff", textAlign: "right", alignSelf: "end" }}>
+                    <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 22, color: "#fff", textAlign: "right", alignSelf: "end" }}>
                       {b.value}<em style={{ fontStyle: "normal", fontSize: 13, color: V.ink2, marginLeft: 3 }}>{b.unit}</em>
                     </div>
                     {/* 수평 프로그레스 바 */}
-                    <div style={{ gridColumn: "1/3", height: 8, background: "#141414", borderRadius: 999, overflow: "hidden" }}>
+                    <div style={{ gridColumn: "1/3", height: 7, background: "#141414", borderRadius: 999, overflow: "hidden" }}>
                       <div style={{ height: "100%", width: `${b.pct}%`, background: b.color, borderRadius: 999, transition: "width .25s ease" }} />
                     </div>
                   </div>
@@ -1130,8 +1112,8 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
 
         {/* 시간대별 교통량 예측 */}
         <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>시간대별 교통량 예측
             </span>
             <span style={{ 
@@ -1145,7 +1127,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
           </div>
 
           {/* 관심 교차로 대신 DB 스테이션 드롭다운 사용 */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: `1px solid ${V.line}`, background: "#060606" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#060606" }}>
             <span style={{ fontSize: 12, color: V.ink2, fontFamily: V.mono }}>지점 선택</span>
             <StationPredictDropdown 
               stations={filteredStations} 
@@ -1154,7 +1136,7 @@ export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulat
             />
           </div>
 
-          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
+          <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
             <ForecastChart up={forecast.up} down={forecast.down} name={forecast.name} />
           </div>
         </div>

@@ -4,21 +4,10 @@
  * React Router 없이 useState(page)로 화면을 전환하는 단일 페이지 구조.
  * URL은 바뀌지 않고 page 값에 따라 렌더링할 화면이 결정된다.
  *
- *   login → LoginPage
- *   main  → MainDashboard (기본)
- *   map   → MapDashboard
- *   cctv  → CctvDashboard
- *   news  → NewsDashboard
- *   simulation → SimulationDashboard
- *   mypage → MyPage
- *
- * WebSocket 교차로 데이터(wsData)와 선택 구(selectedGu)는 여러 화면이
- * 공유하므로 App에서 관리하고 props로 내려준다.
- *
- * AI 음성 어시스턴트 / 구 브리핑 관련 로직은 모두 useAssistant 훅에 있고,
- * App은 그 상태를 받아 메인 화면 위에 팝업 컴포넌트들을 띄우기만 한다.
+ * VWorld 3D 지도는 unmount/remount 과정에서 전역 viewer가 꼬일 수 있으므로
+ * SimulationDashboard는 한 번 진입한 뒤에는 unmount하지 않고 display만 전환한다.
  */
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 
 import LoginPage from './pages/LoginPage'
 import MyPage from './pages/mypage/MyPage'
@@ -48,6 +37,14 @@ export default function App() {
     localStorage.getItem('ts_user') ? 'main' : 'login'
   )
 
+  // VWorld 3D viewer 재초기화 오류 방지용.
+  // 시뮬레이션 페이지에 한 번 들어간 뒤에는 컴포넌트를 unmount하지 않고 숨김 처리만 한다.
+  const [simulationMounted, setSimulationMounted] = useState(false)
+
+  useEffect(() => {
+    if (page === 'simulation') setSimulationMounted(true)
+  }, [page])
+
   // 여러 화면이 공유하는 데이터 상태
   const [wsData, setWsData] = useState([])
   const { wsStatus, lastUpdate } = useWebSocket(setWsData)
@@ -59,6 +56,8 @@ export default function App() {
 
   // 로그인 브리핑 카드
   const [loginBriefing, setLoginBriefing] = useState(null) // { name, gu, weatherDesc, temp, pendingCount }
+
+  const goSimulation = () => setPage('simulation')
 
   // AI 어시스턴트 / 브리핑 로직 일체
   const assistant = useAssistant({
@@ -98,7 +97,7 @@ export default function App() {
     assistant.promptGuBriefing(name, gu.name)
   }
 
-  // ── 페이지별 조건부 렌더링 ──────────────────────────────────────
+  // ── 로그인/민원 사용자 페이지는 별도 진입 화면 ──────────────────
 
   if (page === 'civil') return <CivilApp onBack={() => setPage('login')} />
 
@@ -146,139 +145,171 @@ export default function App() {
     />
   )
 
-  if (page === 'mypage') return <MyPage onBack={() => setPage('main')} />
+  // ── 로그인 이후 화면 ────────────────────────────────────────────
+  // SimulationDashboard는 한 번 생성되면 계속 유지된다.
+  // 다른 페이지로 이동할 때는 display:none으로만 숨겨 VWorld viewer 재정의 오류를 막는다.
 
-  if (page === 'complaints') return (
-    <ComplaintManagePage onBack={() => setPage('map')} />
-  )
+  const showMain = page === 'main'
+    || !['map', 'cctv', 'news', 'simulation', 'mypage', 'complaints'].includes(page)
 
-  if (page === 'news') return (
-    <NewsDashboard
-      onGoMain={() => setPage('main')}
-      onGoMap={goMap}
-      onGoCctv={() => setPage('cctv')}
-      onGoSimulation={() => setPage('simulation')}
-      onGoComplaints={() => setPage('complaints')}
-      onGoMyPage={() => setPage('mypage')}
-      onLogout={() => setPage('login')}
-      selectedGu={selectedGu}
-    />
-  )
-
-  if (page === 'simulation') return (
-    <SimulationDashboard
-      onGoMain={() => setPage('main')}
-      onGoMap={goMap}
-      onGoNews={() => setPage('news')}
-      onGoCctv={() => setPage('cctv')}
-      onGoComplaints={() => setPage('complaints')}
-      onGoMyPage={() => setPage('mypage')}
-      onLogout={() => setPage('login')}
-      selectedGu={selectedGu}
-    />
-  )
-
-  if (page === 'cctv') return (
-    <CctvDashboard
-      onGoMain={() => setPage('main')}
-      onGoMap={goMap}
-      onGoNews={() => setPage('news')}
-      onGoSimulation={() => setPage('simulation')}
-      onGoComplaints={() => setPage('complaints')}
-      onGoMyPage={() => setPage('mypage')}
-      onLogout={() => setPage('login')}
-      selectedGu={selectedGu}
-    />
-  )
-
-  if (page === 'map') return (
-    <MapDashboard
-      onGoMain={() => setPage('main')}
-      onGoCctv={() => setPage('cctv')}
-      onGoNews={() => setPage('news')}
-      onGoSimulation={() => setPage('simulation')}
-      onGoComplaints={() => setPage('complaints')}
-      onGoMyPage={() => setPage('mypage')}
-      onLogout={() => setPage('login')}
-      selectedGu={selectedGu}
-      wsData={wsData}
-      setWsData={setWsData}
-      initialCenter={mapCenter}
-      wsStatus={wsStatus}
-      lastUpdate={lastUpdate}
-      stations={stations}
-    />
-  )
-
-  // ── 메인 대시보드 + AI 어시스턴트 팝업들 ────────────────────────
   return (
     <>
-      <AssistantKeyframes />
+      {simulationMounted && (
+        <div
+          style={{
+            display: page === 'simulation' ? 'block' : 'none',
+            height: '100vh',
+            width: '100vw',
+            overflow: 'hidden',
+          }}
+        >
+          <SimulationDashboard
+            onGoMain={() => setPage('main')}
+            onGoMap={goMap}
+            onGoNews={() => setPage('news')}
+            onGoCctv={() => setPage('cctv')}
+            onGoComplaints={() => setPage('complaints')}
+            onGoMyPage={() => setPage('mypage')}
+            onLogout={() => setPage('login')}
+            selectedGu={selectedGu}
+          />
+        </div>
+      )}
 
-      {loginBriefing && (
-        <LoginBriefingCard
-          briefing={loginBriefing}
-          onClose={() => {
-            stopAllTTS()
-            setLoginBriefing(null)
-            assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
-          }}
-          onTTSDone={() => {
-            setLoginBriefing(null)
-            assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
-          }}
+      {page === 'mypage' && (
+        <MyPage onBack={() => setPage('main')} />
+      )}
+
+      {page === 'complaints' && (
+        <ComplaintManagePage
+          onGoMain={() => setPage('main')}
+          onGoMap={goMap}
+          onGoNews={() => setPage('news')}
+          onGoCctv={() => setPage('cctv')}
+          onGoSimulation={goSimulation}
+          onGoComplaints={() => setPage('complaints')}
+          onGoMyPage={() => setPage('mypage')}
+          onLogout={() => setPage('login')}
+          headerSelectedGu={selectedGu}
+          onBack={() => setPage('map')}
         />
       )}
 
-      <NavBlockToast message={assistant.navBlockMsg} />
-
-      {/* 음성 어시스턴트 채팅 팝업 (최소화 상태가 아닐 때만) */}
-      {assistant.voiceUI.active && !assistant.voiceMinimized && (
-        <VoiceAssistantPanel
-          voiceUI={assistant.voiceUI}
-          voiceSTTActive={assistant.voiceSTTActive}
-          msgEndRef={assistant.msgEndRef}
-          onStartSTT={assistant.startVoiceSTT}
-          onStopTTS={assistant.stopAllTTS}
-          onMinimize={assistant.minimizeVoiceUI}
-          onClose={assistant.closeVoiceUI}
-          onEmailConfirm={assistant.handleEmailConfirmClick}
+      {page === 'news' && (
+        <NewsDashboard
+          onGoMain={() => setPage('main')}
+          onGoMap={goMap}
+          onGoCctv={() => setPage('cctv')}
+          onGoSimulation={goSimulation}
+          onGoComplaints={() => setPage('complaints')}
+          onGoMyPage={() => setPage('mypage')}
+          onLogout={() => setPage('login')}
+          selectedGu={selectedGu}
         />
       )}
 
-      {/* 항상 보이는 AI 플로팅 버튼 */}
-      <AIFloatingButton
-        active={assistant.voiceUI.active}
-        minimized={assistant.voiceMinimized}
-        onClick={assistant.onFloatingClick}
-      />
+      {page === 'cctv' && (
+        <CctvDashboard
+          onGoMain={() => setPage('main')}
+          onGoMap={goMap}
+          onGoNews={() => setPage('news')}
+          onGoSimulation={goSimulation}
+          onGoComplaints={() => setPage('complaints')}
+          onGoMyPage={() => setPage('mypage')}
+          onLogout={() => setPage('login')}
+          selectedGu={selectedGu}
+        />
+      )}
 
-      {/* 구 분석 시작 확인 팝업 — 보이스 패널이 열려있으면 그 왼쪽에 위치 */}
-      <PendingBriefingPopup
-        pending={assistant.pendingBriefing}
-        onStart={assistant.acceptPendingBriefing}
-        onDismiss={assistant.dismissPendingBriefing}
-        shifted={assistant.voiceUI.active && !assistant.voiceMinimized}
-      />
+      {page === 'map' && (
+        <MapDashboard
+          onGoMain={() => setPage('main')}
+          onGoCctv={() => setPage('cctv')}
+          onGoNews={() => setPage('news')}
+          onGoSimulation={goSimulation}
+          onGoComplaints={() => setPage('complaints')}
+          onGoMyPage={() => setPage('mypage')}
+          onLogout={() => setPage('login')}
+          selectedGu={selectedGu}
+          wsData={wsData}
+          setWsData={setWsData}
+          initialCenter={mapCenter}
+          wsStatus={wsStatus}
+          lastUpdate={lastUpdate}
+          stations={stations}
+        />
+      )}
 
-      <MainDashboard
-        onGoMap={goMap}
-        onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
-        onGoNews={() => assistant.tryNav(() => setPage('news'))}
-        onGoSimulation={() => assistant.tryNav(() => setPage('simulation'))}
-        onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
-        onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
-        onLogout={() => assistant.tryNav(() => setPage('login'))}
-        wsData={wsData}
-        setWsData={setWsData}
-        stations={stations}
-        setStations={setStations}
-        selectedGu={selectedGu}
-        onSelectGu={handleSelectGu}
-        onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
-        isMuted={assistant.isMuted}
-        onToggleMute={assistant.toggleMute}
-      />
+      {showMain && (
+        <>
+          <AssistantKeyframes />
+
+          {loginBriefing && (
+            <LoginBriefingCard
+              briefing={loginBriefing}
+              onClose={() => {
+                stopAllTTS()
+                setLoginBriefing(null)
+                assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
+              }}
+              onTTSDone={() => {
+                setLoginBriefing(null)
+                assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
+              }}
+            />
+          )}
+
+          <NavBlockToast message={assistant.navBlockMsg} />
+
+          {/* 음성 어시스턴트 채팅 팝업 (최소화 상태가 아닐 때만) */}
+          {assistant.voiceUI.active && !assistant.voiceMinimized && (
+            <VoiceAssistantPanel
+              voiceUI={assistant.voiceUI}
+              voiceSTTActive={assistant.voiceSTTActive}
+              msgEndRef={assistant.msgEndRef}
+              onStartSTT={assistant.startVoiceSTT}
+              onStopTTS={assistant.stopAllTTS}
+              onMinimize={assistant.minimizeVoiceUI}
+              onClose={assistant.closeVoiceUI}
+              onEmailConfirm={assistant.handleEmailConfirmClick}
+            />
+          )}
+
+          {/* 항상 보이는 AI 플로팅 버튼 */}
+          <AIFloatingButton
+            active={assistant.voiceUI.active}
+            minimized={assistant.voiceMinimized}
+            onClick={assistant.onFloatingClick}
+          />
+
+          {/* 구 분석 시작 확인 팝업 — 보이스 패널이 열려있으면 그 왼쪽에 위치 */}
+          <PendingBriefingPopup
+            pending={assistant.pendingBriefing}
+            onStart={assistant.acceptPendingBriefing}
+            onDismiss={assistant.dismissPendingBriefing}
+            shifted={assistant.voiceUI.active && !assistant.voiceMinimized}
+          />
+
+          <MainDashboard
+            onGoMap={goMap}
+            onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
+            onGoNews={() => assistant.tryNav(() => setPage('news'))}
+            onGoSimulation={() => assistant.tryNav(goSimulation)}
+            onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
+            onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
+            onLogout={() => assistant.tryNav(() => setPage('login'))}
+            wsData={wsData}
+            setWsData={setWsData}
+            stations={stations}
+            setStations={setStations}
+            selectedGu={selectedGu}
+            onSelectGu={handleSelectGu}
+            onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
+            isMuted={assistant.isMuted}
+            onToggleMute={assistant.toggleMute}
+          />
+        </>
+      )}
     </>
   )
 }
