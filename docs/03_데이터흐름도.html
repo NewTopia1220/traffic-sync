@@ -271,7 +271,7 @@ p { margin-bottom: 10px; line-height: 1.7; }
     </tr>
     <tr>
       <td><strong>외부 공공 API</strong></td>
-      <td>V2X(공공데이터포털), TOPIS, 기상청, 도로위험도, T Data (운영계정 신청 중), UTIC CCTV, 네이버 뉴스 검색, Groq LLM API</td>
+      <td>V2X(공공데이터포털), TOPIS 실시간 도로 소통 정보(상행/하행 속도), 기상청, 도로위험도, UTIC CCTV, VWorld 3D WebGL, 네이버 뉴스 검색, Groq LLM API, Google Cloud TTS <span style="font-size:8pt;color:#2563eb;">[v1.1 수정 — T Data 삭제]</span></td>
     </tr>
   </tbody>
 </table>
@@ -1113,12 +1113,9 @@ p { margin-bottom: 10px; line-height: 1.7; }
     <tr><td>도로위험도 API</td><td class="center">공공데이터포털</td><td>LineString 구간별 위험등급(1~5), 위험지수(0~100)</td><td class="center">API Key (쿼리)</td><td class="center">300초 폴링</td></tr>
     <tr><td>네이버 뉴스 검색 RSS</td><td class="center">Naver (민간)</td><td>교통 관련 키워드별 최신 뉴스 기사 (제목·링크·발행일)</td><td class="center">없음 (공개 RSS)</td><td class="center">뉴스 수집 트리거 시</td></tr>
     <tr><td>Groq Cloud LLM API</td><td class="center">Groq (민간)</td><td>뉴스 기사 1문장 요약 + 감성(혼잡악화/교통개선/중립) 분류</td><td class="center">API Key (Bearer)</td><td class="center">뉴스 수집 트리거 시</td></tr>
-    <tr><td>T Data — 신호제어기 정보</td><td class="center">서울교통빅데이터</td><td>신호제어기 현시·위상·연동 정보</td><td class="center">OAuth 토큰</td><td class="center">운영계정 신청 중</td></tr>
-    <tr><td>T Data — Map 차로 정보</td><td class="center">서울교통빅데이터</td><td>차로별 기하 데이터</td><td class="center">OAuth 토큰</td><td class="center">운영계정 신청 중</td></tr>
-    <tr><td>T Data — 교차로 Map</td><td class="center">서울교통빅데이터</td><td>교차로 진출입 구조 Map</td><td class="center">OAuth 토큰</td><td class="center">운영계정 신청 중</td></tr>
-    <tr><td>T Data — 노드 Map</td><td class="center">서울교통빅데이터</td><td>교통 노드 위치·연결</td><td class="center">OAuth 토큰</td><td class="center">운영계정 신청 중</td></tr>
-    <tr><td>T Data — 신호연결 Map</td><td class="center">서울교통빅데이터</td><td>신호 연동 구간 Map</td><td class="center">OAuth 토큰</td><td class="center">운영계정 신청 중</td></tr>
-    <tr><td>T Data — 차량 속도·위치</td><td class="center">서울교통빅데이터</td><td>실시간 차량 위치·속도</td><td class="center">OAuth 토큰</td><td class="center">운영계정 신청 중</td></tr>
+    <tr><td><strong>VWorld 3D WebGL</strong> <span style="font-size:8pt;color:#2563eb;">[v1.1 신규]</span></td><td class="center">국토지리정보원</td><td>시뮬레이션 3D 지도 렌더링, 교차로 마커, 경로·병목 시각화, GLB 차량 모델</td><td class="center">API Key (쿼리)</td><td class="center">시뮬레이션 페이지 로드 시</td></tr>
+    <tr><td><strong>Google Cloud TTS</strong> <span style="font-size:8pt;color:#2563eb;">[v1.1 신규]</span></td><td class="center">Google (민간)</td><td>AI 응답 음성 합성 (ko-KR-Neural2-C, MP3). 음성 어시스턴트·챗봇 TTS.</td><td class="center">API Key (쿼리)</td><td class="center">AI 응답 시</td></tr>
+    <tr><td><strong>civil_flask_server</strong> <span style="font-size:8pt;color:#2563eb;">[v1.1 신규]</span></td><td class="center">내부(:8002)</td><td>시민 민원 제출·사진 업로드·Google GenAI 민원 분류·자동 답변 이메일</td><td class="center">없음(내부)</td><td class="center">민원 포털 요청 시</td></tr>
     <tr><td>UTIC CCTV API</td><td class="center">국토교통부</td><td>CCTV 영상 스트리밍 URL. 브라우저 IP 화이트리스트 인증.</td><td class="center">IP 화이트리스트 + API Key</td><td class="center">CCTV 선택 시</td></tr>
     <tr><td>카카오맵 JavaScript SDK</td><td class="center">카카오</td><td>지도 타일, 로드뷰 파노라마. 브라우저에서 직접 로드.</td><td class="center">App Key (JS SDK)</td><td class="center">페이지 로드 시</td></tr>
     <tr><td>Gmail SMTP 이메일</td><td class="center">Gmail</td><td>HTML 리포트 발송. 포트 587 STARTTLS.</td><td class="center">이메일+앱비밀번호</td><td class="center">AI 도구 호출 시</td></tr>
@@ -1128,7 +1125,7 @@ p { margin-bottom: 10px; line-height: 1.7; }
 
 <hr style="margin-top:40px"/>
 <div style="text-align:center;font-size:8.5pt;color:#9ca3af;padding-bottom:20px">
-  TrafficSync · 데이터 흐름도 · TS-AN-DFD-001 · v2.1 · 2026-05<br/>
+  TrafficSync · 데이터 흐름도 · TS-AN-DFD-001 · v2.2 · 2026-06 [v1.1: T Data 삭제, VWorld/Google TTS/civil_flask_server 추가]<br/>
   본 문서는 내부 분석·설계 용도로 작성되었습니다.
 </div>
 
