@@ -150,22 +150,24 @@
     padding: 13px 16px; margin: 13px 0; font-size: 10pt; color: #9a3412;
   }
 
-  /* ── 흐름도 (텍스트 기반) ── */
+  /* ── 흐름도 (이미지 스타일: 흰 박스 + 테두리) ── */
   .flow-box {
-    display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-    margin: 14px 0;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 0;
+    margin: 18px 0;
   }
   .flow-node {
-    background: #1e40af; color: #fff;
-    padding: 7px 14px; border-radius: 6px;
-    font-size: 9.5pt; font-weight: 600; text-align: center;
-    min-width: 100px;
+    background: #fff; color: #111827;
+    border: 1.5px solid #374151; border-radius: 8px;
+    padding: 10px 16px; font-size: 9.5pt; font-weight: 700;
+    text-align: center; min-width: 110px;
+    line-height: 1.4;
   }
-  .flow-node.gray   { background: #475569; }
-  .flow-node.green  { background: #15803d; }
-  .flow-node.orange { background: #c2410c; }
-  .flow-node.purple { background: #6d28d9; }
-  .flow-arrow { font-size: 14pt; color: #94a3b8; flex-shrink: 0; }
+  .flow-node small { display: block; font-size: 8.5pt; font-weight: 400; color: #6b7280; margin-top: 2px; }
+  .flow-node.gray   { background: #fff; }
+  .flow-node.green  { background: #fff; }
+  .flow-node.orange { background: #fff; }
+  .flow-node.purple { background: #fff; }
+  .flow-arrow { font-size: 16pt; color: #374151; flex-shrink: 0; padding: 0 6px; font-weight: 300; }
 
   /* ── 기대효과 카드 ── */
   .effect-grid {
@@ -239,11 +241,11 @@
   <div class="cover-meta">
     <div class="cover-meta-item">
       <div class="cover-meta-label">버전</div>
-      <div class="cover-meta-value">v1.0</div>
+      <div class="cover-meta-value">v1.1</div>
     </div>
     <div class="cover-meta-item">
       <div class="cover-meta-label">작성일</div>
-      <div class="cover-meta-value">2026. 05. 28</div>
+      <div class="cover-meta-value">2026. 06. 02</div>
     </div>
     <div class="cover-meta-item">
       <div class="cover-meta-label">작성자</div>
@@ -251,7 +253,7 @@
     </div>
     <div class="cover-meta-item">
       <div class="cover-meta-label">상태</div>
-      <div class="cover-meta-value">초안 (Draft)</div>
+      <div class="cover-meta-value">수정본 (v1.1)</div>
     </div>
   </div>
 </div>
@@ -267,6 +269,11 @@
         <td>최초 작성 — 공공데이터 활용 계획 전체 초안</td>
         <td><span class="badge badge-yellow">초안</span></td>
       </tr>
+      <tr>
+        <td><strong>v1.1</strong></td><td>2026-06-02</td><td>박희윤</td>
+        <td>T Data 전체 삭제 / 3D 시뮬레이션 VWorld+TOPIS 기반으로 재정의 / 음성 어시스턴트·시민 민원 포털·관리자 승인 관리 신규 반영 / civil_flask_server(8002) 추가</td>
+        <td><span class="badge badge-blue">수정</span></td>
+      </tr>
     </tbody>
   </table>
 
@@ -281,7 +288,7 @@
   <div class="toc-item"><span class="toc-num">3</span><span class="toc-title toc-bold">시스템 아키텍처 및 데이터 흐름</span></div>
   <div class="toc-item" style="padding-left:14px;"><span class="toc-num" style="font-size:9pt;">3.1</span><span class="toc-title">전체 시스템 구성</span></div>
   <div class="toc-item" style="padding-left:14px;"><span class="toc-num" style="font-size:9pt;">3.2</span><span class="toc-title">공공데이터 수집·처리·활용 흐름</span></div>
-  <div class="toc-item" style="padding-left:14px;"><span class="toc-num" style="font-size:9pt;">3.3</span><span class="toc-title">T Data 연동 아키텍처 (신호 시뮬레이션)</span></div>
+  <div class="toc-item" style="padding-left:14px;"><span class="toc-num" style="font-size:9pt;">3.3</span><span class="toc-title">TOPIS 기반 시뮬레이션 아키텍처 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 변경</span></span></div>
   <div class="toc-item"><span class="toc-num">4</span><span class="toc-title toc-bold">주요 기능 및 화면</span></div>
   <div class="toc-item"><span class="toc-num">5</span><span class="toc-title toc-bold">기대 효과</span></div>
   <div class="toc-item"><span class="toc-num">6</span><span class="toc-title toc-bold">데이터 보안 및 관리 계획</span></div>
@@ -313,7 +320,7 @@
       <tr><td class="num">1</td><td><strong>공공데이터 실시간 통합 수집</strong></td><td>V2X 신호, TOPIS 속도, 기상청 날씨, 도로 위험도, T Data 신호·차량 데이터를 자동 수집하고 하나의 교차로 상태 객체(TrafficStatus)로 통합</td></tr>
       <tr><td class="num">2</td><td><strong>실시간 시각화 및 모니터링</strong></td><td>카카오맵 기반 교차로 신호 현황, 속도·위험도 히트맵, CCTV 실시간 스트리밍을 단일 화면에 통합 제공</td></tr>
       <tr><td class="num">3</td><td><strong>AI 자연어 교통 분석</strong></td><td>LLM(Ollama qwen3:30b) 기반 ReAct 에이전트가 공공 데이터를 실시간으로 조회하여 자연어 질문에 답변</td></tr>
-      <tr><td class="num">4</td><td><strong>신호 최적화 시뮬레이션</strong></td><td>T Data 실시간 신호 데이터와 DB 신호 계획을 결합하여 신호 타이밍 조정 시나리오 및 AI 최적화 권고안 제공</td></tr>
+      <tr><td class="num">4</td><td><strong>신호 최적화 시뮬레이션 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 변경</span></strong></td><td>VWorld 3D 지도 위에서 출발지·목적지 선택 → TOPIS 실시간 도로 소통 정보(상행/하행 속도)와 DB 신호계획을 결합하여 병목 구간 탐지 → 신호 타이밍 자동 조정 시나리오 및 AI 최적화 권고안 제공</td></tr>
       <tr><td class="num">5</td><td><strong>교통 뉴스 감성 분석</strong></td><td>네이버 뉴스 검색 API로 수집된 교통 관련 뉴스의 감성·키워드 분석 결과 시각화</td></tr>
     </tbody>
   </table>
@@ -327,7 +334,9 @@
       <tr><td><strong>백엔드</strong></td><td>Spring Boot 3.x (Java 17) — 포트 8080, Oracle Autonomous DB</td></tr>
       <tr><td><strong>AI 에이전트</strong></td><td>Python FastAPI + LangGraph ReAct — 포트 8001</td></tr>
       <tr><td><strong>LLM</strong></td><td>Ollama (로컬) — qwen3:30b-a3b 모델, 포트 11434</td></tr>
-      <tr><td><strong>지도</strong></td><td>카카오맵 SDK (JavaScript API), CesiumJS (3D 시뮬레이션)</td></tr>
+      <tr><td><strong>지도</strong></td><td>카카오맵 SDK (교차로 지도·CCTV), VWorld 3D WebGL (시뮬레이션 페이지) <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 변경</span></td></tr>
+      <tr><td><strong>민원 서버</strong></td><td>Python Flask (civil_flask_server) — 포트 8002, Google GenAI 민원 분류·자동 답변 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 신규</span></td></tr>
+      <tr><td><strong>음성 어시스턴트</strong></td><td>Google Cloud TTS (ko-KR-Neural2-C), Web Speech API (STT), 박수 2번 감지 (AudioContext RMS) <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 신규</span></td></tr>
       <tr><td><strong>실시간 통신</strong></td><td>WebSocket (Spring) — 교차로 신호 브로드캐스트</td></tr>
       <tr><td><strong>이메일</strong></td><td>Gmail SMTP — 병목 리포트 자동 발송</td></tr>
     </tbody>
@@ -421,54 +430,14 @@
       </tr>
       <tr>
         <td class="num">10</td>
-        <td><strong>T Data – Map 차로 정보</strong></td>
-        <td>서울 교통빅데이터플랫폼</td>
+        <td><strong>VWorld 3D WebGL 지도<br><small>map.vworld.kr/js/webglMapInit.js.do</small></strong> <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 신규</span></td>
+        <td>국토지리정보원</td>
         <td><span class="badge badge-blue">교통</span></td>
-        <td>시뮬레이션 차로 구조 시각화</td>
-        <td><span class="badge badge-yellow">신청중</span></td>
+        <td>시뮬레이션 페이지 3D 지도, 교차로 마커, 경로·병목 시각화, 3D 차량 모델</td>
+        <td><span class="badge badge-green">운영중</span></td>
       </tr>
       <tr>
         <td class="num">11</td>
-        <td><strong>T Data – 교차로 Map 정보</strong></td>
-        <td>서울 교통빅데이터플랫폼</td>
-        <td><span class="badge badge-blue">교통</span></td>
-        <td>교차로 기하구조 시뮬레이션 렌더링</td>
-        <td><span class="badge badge-yellow">신청중</span></td>
-      </tr>
-      <tr>
-        <td class="num">12</td>
-        <td><strong>T Data – 노드 Map 정보</strong></td>
-        <td>서울 교통빅데이터플랫폼</td>
-        <td><span class="badge badge-blue">교통</span></td>
-        <td>도로 네트워크 노드 연결 시각화</td>
-        <td><span class="badge badge-yellow">신청중</span></td>
-      </tr>
-      <tr>
-        <td class="num">13</td>
-        <td><strong>T Data – 신호연결 Map</strong></td>
-        <td>서울 교통빅데이터플랫폼</td>
-        <td><span class="badge badge-blue">교통</span></td>
-        <td>Green Wave 신호 연동 시각화</td>
-        <td><span class="badge badge-yellow">신청중</span></td>
-      </tr>
-      <tr>
-        <td class="num">14</td>
-        <td><strong>T Data – 신호제어기 신호 정보</strong></td>
-        <td>서울 교통빅데이터플랫폼</td>
-        <td><span class="badge badge-blue">교통</span></td>
-        <td>실시간 신호 현시·잔여시간 시뮬레이션</td>
-        <td><span class="badge badge-yellow">신청중</span></td>
-      </tr>
-      <tr>
-        <td class="num">15</td>
-        <td><strong>T Data – 차량 속도·위치</strong></td>
-        <td>서울 교통빅데이터플랫폼</td>
-        <td><span class="badge badge-blue">교통</span></td>
-        <td>교차로 접근 차량 실시간 표시</td>
-        <td><span class="badge badge-yellow">신청중</span></td>
-      </tr>
-      <tr>
-        <td class="num">16</td>
         <td><strong>교통량 조사 이력 데이터<br><small>도로구간별 시간대·방향별 교통량</small></strong></td>
         <td>공공데이터포털 (도로교통공단)</td>
         <td><span class="badge badge-blue">교통</span></td>
@@ -524,10 +493,24 @@
     </tbody>
   </table>
 
-  <h3>⑦ T Data 신호 시뮬레이션 데이터 (서울 교통빅데이터플랫폼)</h3>
+  <h3>⑦ TOPIS 실시간 도로 소통 정보 — 시뮬레이션 활용 <span class="badge badge-blue" style="font-size:7.5pt; vertical-align:middle;">v1.1 변경</span></h3>
   <p>
-    운영 계정 승인 후 신호제어기 신호 정보(실시간 현시 상태), 교차로 Map/차로/노드 정보(기하 구조), 신호연결 Map(Green Wave 관계), 차량 속도·위치(접근 차량)를 시뮬레이션 페이지에 통합한다. CesiumJS 3D 지도 위에 실시간 신호와 차량 이동을 오버레이하여 신호 조정 시나리오별 시각적 비교를 지원한다.
+    서울특별시 TOPIS가 제공하는 실시간 도로 소통 정보(TrafficInfo)에서 도로 링크별 상행·하행 속도(km/h)와 여행시간을 60초 주기로 수집한다. 시뮬레이션 페이지에서는 이 속도 데이터를 국토교통부 신호계획 DB(현시 구성·운영주기)와 교차로 단위로 매핑하여 <strong>속도 급락 구간을 병목으로 탐지</strong>하고, VWorld 3D 지도 위에 경로와 병목 경유지를 시각화한다.
   </p>
+  <p>
+    사용자가 출발지·목적지를 선택하면 경로 상의 병목 교차로를 자동 탐색하고, 해당 교차로의 직진·좌회전 현시 시간을 AI가 분석하여 최적 조정값을 권고한다. 신호 타이밍 조정 전·후 예상 도착시간(제어 전/후 속도 기반)을 비교하여 병목 완화 효과를 정량적으로 제시한다.
+  </p>
+  <table>
+    <thead><tr><th style="width:160px;">항목</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td><strong>데이터 소스</strong></td><td>TOPIS TrafficInfo (openapi.seoul.go.kr) — 도로 링크별 실시간 속도·여행시간</td></tr>
+      <tr><td><strong>방향 구분</strong></td><td>상행(0) / 하행(1) 방향별 속도 분리 수집</td></tr>
+      <tr><td><strong>병목 탐지 기준</strong></td><td>링크 속도 &lt; 20 km/h (혼잡) 또는 직전 주기 대비 속도 급락 구간</td></tr>
+      <tr><td><strong>신호계획 연동</strong></td><td>교차로 INT_NO ↔ 도로 링크 매핑 후 현시별 시간(현시 1~8) 조정</td></tr>
+      <tr><td><strong>3D 시각화</strong></td><td>VWorld 3D WebGL 지도, GLB 차량 모델 경로 추종</td></tr>
+      <tr><td><strong>AI 분석</strong></td><td>시뮬레이션 전용 챗봇 (/api/simulation-chat) — Qwen3 로컬 LLM</td></tr>
+    </tbody>
+  </table>
 </div>
 
 <!-- ════ 3. 시스템 아키텍처 ════ -->
@@ -543,8 +526,8 @@
     <tbody>
       <tr>
         <td><strong>프론트엔드</strong></td>
-        <td>React (Vite), 카카오맵 SDK, CesiumJS</td>
-        <td>실시간 지도·신호·챗봇 UI 렌더링</td>
+        <td>React (Vite), 카카오맵 SDK, VWorld 3D WebGL <span class="badge badge-blue" style="font-size:7.5pt;">v1.1</span></td>
+        <td>실시간 지도·신호·챗봇·음성 어시스턴트·민원 포털 UI 렌더링</td>
         <td>5173</td>
       </tr>
       <tr>
@@ -582,6 +565,12 @@
         <td>Python Flask + BERT + Groq</td>
         <td>교통 뉴스 RSS 크롤링·감성 분류·DB 저장</td>
         <td>5001</td>
+      </tr>
+      <tr>
+        <td><strong>민원 서버 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 신규</span></strong></td>
+        <td>Python Flask + Google GenAI (civil_flask_server)</td>
+        <td>시민 민원 제출·사진 업로드·AI 민원 분류·자동 답변 이메일 발송</td>
+        <td>8002</td>
       </tr>
     </tbody>
   </table>
@@ -642,25 +631,27 @@
     </div>
   </div>
 
-  <h2>3.3 T Data 연동 아키텍처 (신호 시뮬레이션)</h2>
+  <h2>3.3 TOPIS 기반 시뮬레이션 아키텍처 <span class="badge badge-blue" style="font-size:8pt; vertical-align:middle;">v1.1 변경</span></h2>
+  <div class="info-box">T Data API는 미사용으로 방향 전환. TOPIS 실시간 도로 소통 정보(상행/하행 속도) + 국토교통부 신호계획 DB + VWorld 3D 지도를 결합한 시뮬레이션으로 대체.</div>
   <div class="flow-box">
-    <div class="flow-node purple">T Data API<br><small>신호제어기·차량·Map</small></div>
+    <div class="flow-node">TOPIS TrafficInfo<br><small>상행/하행 링크속도</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-node gray">Spring Boot<br><small>T Data Service</small></div>
+    <div class="flow-node">Spring Boot<br><small>속도↔교차로 매핑</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-node">Oracle DB<br><small>신호계획 캐시</small></div>
+    <div class="flow-node">Oracle DB<br><small>신호계획·링크매핑</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-node green">CesiumJS 3D<br><small>시뮬레이션 렌더링</small></div>
+    <div class="flow-node">VWorld 3D<br><small>경로·병목 시각화</small></div>
   </div>
-  <div class="flow-box" style="margin-top:8px;">
-    <div class="flow-node gray">사용자 타이밍 조정</div>
+  <div class="flow-box">
+    <div class="flow-node">병목 탐지<br><small>속도&lt;20 km/h</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-node orange">Python AI 에이전트<br><small>최적화 권고안 생성</small></div>
+    <div class="flow-node">신호계획 현시 조정<br><small>슬라이더 UI</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-node green">결과 시각화</div>
+    <div class="flow-node">Qwen3 AI 분석<br><small>/api/simulation-chat</small></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">도착시간 비교<br><small>제어 전·후</small></div>
   </div>
-
-  <p style="margin-top:12px;">운영 계정 승인 후 신호제어기 신호 정보·교차로 Map·차로 Map·노드 Map·신호연결 Map·차량 속도위치 6개 T Data API를 Spring Boot에서 수집하여 CesiumJS 3D 시뮬레이션 화면에 통합 표시한다. 사용자가 신호 타이밍 조정 후 AI 에이전트가 실제 차량 속도 데이터 기반 최적화 권고안을 생성한다.</p>
+  <p style="margin-top:12px;">Spring Boot가 TOPIS 링크 속도를 60초마다 수집하여 교차로 INT_NO와 매핑한다. 프론트엔드에서 출발지·목적지 선택 시 경로상의 속도 급락 구간을 병목 경유지로 자동 선정하고, 해당 교차로의 신호계획(현시별 시간)을 슬라이더로 조정한다. 조정값을 시뮬레이션 챗봇에 전달하면 Qwen3 로컬 LLM이 제어 전후 효과를 분석하고 최적 타이밍을 권고한다.</p>
 </div>
 
 <!-- ════ 4. 주요 기능 ════ -->
@@ -695,11 +686,32 @@
         <td>서울 시내 CCTV 목록 카드 표시. 클릭 시 UTIC 스트리밍 URL(cctvId·streamId·cctvCh 파라미터)로 실시간 영상 iframe 표시.</td>
       </tr>
       <tr>
-        <td><strong>신호 시뮬레이션</strong></td>
-        <td>신호계획 3종, T Data 6종 (신청중)</td>
+        <td><strong>신호 시뮬레이션 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 변경</span></strong></td>
+        <td>신호계획 3종 (국토교통부), TOPIS 실시간 도로 소통 정보</td>
         <td>
-          DB 저장 신호계획(A링/B링 현시별 시간)을 기반으로 현재 신호 패턴 시각화.<br>
-          T Data 운영 계정 승인 후: 실시간 신호 현시·차량 위치를 CesiumJS 3D 위에 오버레이하고, 신호 타이밍 조정 시 AI가 최적화 권고안 생성.
+          VWorld 3D 지도에서 출발지·목적지 선택 → TOPIS 상행/하행 속도로 병목 구간 탐지 → 병목 교차로 신호계획(현시별 시간) 슬라이더 조정.<br>
+          AI(Qwen3)가 신호 조정 전·후 도착시간 단축 효과 분석 및 최적 타이밍 권고. 3D 차량 모델이 경로를 추종하며 신호 현시 연동.
+        </td>
+      </tr>
+      <tr>
+        <td><strong>음성 어시스턴트 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 신규</span></strong></td>
+        <td>Google Cloud TTS (민간)</td>
+        <td>
+          박수 2번(마이크 RMS 감지) 또는 플로팅 버튼으로 팝업 활성화.<br>
+          Web Speech API STT로 음성 질의 → AI 답변을 Google Cloud TTS ko-KR-Neural2-C로 자동 읽기. 음소거 토글 지원.
+        </td>
+      </tr>
+      <tr>
+        <td><strong>관리자 민원 관리 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 신규</span></strong></td>
+        <td>(내부 데이터)</td>
+        <td>접수된 시민 민원 목록 조회, 상태 변경(접수→처리중→완료), 사진 조회, 구별 카운트 사이드바.</td>
+      </tr>
+      <tr>
+        <td><strong>시민 민원 포털 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 신규</span></strong></td>
+        <td>기상청 초단기실황 (날씨 자동 기록), 카카오맵 SDK (위치 핀)</td>
+        <td>
+          카카오맵으로 위치 지정 후 14개 카테고리 민원 제출. 사진 첨부, 담당 부서 자동 매핑.<br>
+          제출 시 현재 날씨 자동 기록. Google GenAI 자동 답변 이메일 발송. civil_flask_server(:8002) 처리.
         </td>
       </tr>
       <tr>
@@ -750,7 +762,7 @@
     <div class="effect-card">
       <div class="effect-icon">🔴</div>
       <div class="effect-title">신호 최적화 시뮬레이션</div>
-      <div class="effect-desc">실제 신호 계획과 실시간 T Data 차량 데이터를 결합하여 신호 타이밍 변경 시나리오별 효과를 사전 검증 가능.</div>
+      <div class="effect-desc">TOPIS 실시간 속도(상행/하행)와 신호계획 DB를 결합해 속도 급락 구간을 병목으로 탐지하고 신호 타이밍 변경 시나리오별 도착시간 단축 효과를 사전 검증.</div>
     </div>
     <div class="effect-card">
       <div class="effect-icon">📊</div>
@@ -774,11 +786,11 @@
     <thead><tr><th>지표</th><th>현재(AS-IS)</th><th>목표(TO-BE)</th><th>개선율</th></tr></thead>
     <tbody>
       <tr><td>교통 이상 탐지 시간</td><td>수분 (수동 확인)</td><td>30초 이내 (자동)</td><td><strong>↓ 80% 이상</strong></td></tr>
-      <tr><td>공공 API 통합 수</td><td>개별 접근</td><td>15개 통합 단일 플랫폼</td><td><strong>15배 효율화</strong></td></tr>
+      <tr><td>공공 API 통합 수</td><td>개별 접근</td><td>11개 통합 단일 플랫폼</td><td><strong>11배 효율화</strong></td></tr>
       <tr><td>교통 질의 응답 시간</td><td>수십 분 (전문가 분석)</td><td>10~30초 (AI 자동)</td><td><strong>↓ 95% 이상</strong></td></tr>
-      <tr><td>신호 최적화 시나리오 검토</td><td>현장 테스트 필요</td><td>시뮬레이션 사전 검증</td><td><strong>위험성 사전 제거</strong></td></tr>
+      <tr><td>신호 최적화 시나리오 검토</td><td>현장 테스트 필요</td><td>TOPIS 속도+신호계획 시뮬레이션 사전 검증</td><td><strong>위험성 사전 제거</strong></td></tr>
       <tr><td>교통량 예측 리드타임</td><td>당일 실측만 가능</td><td>24시간 전 시간대별 예측 제공</td><td><strong>선제적 혼잡 대응 가능</strong></td></tr>
-      <tr><td>활용 공공데이터 수</td><td>개별 접근</td><td>16개 통합 단일 플랫폼</td><td><strong>16배 효율화</strong></td></tr>
+      <tr><td>민원 처리 추적</td><td>전화·방문 개별 접수</td><td>시민 포털 → 담당 부서 자동 매핑 → 상태 실시간 추적</td><td><strong>v1.1 신규</strong></td></tr>
     </tbody>
   </table>
 </div>
@@ -795,10 +807,10 @@
     <thead><tr><th style="width:160px;">항목</th><th>관리 방안</th></tr></thead>
     <tbody>
       <tr><td><strong>저장 위치</strong></td><td>application-secret.properties (Git 추적 제외, .gitignore 등록)</td></tr>
-      <tr><td><strong>환경 변수 분리</strong></td><td>V2X 키, KMA 키, TOPIS 키, ROAD RISK 키, T Data 키를 별도 Properties로 분리 관리</td></tr>
+      <tr><td><strong>환경 변수 분리</strong></td><td>V2X 키, KMA 키, TOPIS 키, ROAD RISK 키를 별도 Properties로 분리 관리</td></tr>
       <tr><td><strong>UTIC CCTV 키</strong></td><td>IP 화이트리스트 기반 인증. 공인 IP 변경 시 UTIC 재등록 프로세스 즉시 수행</td></tr>
-      <tr><td><strong>T Data 키</strong></td><td>운영 계정 승인 후 서비스키를 서버 사이드에서만 사용. 프론트엔드에 노출 금지</td></tr>
-      <tr><td><strong>프론트엔드 환경변수</strong></td><td>카카오맵 SDK 키 등 클라이언트 노출 필수 키는 .env로 분리, Git 제외</td></tr>
+      <tr><td><strong>프론트엔드 환경변수</strong></td><td>카카오맵·VWorld·Google Cloud TTS API 키는 .env로 분리, Git 제외. VITE_KAKAO_APP_KEY / VITE_VWORLD_API_KEY / VITE_GOOGLE_TTS_KEY</td></tr>
+      <tr><td><strong>civil_flask_server 환경변수 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1</span></strong></td><td>Google GenAI 키, SMTP 정보는 civil_flask_server/.env로 분리 관리</td></tr>
     </tbody>
   </table>
 
@@ -851,44 +863,45 @@
       </tr>
       <tr>
         <td><strong>3단계</strong></td>
-        <td>뉴스 감성 분석, 신호 시뮬레이션(DB 기반), 이메일 리포트, AI 사이드 패널 UI 개선</td>
+        <td>뉴스 감성 분석, 신호 시뮬레이션(DB 기반), 이메일 리포트, AI 사이드 패널 UI 개선, VWorld 3D 시뮬레이션, 음성 어시스턴트(TTS·박수 감지), 시민 민원 포털, 관리자 사용자 승인 관리 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 수정</span></td>
         <td>2026.05~06</td>
         <td><span class="badge badge-blue">진행중</span></td>
       </tr>
       <tr>
         <td><strong>4단계</strong></td>
-        <td>T Data 운영 계정 승인 후 신호제어기·차량 속도·위치·교차로 Map·신호연결 Map 연동 및 CesiumJS 3D 시뮬레이션</td>
-        <td>운영계정 승인 후</td>
-        <td><span class="badge badge-yellow">대기중</span></td>
+        <td>TOPIS 속도 기반 시뮬레이션 고도화 — 상행/하행 속도 실시간 연동, 병목 탐지 알고리즘 정교화, 도착시간 예측 정확도 개선 <span class="badge badge-blue" style="font-size:7.5pt;">v1.1 변경</span></td>
+        <td>2026.07~</td>
+        <td><span class="badge badge-gray">계획</span></td>
       </tr>
       <tr>
         <td><strong>5단계</strong></td>
-        <td>기상청·위험도·속도 API 안정화, 성능 최적화, 사용자 피드백 반영</td>
-        <td>2026.07~</td>
+        <td>기상청·위험도·속도 API 안정화, 성능 최적화, 사용자 피드백 반영, 민원 처리 통계 대시보드</td>
+        <td>2026.08~</td>
         <td><span class="badge badge-gray">계획</span></td>
       </tr>
     </tbody>
   </table>
 
-  <h2>7.2 T Data 운영 계정 신청 현황</h2>
+  <h2>7.2 v1.1 주요 변경 사항 요약 <span class="badge badge-blue" style="font-size:8pt; vertical-align:middle;">v1.1 신규</span></h2>
   <table>
-    <thead><tr><th>#</th><th>데이터명</th><th>신청일</th><th>현재 상태</th><th>연동 예정 기능</th></tr></thead>
+    <thead><tr><th>#</th><th>변경 항목</th><th>변경 내용</th><th>상태</th></tr></thead>
     <tbody>
-      <tr><td class="num">1</td><td>Map 차로 정보</td><td>2026-05-28</td><td><span class="badge badge-yellow">운영계정 신청중</span></td><td>시뮬레이션 차로 구조 시각화</td></tr>
-      <tr><td class="num">2</td><td>교차로 Map 정보</td><td>2026-05-28</td><td><span class="badge badge-yellow">운영계정 신청중</span></td><td>교차로 기하구조 3D 렌더링</td></tr>
-      <tr><td class="num">3</td><td>노드 Map 정보</td><td>2026-05-28</td><td><span class="badge badge-yellow">운영계정 신청중</span></td><td>도로 네트워크 노드 연결</td></tr>
-      <tr><td class="num">4</td><td>신호연결 Map</td><td>2026-05-28</td><td><span class="badge badge-yellow">운영계정 신청중</span></td><td>Green Wave 시각화</td></tr>
-      <tr><td class="num">5</td><td>신호제어기 신호 정보</td><td>2026-05-28</td><td><span class="badge badge-yellow">운영계정 신청중</span></td><td>실시간 신호 현시 시뮬레이션</td></tr>
-      <tr><td class="num">6</td><td>차량 속도 및 위치</td><td>2026-05-28</td><td><span class="badge badge-yellow">운영계정 신청중</span></td><td>접근 차량 실시간 오버레이</td></tr>
+      <tr><td class="num">1</td><td>T Data API 전체 삭제</td><td>신호제어기·Map 차로·교차로 Map·노드 Map·신호연결 Map·차량 속도위치 6개 항목 미사용으로 제거</td><td><span class="badge badge-red">삭제</span></td></tr>
+      <tr><td class="num">2</td><td>시뮬레이션 3D 지도</td><td>CesiumJS → VWorld 3D WebGL (국토지리정보원) 로 변경</td><td><span class="badge badge-blue">변경</span></td></tr>
+      <tr><td class="num">3</td><td>시뮬레이션 속도 데이터</td><td>TOPIS 실시간 도로 소통 정보(상행/하행 링크 속도) 활용 확정</td><td><span class="badge badge-green">확정</span></td></tr>
+      <tr><td class="num">4</td><td>음성 어시스턴트</td><td>Google Cloud TTS + Web Speech API STT + 박수 2번 감지 신규 추가</td><td><span class="badge badge-green">신규</span></td></tr>
+      <tr><td class="num">5</td><td>시민 민원 포털</td><td>civil_flask_server(:8002) + Google GenAI 민원 분류·자동 답변 신규 추가</td><td><span class="badge badge-green">신규</span></td></tr>
+      <tr><td class="num">6</td><td>관리자 민원 관리</td><td>민원 목록·상태 변경·구별 카운트·사진 조회 페이지 신규 추가</td><td><span class="badge badge-green">신규</span></td></tr>
+      <tr><td class="num">7</td><td>관리자 사용자 승인 관리</td><td>신규 사용자 로그인 승인·임시 비밀번호 발급·계정 활성화 페이지 신규 추가</td><td><span class="badge badge-green">신규</span></td></tr>
     </tbody>
   </table>
 
-  <div class="success-box" style="margin-top:20px;">
-    <strong>완료 시 효과:</strong> T Data 6개 API 운영 계정 승인 및 연동 완료 시, 실제 신호제어기 데이터와 차량 위치를 결합한 <strong>실시간 신호 최적화 시뮬레이션</strong>이 가능해지며 TrafficSync의 핵심 차별화 기능이 완성된다.
+  <div class="info-box" style="margin-top:20px;">
+    <strong>방향 전환 이유:</strong> T Data API는 운영 계정 승인 절차가 장기화되어 실질적 활용이 불가능한 상태. TOPIS 실시간 도로 소통 정보는 이미 운영 중이며 상행/하행 속도 데이터를 통해 시뮬레이션에 필요한 병목 탐지와 도착시간 비교가 가능하므로 대체 확정.
   </div>
 
   <footer>
-    TrafficSync 공공데이터 활용 계획서 v1.0 &nbsp;|&nbsp; 작성일: 2026-05-28 &nbsp;|&nbsp; CONFIDENTIAL
+    TrafficSync 공공데이터 활용 계획서 v1.1 &nbsp;|&nbsp; 최초 작성: 2026-05-28 &nbsp;|&nbsp; 최종 수정: 2026-06-02 &nbsp;|&nbsp; CONFIDENTIAL
   </footer>
 </div>
 
