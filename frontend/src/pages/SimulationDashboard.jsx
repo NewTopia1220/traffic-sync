@@ -661,6 +661,13 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
   // AI 분석 결과는 저장만 하고, 슬라이더 반영은
   // 사용자가 "관제사 병목신호 제어" 버튼을 눌렀을 때만 실행합니다.
+  // 병목지 탭 이동 시 해당 교차로 AI 조정값 있으면 자동 애니메이션
+  useEffect(() => {
+    if (!sliderCrossroad?.intNo) return;
+    if (aiAdjustmentsMap[String(sliderCrossroad.intNo)]) {
+      setAiAdjustKey(k => k + 1);
+    }
+  }, [sliderCrossroad?.intNo, sliderTarget]);
 
   // ── LLM 호출 헬퍼 ─────────────────────────────────────────────────────────
   const applyAdjustment = useCallback((adj) => {
@@ -698,6 +705,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       setRouteAnalysis("현재 경로에 40km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
       setRouteAnalysisLoading(false);
       setCarReady(false);
+      setCarReady(true);
       return;
     }
 
@@ -746,6 +754,19 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
   // ── 경로 확정 시 속도 API 대기 ───────────────────────────────────────────
   // 속도 API가 오면 병목구간만 먼저 시각화하고, AI 분석은 버튼을 눌렀을 때만 실행합니다.
+          console.log(`[AI 조정] 병목 ${bottleneckCrossroads.length}개 중 ${adjs.length}개 조정값 수신`, missing.length ? `미포함: ${missing.join(", ")}` : "전체 포함");
+          applyAdjustment(adjs[0]);
+        }
+      })
+      .catch(() => setRouteAnalysis(null))
+      .finally(() => {
+        setRouteAnalysisLoading(false);
+        setCarReady(true);
+      });
+  }, [bottleneckWaypoint, end, start, waypointList, applyAdjustment]);
+
+  // ── 경로 확정 시 10초 타이머 시작 ──────────────────────────────────────────
+  // 10초 안에 routeTraffic 속도 안 오면 → 속도 수집 불가 표시, 차량 출발
   useEffect(() => {
     if (!end?.intNo || !stats?.distanceMeters) return;
 
@@ -757,6 +778,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setAiAdjustKey(0);
     setIsOptimized(false);
     setCarReady(false);
+    setRouteAnalysisLoading(true);
     llmCalledRouteRef.current = null;
 
     if (llmTimerRef.current) clearTimeout(llmTimerRef.current);
@@ -765,6 +787,10 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       llmTimerRef.current = null;
       if (routeTraffic?.segments?.length) return;
       setSpeedUnavailable(true);
+      if (llmCalledRouteRef.current) return; // 이미 속도 포함 호출됨
+      setRouteAnalysisLoading(false);
+      setSpeedUnavailable(true);
+      setCarReady(true);
     }, 10000);
 
     return () => {
@@ -789,6 +815,30 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setRouteAnalysisLoading(false);
     setCarReady(false);
   }, [routeTraffic, end?.intNo]);
+  }, [end?.intNo, stats?.distanceMeters]);
+
+  // ── routeTraffic 도착 시 타이머 취소 + LLM 호출 ───────────────────────────
+  useEffect(() => {
+    if (!routeTraffic || !end?.intNo) return;
+
+    // 타이머 취소 (속도 도착했으니 10초 대기 불필요)
+    if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
+
+    const routeKey = `${start?.intNo ?? ""}:${end.intNo}`;
+    if (llmCalledRouteRef.current === routeKey) return;
+
+    const resolved = resolveSegments(routeTraffic.segments);
+    if (!resolved.length) {
+      // routeTraffic 왔지만 유효 속도 없음 → 수집 불가
+      setRouteAnalysisLoading(false);
+      setSpeedUnavailable(true);
+      setCarReady(true);
+      return;
+    }
+
+    llmCalledRouteRef.current = routeKey;
+    callLLM(resolved);
+  }, [routeTraffic]);
 
   // routeTraffic 도착 시 실제 TOPIS 속도로 stats 재계산
   useEffect(() => {
@@ -797,6 +847,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     const resolved = resolveSegments(routeTraffic.segments);
     const speeds = resolved
       .map(seg => seg.speedKph)
+    const speeds = routeTraffic.segments
+      .map(seg => (seg.selectedTraffic ?? seg.up)?.speedKph)
       .filter(s => typeof s === "number" && s > 0);
 
     if (!speeds.length) return;
@@ -831,12 +883,15 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     (routeTraffic.requestedRouteNodes || []).forEach(n => { nodeMap[String(n.intNo)] = n; });
     const bCrossroads = resolved
       .filter(seg => (seg.speedKph ?? 999) < 40)
+    const bCrossroads = routeTraffic.segments
+      .filter(seg => ((seg.selectedTraffic ?? seg.up)?.speedKph ?? 999) < 40)
       .map(seg => {
         const node = nodeMap[String(seg.toIntNo)];
         return {
           intNo: seg.toIntNo,
           intNm: node?.intNm || `교차로 ${seg.toIntNo}`,
           speedKph: seg.speedKph,
+          speedKph: (seg.selectedTraffic ?? seg.up)?.speedKph,
         };
       })
       .filter((v, i, arr) => arr.findIndex(x => x.intNo === v.intNo) === i); // 중복 제거
@@ -1145,6 +1200,22 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
             >
               {isOptimized ? "✓ 제어 적용 완료" : "관제사 병목신호 제어"}
             </button>
+          {/* AI 자동 신호 제어 상태 표시 — 버튼 대신 상태 뱃지 */}
+          <div style={{
+            border: "none", borderRadius: 6, padding: "14px 16px", textAlign: "center",
+            background: isOptimized ? "#166534" : routeAnalysisLoading ? "rgba(96,165,250,0.1)" : "#1f2937",
+            color: isOptimized ? "#fff" : routeAnalysisLoading ? "#60a5fa" : "#64748b",
+            fontSize: 14, fontWeight: 900,
+          }}>
+            {isOptimized
+              ? "✓ AI 신호 최적화 적용 완료"
+              : routeAnalysisLoading
+                ? "● AI 신호 분석 중..."
+                : bottleneckCrossroads.length === 0 && carReady
+                  ? "현재 경로 병목 없음 — AI 개입 불필요"
+                  : canOptimize
+                    ? "속도 데이터 수집 후 AI가 자동 조정합니다"
+                    : "경로를 선택하면 AI가 신호를 최적화합니다"}
           </div>
 
           <div style={{ ...cardStyle, flexShrink: 0 }}>

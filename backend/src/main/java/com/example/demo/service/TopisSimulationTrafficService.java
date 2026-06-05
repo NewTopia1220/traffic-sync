@@ -55,6 +55,8 @@ public class TopisSimulationTrafficService {
 
     public Map<String, Object> buildRouteTraffic(Map<String, Object> request) {
         List<RouteNode> nodes = routeNodes(request == null ? null : request.get("routeNodes"));
+        String requestedTravelDir = stringValue(request, "travelDir");  // 상행/하행
+        log.info("route-traffic request travelDir={}", requestedTravelDir);
 
         Map<String, Object> response = new LinkedHashMap<>();
 
@@ -77,7 +79,7 @@ public class TopisSimulationTrafficService {
         for (int i = 0; i < nodes.size() - 1; i++) {
             RouteNode from = nodes.get(i);
             RouteNode to = nodes.get(i + 1);
-            SegmentResult segmentResult = buildSegmentTraffic(from, to, cache, speedCache);
+            SegmentResult segmentResult = buildSegmentTraffic(from, to, cache, speedCache, requestedTravelDir);  // requestedTravelDir: 상행/하행
             segments.add(segmentResult.payload());
         }
 
@@ -89,7 +91,8 @@ public class TopisSimulationTrafficService {
             RouteNode from,
             RouteNode to,
             MasterCache cache,
-            Map<String, Optional<RoadSpeedSnapshot>> speedCache
+            Map<String, Optional<RoadSpeedSnapshot>> speedCache,
+            String requestedTravelDir
     ) {
         Map<String, Object> segment = new LinkedHashMap<>();
         segment.put("fromIntNo", from.intNo());
@@ -99,11 +102,19 @@ public class TopisSimulationTrafficService {
         if (candidates.isEmpty()) {
             segment.put("axisCd", null);
             segment.put("axisName", null);
+
+            String travelDir = normalizeTravelDir(requestedTravelDir);
+            log.info("route-traffic normalized travelDir={}", travelDir);
+            if (travelDir != null) {
+                segment.put("travelDir", travelDir);
+            }
+
             segment.put("up", null);
             segment.put("down", null);
             segment.put("reason", "No TOPIS LinkWithLoad links near this route segment");
             return new SegmentResult(segment, List.of(), null);
         }
+
 
         String axisCd = bestAxisCd(candidates);
         TopisRoadAxisEntity axis = cache.axesByAxisCd().get(axisCd);
@@ -114,12 +125,18 @@ public class TopisSimulationTrafficService {
         segment.put("axisCd", axisCd);
         segment.put("axisName", axis == null ? null : axis.getAxisName());
 
+        String travelDir = normalizeTravelDir(requestedTravelDir);
+        if (travelDir != null) {
+            segment.put("travelDir", travelDir);
+        }
+
         Map<String, List<CandidateLink>> byDirection = axisCandidates.stream()
                 .collect(Collectors.groupingBy(
                         candidate -> safeDirection(candidate.link().getAxisDir()),
                         LinkedHashMap::new,
                         Collectors.toList()
                 ));
+
 
         List<Double> segmentSpeeds = new ArrayList<>();
         Bottleneck bottleneck = null;
@@ -149,7 +166,28 @@ public class TopisSimulationTrafficService {
             }
         }
 
+        String selectedKey = directionKey(travelDir);
+        if (selectedKey != null) {
+            segment.put("selectedTraffic", segment.get(selectedKey));
+        }
+
         return new SegmentResult(segment, segmentSpeeds, bottleneck);
+    }
+
+    private static String normalizeTravelDir(String value) {
+        if (value == null || value.isBlank()) return null;
+
+        String v = value.trim();
+
+        if ("up".equalsIgnoreCase(v) || "상행".equals(v)) {
+            return "상행";
+        }
+
+        if ("down".equalsIgnoreCase(v) || "하행".equals(v)) {
+            return "하행";
+        }
+
+        return null;
     }
 
     private LinkResult buildLink(
@@ -164,6 +202,7 @@ public class TopisSimulationTrafficService {
         Optional<RoadSpeedSnapshot> speed = speedForLink(linkId, speedCache);
         Map<String, Object> linkPayload = new LinkedHashMap<>();
         linkPayload.put("linkId", linkId);
+        linkPayload.put("vertices", verticesPayload(candidate.geometry().getVertices()));
 
         if (speed.isPresent()) {
             RoadSpeedSnapshot snapshot = speed.get();
