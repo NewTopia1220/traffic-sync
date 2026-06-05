@@ -671,7 +671,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     if (!end?.intNo) return;
 
     const bottleneckIntNos = resolved
-      .filter(seg => seg.speedKph < 15)
+      .filter(seg => seg.speedKph < 40)
       .map(seg => seg.toIntNo)
       .filter((v, i, arr) => arr.indexOf(v) === i);
 
@@ -680,7 +680,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
     // 병목 없으면 LLM 호출 생략
     if (bottleneckIntNos.length === 0) {
-      setRouteAnalysis("현재 경로에 15km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
+      setRouteAnalysis("현재 경로에 40km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
       setRouteAnalysisLoading(false);
       setCarReady(true);
       return;
@@ -690,7 +690,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setRouteAnalysisLoading(true);
 
     const body = {
-      question: "각 병목 교차로의 신호계획을 분석해서 15km/h 이하 구간 전체의 신호를 최적화해줘.",
+      question: "각 병목 교차로의 신호계획을 분석해서 40km/h 이하 구간 전체의 신호를 최적화해줘.",
       routeTraffic: resolved,
       userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
     };
@@ -715,7 +715,9 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           const map = {};
           adjs.forEach(adj => { map[String(adj.intNo)] = adj; });
           setAiAdjustmentsMap(map);
-          applyAdjustment(adjs[0]); // 첫 번째 병목으로 이동
+          const missing = bottleneckCrossroads.filter(b => !map[String(b.intNo)]).map(b => `${b.intNm}(${b.intNo})`);
+          console.log(`[AI 조정] 병목 ${bottleneckCrossroads.length}개 중 ${adjs.length}개 조정값 수신`, missing.length ? `미포함: ${missing.join(", ")}` : "전체 포함");
+          applyAdjustment(adjs[0]);
         }
       })
       .catch(() => setRouteAnalysis(null))
@@ -786,15 +788,15 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     const distance = stats.distanceMeters;
     const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
     // 15km/h 미만 구간 수 (정체 기준)
-    const slowSegs = speeds.filter(s => s < 15);
+    const slowSegs = speeds.filter(s => s < 40);
     const bottleneckCount = slowSegs.length === speeds.length && slowSegs.length > 0
       ? speeds.length  // 전 구간 정체
       : slowSegs.length;
 
     const beforeSec = Math.round(distance / (avgSpeed / 3.6));
 
-    // 신호제어 후: 15km/h 미만 정체 구간 35% 개선 가정
-    const improvedSpeeds = speeds.map(s => (s < 15 ? Math.min(s * 1.35, 20) : s));
+    // 신호제어 후: 40km/h 미만 구간 35% 개선 가정
+    const improvedSpeeds = speeds.map(s => (s < 40 ? Math.min(s * 1.35, 50) : s));
     const afterAvg = improvedSpeeds.reduce((a, b) => a + b, 0) / improvedSpeeds.length;
     const afterSec = Math.round(distance / (afterAvg / 3.6));
 
@@ -812,7 +814,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     const nodeMap = {};
     (routeTraffic.requestedRouteNodes || []).forEach(n => { nodeMap[String(n.intNo)] = n; });
     const bCrossroads = routeTraffic.segments
-      .filter(seg => (seg.up?.speedKph ?? 999) < 15)
+      .filter(seg => (seg.up?.speedKph ?? 999) < 40)
       .map(seg => {
         const node = nodeMap[String(seg.toIntNo)];
         return {

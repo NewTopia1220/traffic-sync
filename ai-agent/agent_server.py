@@ -49,12 +49,11 @@ llm = ChatOllama(
 
 # 시뮬레이션 전용 LLM — think 모드 비활성화 + 출력 토큰 제한
 sim_llm = ChatOllama(
-    model=OLLAMA_MODEL,
+    model="qwen2.5:14b",
     base_url=OLLAMA_URL,
     temperature=0.3,
-    num_predict=16384,
+    num_predict=-1,
     num_ctx=16384,
-    think=False,
 )
 
 # 에이전트는 앱 시작 시 한 번만 생성 (MCP 클라이언트 포함)
@@ -522,29 +521,32 @@ async def simulation_chat(req: SimulationChatRequest):
             spd = seg.get("speedKph")
             cng = seg.get("congestion", "")
             spd_str = f"{spd}km/h" if spd is not None else "미수집"
-            bottleneck_mark = " ★병목" if spd is not None and spd < 15 else ""
+            bottleneck_mark = " ★병목" if spd is not None and spd < 40 else ""
             lines.append(
                 f"  {seg.get('fromIntNo','?')}→{seg.get('toIntNo','?')}"
                 f" ({seg.get('axisName','')}) | {spd_str} | {cng}{bottleneck_mark}"
             )
         traffic_block = (
-            "\n\n[경로 구간별 실시간 속도 — 15km/h 이하가 병목]\n" + "\n".join(lines)
+            "\n\n[경로 구간별 실시간 속도 — 40km/h 이하가 병목]\n" + "\n".join(lines)
         )
 
     # Webster 공식 기반 JSON 출력 지시
     json_instruction = (
-        "\n\n[신호 최적화 방법 — Webster 공식 적용]\n"
-        "Co = (1.5 × L + 5) / (1 - Y)\n"
-        "  L = 현시 수 × 4초 (손실 시간)\n"
-        "  Y = 포화도 합계 (속도 기반: 15km/h 미만=0.85, 15~25=0.65, 25초과=0.4)\n"
-        "계산된 Co를 각 현시 중요도 비율로 배분해 조정초(sec)를 결정해.\n"
-        "직진 방향이 막히면 직진 현시 비중을 높이고, 보행자 현시는 최소 20초 유지.\n\n"
-        "반드시 아래 JSON 블록을 답변 맨 앞에 먼저 출력하고 그 뒤 1~2문장 설명을 붙여:\n"
+        "\n\n[신호 최적화 — Webster 공식 적용 절차]\n"
+        "① 실측 속도로 포화도(Y) 결정: 40km/h 미만=0.85, 40~60=0.65, 60초과=0.4\n"
+        "② Co = (1.5 × L + 5) / (1 - ΣY),  L = 현시수 × 4s\n"
+        "③ Co를 직진/좌회전/보행 중요도 비율로 배분 (보행 최소 20s)\n"
+        "④ 각 교차로별 조정값을 아래 JSON으로 출력\n\n"
+        "반드시 JSON 블록을 맨 앞에 출력하고, 그 뒤 분석 설명을 붙여:\n"
         "```json\n"
         "{\"adjustments\": [{\"intNo\": \"47\", \"phases\": [{\"no\": 1, \"sec\": 80}, {\"no\": 2, \"sec\": 60}]}]}\n"
         "```\n"
-        "위 예시처럼 intNo에는 신호계획 괄호 안의 실제 숫자를 그대로 쓸 것. 교차로 이름 절대 금지.\n"
-        "phases는 위 신호계획의 기존 현시만 사용. 전체 합계가 cycleVal을 초과하지 말 것."
+        "JSON 다음 설명에는 반드시 아래 내용을 포함할 것:\n"
+        "- 실측 속도(km/h)와 이에 따른 Y값\n"
+        "- 계산된 최적 주기(Co)와 기존 cycleVal 비교\n"
+        "- 어떤 현시를 왜 늘리고 줄였는지 (방향명 + 초 단위로 명시)\n"
+        "intNo는 신호계획 괄호 안 숫자 ID 그대로 사용. 교차로 이름 절대 금지.\n"
+        "phases는 기존 현시만 사용. 전체 합계가 cycleVal을 초과하지 말 것."
     )
 
     prompt = (
@@ -560,7 +562,9 @@ async def simulation_chat(req: SimulationChatRequest):
     print(f"\n[SIM-CHAT PROMPT — 총 {len(prompt)}자]\n{prompt}\n", flush=True)
     response = await sim_llm.ainvoke(prompt)
     raw = response.content if hasattr(response, "content") else str(response)
-    print(f"\n[SIM-CHAT RAW]\n{raw[:600]}\n", flush=True)
+    adjustments_preview = extract_adjustments(raw)
+    adj_count = len(adjustments_preview) if adjustments_preview else 0
+    print(f"\n[SIM-CHAT RAW — {len(raw)}자 / adjustments {adj_count}개]\n{raw[:1200]}\n", flush=True)
     if isinstance(raw, list):
         raw = " ".join(item.get("text", "") if isinstance(item, dict) else str(item) for item in raw).strip()
     if "<think>" in raw:
@@ -621,7 +625,7 @@ async def simulation_chat_stream(req: SimulationChatRequest, request: Request):
             spd = seg.get("speedKph")
             mark = " ★병목" if spd is not None and spd < 15 else ""
             lines.append(f"  {seg.get('fromIntNo')}→{seg.get('toIntNo')} | {spd}km/h{mark}")
-        traffic_block = "\n\n[경로 속도 — 15km/h↓ 병목]\n" + "\n".join(lines)
+        traffic_block = "\n\n[경로 속도 — 40km/h↓ 병목]\n" + "\n".join(lines)
 
     json_instruction = (
         "\n\n신호 조정이 필요하면 답변 맨 앞에 먼저 출력:\n"

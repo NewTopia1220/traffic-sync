@@ -813,7 +813,7 @@ export default function SimulationMapView({
 
     const speedColor = (spd) => {
       if (spd == null) return "#94a3b8";
-      if (spd < 15)   return "#ef4444";
+      if (spd < 40)   return "#ef4444";
       if (spd < 25)   return "#f59e0b";
       return "#22c55e";
     };
@@ -1368,7 +1368,7 @@ export default function SimulationMapView({
 
     // 실제 속도 기반 병목 라벨 — routeTraffic에서 15km/h 미만 구간 있을 때만
     const hasRealBottleneck = (routeTraffic?.segments || [])
-      .some(seg => seg.up?.speedKph != null && seg.up.speedKph < 15);
+      .some(seg => seg.up?.speedKph != null && seg.up.speedKph < 40);
 
     if (hasRealBottleneck || isOptimized) {
       const bottleneckSegment = extractRouteSegment(routePoints, 0.46, 0.62);
