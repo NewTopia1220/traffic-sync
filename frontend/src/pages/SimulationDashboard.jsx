@@ -38,12 +38,11 @@ const smallLabel = {
   marginBottom: 5,
 };
 
-// 경로 구간 속도 정제 — 일단 상행(up) 고정, 팀원이 travelDir 붙여주면 한 줄만 변경
 function resolveSegments(segments) {
   if (!segments?.length) return [];
   return segments
     .map(seg => {
-      const speed = seg.up; // TODO: seg.travelDir === "상행" ? seg.up : seg.down
+      const speed = seg.selectedTraffic ?? seg.up;
       if (!speed?.speedKph) return null;
       return {
         fromIntNo:  seg.fromIntNo,
@@ -85,11 +84,7 @@ function SimulationChatBot({ intNo, intNm, simulation, routeTraffic, autoTrigger
     setMessages(prev => [...prev, { role: "user", text: question }]);
     setLoading(true);
 
-    const body = { question, intNo: aIntNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
-    if (aSim && aSim.length > 0) body.simulation = aSim;
-
-
-    console.log("AI 요청 body:", body);
+    console.log("AI 요청 body:", buildBody(question, aIntNo, aSim, aRt));
     fetch(`${API_BASE}/api/simulation-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -1249,8 +1249,6 @@ export default function SimulationMapView({
         });
       }
 
-      
-
       onRouteTrafficChange?.({
         ...data,
         requestedRouteNodes: routeNodes,
