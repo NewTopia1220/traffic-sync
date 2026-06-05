@@ -24,6 +24,7 @@ public class SupplementalDataCacheService {
     private final ConcurrentHashMap<String, CrossroadRoadLinkMapping> mappingsByCrossroadId = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Map<String, CrossroadRoadLinkMapping>> directionalMappingsByCrossroadId =
             new ConcurrentHashMap<>();
+    private final Set<String> managedTrafficLinkIds = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<String, RoadSpeedSnapshot> speedsByLinkId = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, RoadRiskSnapshot> risksByLinkId = new ConcurrentHashMap<>();
 
@@ -52,6 +53,7 @@ public class SupplementalDataCacheService {
     public void clearRoadSupplementalData() {
         mappingsByCrossroadId.clear();
         directionalMappingsByCrossroadId.clear();
+        managedTrafficLinkIds.clear();
         speedsByLinkId.clear();
     }
 
@@ -91,10 +93,27 @@ public class SupplementalDataCacheService {
     }
 
     public Set<String> getMappedLinkIds() {
-        return getAllMappedLinkMappings().stream()
+        Set<String> linkIds = getAllMappedLinkMappings().stream()
                 .map(CrossroadRoadLinkMapping::getLinkId)
                 .filter(linkId -> linkId != null && !linkId.isBlank())
                 .collect(Collectors.toUnmodifiableSet());
+        if (managedTrafficLinkIds.isEmpty()) {
+            return linkIds;
+        }
+        Set<String> merged = ConcurrentHashMap.newKeySet();
+        merged.addAll(linkIds);
+        merged.addAll(managedTrafficLinkIds);
+        return Collections.unmodifiableSet(merged);
+    }
+
+    public void updateManagedTrafficLinkIds(Collection<String> linkIds) {
+        managedTrafficLinkIds.clear();
+        if (linkIds == null) {
+            return;
+        }
+        linkIds.stream()
+                .filter(linkId -> linkId != null && !linkId.isBlank())
+                .forEach(managedTrafficLinkIds::add);
     }
 
     private void putMappingByLinkId(Map<String, CrossroadRoadLinkMapping> mappings, CrossroadRoadLinkMapping mapping) {

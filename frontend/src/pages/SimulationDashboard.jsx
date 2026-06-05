@@ -970,6 +970,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           <div style={{ height: "100%", borderRadius: 11, overflow: "hidden", border: `1px solid ${isOptimized ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.08)"}`, boxShadow: isOptimized ? "0 0 20px rgba(34,197,94,0.1)" : "none" }}>
             <SimulationMapView
               selectedList={selectedList}
+              selectedGu={selectedGu}
               onSelect={handleSelect}
               isOptimized={isOptimized}
               onStatsChange={setStats}
