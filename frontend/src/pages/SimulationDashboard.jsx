@@ -576,6 +576,20 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const activeChatCrossroad = sliderCrossroad ?? selectedWaypoint ?? bottleneckWaypoint ?? end ?? start ?? null;
   const canOptimize = !!start && !!end && !!stats;
 
+  const getVehicleSignalForCrossroad = useCallback((crossroad) => {
+    if (!crossroad || !currentVehicleSignal) return null;
+
+    const byIntNo = currentVehicleSignal.byIntNo || {};
+    const mapped = byIntNo[String(crossroad.intNo)];
+    if (mapped) return mapped;
+
+    if (String(currentVehicleSignal.intNo) === String(crossroad.intNo)) {
+      return currentVehicleSignal;
+    }
+
+    return null;
+  }, [currentVehicleSignal]);
+
   const selectedSignalConfig = {
     start: {
       icon: "🟢",
@@ -1088,7 +1102,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 10px 10px 4px", overflowY: "auto" }}>
           <div style={cardStyle}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontWeight: 900, color: "#ffffff", fontSize: 15 }}>출발지/경유지/목적지/병목지 신호체계</div>
+              <div style={{ fontWeight: 900, color: "#ffffff", fontSize: 15 }}>출발지/경유지/병목지/목적지 신호체계</div>
 
               <div style={{ fontSize: 11, color: "#64748b" }}>선택 확인</div>
             </div>
@@ -1098,6 +1112,9 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               </button>
               <button onClick={() => setSliderTarget("waypoint")} disabled={!waypointList.length} style={tabButtonStyle(sliderTarget === "waypoint", !!waypointList.length)}>
                 경유지
+              </button>
+              <button onClick={() => setSliderTarget("bottleneck")} disabled={!bottleneckWaypoint} style={tabButtonStyle(sliderTarget === "bottleneck", !!bottleneckWaypoint)}>
+                병목지
               </button>
               <button onClick={() => setSliderTarget("end")} disabled={!end} style={tabButtonStyle(sliderTarget === "end", !!end)}>
                 목적지
@@ -1138,7 +1155,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, color: "#94a3b8", fontSize: 11 }}>
                 <span>🟢 현재 켜진 현시</span>
-                <span>🚗 차량 추종 현시</span>
+                <span>🚗 차량 추종 예정 현시</span>
               </div>
               <VehicleAwareSignalSimPanel
                 key={`signal-${activeSignalKey}`}
@@ -1147,7 +1164,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 onPhaseChange={activeSignal.onPhaseChange}
                 phaseOverride={activeSignalPhaseOverride}
                 onContextChange={activeSignal.onContextChange}
-                currentVehicleSignal={currentVehicleSignal}
+                currentVehicleSignal={getVehicleSignalForCrossroad(activeSignal.crossroad)}
               />
             </div>
           )}
@@ -1303,9 +1320,7 @@ function VehicleAwareSignalSimPanel({
   const vehiclePhaseNo = activeVehicleSignal
     ? normalizePhaseNo(
         currentVehicleSignal?.phaseNo ??
-        currentVehicleSignal?.currentPhaseNo ??
-        currentVehicleSignal?.phase ??
-        currentPhaseNo
+        currentVehicleSignal?.phase
       )
     : null;
 
@@ -1333,6 +1348,27 @@ function VehicleAwareSignalSimPanel({
           borderRadius: 999,
         }} />
       </div>
+
+      {activeVehicleSignal && vehiclePhaseNo != null && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 8,
+          padding: "7px 9px",
+          borderRadius: 6,
+          background: isVehicleRed ? "rgba(127,29,29,0.18)" : "rgba(22,101,52,0.16)",
+          border: `1px solid ${isVehicleRed ? "rgba(239,68,68,0.34)" : "rgba(34,197,94,0.30)"}`,
+          color: "#cbd5e1",
+          fontSize: 11,
+        }}>
+          <span>🚗 차량 추종 예정: <b style={{ color: "#fff" }}>현시 {vehiclePhaseNo}</b></span>
+          <span style={{ color: isVehicleRed ? "#fca5a5" : "#86efac", fontWeight: 800 }}>
+            {isVehicleRed ? "정지/대기" : "통과 가능"}
+          </span>
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {phases.map(phase => {
@@ -1405,6 +1441,33 @@ function VehicleAwareSignalSimPanel({
               }}>
                 현시 {phase.no}
               </span>
+
+              {(isCurrent || isVehicleFollowing) && (
+                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                  {isCurrent && (
+                    <span style={{
+                      fontSize: 9,
+                      padding: "2px 5px",
+                      borderRadius: 999,
+                      background: "rgba(34,197,94,0.16)",
+                      border: "1px solid rgba(34,197,94,0.32)",
+                      color: "#86efac",
+                      fontWeight: 800,
+                    }}>현재</span>
+                  )}
+                  {isVehicleFollowing && (
+                    <span style={{
+                      fontSize: 9,
+                      padding: "2px 5px",
+                      borderRadius: 999,
+                      background: isVehicleStopPhase ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.16)",
+                      border: `1px solid ${isVehicleStopPhase ? "rgba(239,68,68,0.32)" : "rgba(59,130,246,0.32)"}`,
+                      color: isVehicleStopPhase ? "#fca5a5" : "#93c5fd",
+                      fontWeight: 800,
+                    }}>추종</span>
+                  )}
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap", minWidth: 0, flex: 1 }}>
                 {(phase.dirs || []).map((dir, idx) => (

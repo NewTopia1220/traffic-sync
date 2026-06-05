@@ -164,6 +164,7 @@ public class TopisSimulationTrafficService {
         Optional<RoadSpeedSnapshot> speed = speedForLink(linkId, speedCache);
         Map<String, Object> linkPayload = new LinkedHashMap<>();
         linkPayload.put("linkId", linkId);
+        linkPayload.put("vertices", verticesPayload(candidate.geometry().getVertices()));
 
         if (speed.isPresent()) {
             RoadSpeedSnapshot snapshot = speed.get();
