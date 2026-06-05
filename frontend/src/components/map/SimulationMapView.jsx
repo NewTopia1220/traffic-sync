@@ -578,7 +578,6 @@ export default function SimulationMapView({
   onCurrentSignalChange,
   carReady = false,
   routeTraffic = null,
-  onCurrentSignalChange,
 }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
@@ -1715,37 +1714,6 @@ export default function SimulationMapView({
           },
         }));
       }
-    const bottleneckSegment = extractRouteSegment(routePoints, 0.46, 0.62);
-
-    if (bottleneckSegment.length >= 2) {
-      overlayEntitiesRef.current.push(viewer.entities.add({
-        polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray(bottleneckSegment.flatMap(p => [p.lon, p.lat])),
-          width: 14,
-          clampToGround: true,
-          material: new Cesium.PolylineGlowMaterialProperty({
-            glowPower: 0.32,
-            taperPower: 0.7,
-            color: Cesium.Color.fromCssColorString(isOptimized ? "#22c55e" : "#ef4444").withAlpha(0.95),
-          }),
-          zIndex: 25,
-        },
-      }));
-    }
-
-    const bottleneckPoint = interpolateRoute(routePoints, 0.54);
-    if (bottleneckPoint) {
-      overlayEntitiesRef.current.push(viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(bottleneckPoint.lon, bottleneckPoint.lat, 20),
-        billboard: {
-          image: createBottleneckCanvas(isOptimized),
-          width: 118,
-          height: 42,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        },
-      }));
     }
 
     // 상행/하행 차량을 도로 중심선에서 좌우로 분리해서 표시합니다.

@@ -1113,14 +1113,11 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               <button onClick={() => setSliderTarget("waypoint")} disabled={!waypointList.length} style={tabButtonStyle(sliderTarget === "waypoint", !!waypointList.length)}>
                 경유지
               </button>
-              <button onClick={() => setSliderTarget("bottleneck")} disabled={!bottleneckWaypoint} style={tabButtonStyle(sliderTarget === "bottleneck", !!bottleneckWaypoint)}>
+              <button onClick={() => setSliderTarget("bottleneck")} disabled={!bottleneckCrossroads.length} style={tabButtonStyle(sliderTarget === "bottleneck", !!bottleneckCrossroads.length)}>
                 병목지
               </button>
               <button onClick={() => setSliderTarget("end")} disabled={!end} style={tabButtonStyle(sliderTarget === "end", !!end)}>
                 목적지
-              </button>
-              <button onClick={() => setSliderTarget("bottleneck")} disabled={!bottleneckCrossroads.length} style={tabButtonStyle(sliderTarget === "bottleneck", !!bottleneckCrossroads.length)}>
-                병목지
               </button>
             </div>
           </div>
