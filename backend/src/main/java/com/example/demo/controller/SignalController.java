@@ -66,8 +66,12 @@ public class SignalController {
     }
 
     @GetMapping("/simulation/managed-traffic-links")
-    public ResponseEntity<Map<String, Object>> getManagedTrafficLinks() {
-        return ResponseEntity.ok(topisSimulationTrafficService.buildManagedTrafficLinks());
+    public ResponseEntity<Map<String, Object>> getManagedTrafficLinks(
+            @RequestParam(required = false) Double centerLat,
+            @RequestParam(required = false) Double centerLon,
+            @RequestParam(required = false) Double radiusKm
+    ) {
+        return ResponseEntity.ok(topisSimulationTrafficService.buildManagedTrafficLinks(centerLat, centerLon, radiusKm));
     }
 
     @PostMapping("/simulation/managed-traffic-link-status")

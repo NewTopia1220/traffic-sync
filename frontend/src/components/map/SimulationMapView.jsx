@@ -8,6 +8,7 @@ const TRAFFIC_LINK_POLL_MS = 15000;
 const TRAFFIC_RENDER_BATCH_SIZE = 28;
 const TRAFFIC_PRIMITIVE_LINE_WIDTH = 6;
 const TRAFFIC_PRIMITIVE_HALO_WIDTH = 11;
+const SELECTED_GU_TRAFFIC_RADIUS_KM = 2.5;
 const TRAFFIC_LINK_COLORS = {
   smooth: "#22c55e",
   slow: "#facc15",
@@ -639,6 +640,7 @@ function estimateTrip(routePoints, isOptimized) {
 
 export default function SimulationMapView({
   selectedList = [],
+  selectedGu,
   onSelect,
   isOptimized = false,
   onStatsChange,
@@ -696,10 +698,27 @@ export default function SimulationMapView({
 
   const start = selectedList[0] ?? null;
   const end = selectedList.length >= 2 ? selectedList[selectedList.length - 1] : null;
+  const isSimulationActive = !!(start && end);
   const startLL = getCrLonLat(start);
   const endLL = getCrLonLat(end);
   const routePoints = routePlan.points;
   const viaCrossroads = routePlan.viaCrossroads;
+  const selectedGuLat = Number(selectedGu?.lat);
+  const selectedGuLon = Number(selectedGu?.lon);
+  const hasSelectedGuCenter = Number.isFinite(selectedGuLat) && Number.isFinite(selectedGuLon);
+  const selectedGuLL = hasSelectedGuCenter ? { lon: selectedGuLon, lat: selectedGuLat } : null;
+  const trafficAreaKey = hasSelectedGuCenter
+    ? `${selectedGu?.name || "selected"}:${selectedGuLat}:${selectedGuLon}`
+    : "all";
+  const trafficAreaQuery = useMemo(() => {
+    if (!hasSelectedGuCenter) return "";
+    const params = new URLSearchParams({
+      centerLat: String(selectedGuLat),
+      centerLon: String(selectedGuLon),
+      radiusKm: String(SELECTED_GU_TRAFFIC_RADIUS_KM),
+    });
+    return `?${params.toString()}`;
+  }, [hasSelectedGuCenter, selectedGuLat, selectedGuLon]);
   const trafficLinkIds = useMemo(
     () => trafficLinks.map(link => link.linkId).filter(Boolean).join("|"),
     [trafficLinks]
@@ -817,6 +836,9 @@ export default function SimulationMapView({
   useEffect(() => {
     let alive = true;
 
+    trafficStatusRef.current = {};
+    setTrafficLinks([]);
+    clearTrafficLayer();
     setTrafficLayerInfo(prev => ({
       ...prev,
       loading: true,
@@ -824,7 +846,7 @@ export default function SimulationMapView({
       renderedCount: 0,
       error: null,
     }));
-    fetch(`${API_BASE}/api/signal/simulation/managed-traffic-links`)
+    fetch(`${API_BASE}/api/signal/simulation/managed-traffic-links${trafficAreaQuery}`)
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -879,7 +901,7 @@ export default function SimulationMapView({
     return () => {
       alive = false;
     };
-  }, []);
+  }, [trafficAreaQuery]);
 
   useEffect(() => {
     if (!trafficLinks.length || !trafficLinkIds) return;
@@ -937,7 +959,7 @@ export default function SimulationMapView({
       clearInterval(timer);
       clearTimeout(first);
     };
-  }, [trafficLinkIds]);
+  }, [trafficLinkIds, trafficAreaKey]);
 
   useEffect(() => {
     if (!cesiumReady || !containerRef.current || viewerRef.current) return;
@@ -946,7 +968,7 @@ export default function SimulationMapView({
     const Cesium = window.Cesium;
     const vw = window.vw;
 
-    const center = startLL || { lon: 127.0396, lat: 37.5126 };
+    const center = startLL || selectedGuLL || { lon: 127.0396, lat: 37.5126 };
     const previousCallback = vw.ws3dInitCallBack;
 
     const completeInit = () => {
@@ -1028,6 +1050,21 @@ export default function SimulationMapView({
       vw.ws3dInitCallBack = previousCallback;
     };
   }, [cesiumReady]);
+
+  useEffect(() => {
+    if (!mapReady || !viewerRef.current || !window.Cesium || !selectedGuLL || startLL) return;
+
+    const Cesium = window.Cesium;
+    viewerRef.current.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(selectedGuLL.lon, selectedGuLL.lat, 1200),
+      orientation: {
+        heading: Cesium.Math.toRadians(0),
+        pitch: Cesium.Math.toRadians(-45),
+        roll: 0,
+      },
+      duration: 0.55,
+    });
+  }, [mapReady, selectedGuLat, selectedGuLon, start?.intNo]);
 
   useEffect(() => {
     if (!mapReady || !viewerRef.current || crossroads.length === 0) return;
@@ -1139,16 +1176,17 @@ export default function SimulationMapView({
     const Cesium = window.Cesium;
     const viewer = viewerRef.current;
 
-    if (driveView) {
-      if (trafficLayerRenderKeyRef.current !== "drive-view") {
+    if (driveView || isSimulationActive) {
+      const hiddenKey = driveView ? "drive-view" : "simulation-active";
+      if (trafficLayerRenderKeyRef.current !== hiddenKey) {
         clearTrafficLayer();
-        trafficLayerRenderKeyRef.current = "drive-view";
+        trafficLayerRenderKeyRef.current = hiddenKey;
       }
       viewer.scene.requestRender();
       return;
     }
 
-    const renderKey = trafficLinkIds ? `links:${trafficLinkIds}` : "links:empty";
+    const renderKey = trafficLinkIds ? `area:${trafficAreaKey}:links:${trafficLinkIds}` : `area:${trafficAreaKey}:links:empty`;
     if (trafficLayerRenderKeyRef.current === renderKey && hasTrafficLayerGeometry()) {
       return;
     }
@@ -1159,7 +1197,9 @@ export default function SimulationMapView({
   }, [
     mapReady,
     driveView,
+    isSimulationActive,
     trafficLinkIds,
+    trafficAreaKey,
   ]);
 
 
