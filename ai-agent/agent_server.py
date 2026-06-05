@@ -28,7 +28,7 @@ from langgraph.prebuilt import create_react_agent
 # ── 설정 ────────────────────────────────────────────────────────────────────────
 
 OLLAMA_URL  = "http://localhost:11434"
-OLLAMA_MODEL = "qwen3:30b-a3b"
+OLLAMA_MODEL = "qwen2.5:14b"
 MCP_SERVER_PATH = os.path.join(os.path.dirname(__file__), "mcp_server.py")
 PYTHON_BIN  = sys.executable
 
