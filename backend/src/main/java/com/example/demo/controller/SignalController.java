@@ -12,7 +12,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/signal")
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5173"})
 @RequiredArgsConstructor
 public class SignalController {
 
@@ -63,5 +63,22 @@ public class SignalController {
     @PostMapping("/simulation/route-traffic")
     public ResponseEntity<Map<String, Object>> getRouteTraffic(@RequestBody Map<String, Object> request) {
         return ResponseEntity.ok(topisSimulationTrafficService.buildRouteTraffic(request));
+    }
+
+    @GetMapping("/simulation/managed-traffic-links")
+    public ResponseEntity<Map<String, Object>> getManagedTrafficLinks() {
+        return ResponseEntity.ok(topisSimulationTrafficService.buildManagedTrafficLinks());
+    }
+
+    @PostMapping("/simulation/managed-traffic-link-status")
+    public ResponseEntity<Map<String, Object>> getManagedTrafficLinkStatuses(@RequestBody Map<String, Object> request) {
+        Object rawLinkIds = request == null ? null : request.get("linkIds");
+        List<String> linkIds = rawLinkIds instanceof List<?> list
+                ? list.stream()
+                .map(item -> item == null ? null : String.valueOf(item))
+                .filter(item -> item != null && !item.isBlank())
+                .toList()
+                : List.of();
+        return ResponseEntity.ok(topisSimulationTrafficService.buildManagedTrafficLinkStatuses(linkIds));
     }
 }
