@@ -503,6 +503,13 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
           hour: idx,      // 배열의 인덱스가 곧 시간(0~23)
           count: val      // 해당 인덱스의 값이 교통량
         }));
+        // 수정 예시: 상/하행 데이터를 구분하여 관리
+        // const predictionData = {
+        //   up: (data.up || []).map((val, idx) => ({ hour: idx, count: val })),
+        //   down: (data.down || []).map((val, idx) => ({ hour: idx, count: val }))
+        // };
+
+        
 
         // 2. 현재 시간 이후의 데이터만 필터링
         const futureData = predictionList.filter(item => item.hour >= currentHour);
