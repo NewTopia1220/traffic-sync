@@ -799,7 +799,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     if (!routeTraffic?.segments?.length || !stats?.distanceMeters) return;
 
     const speeds = routeTraffic.segments
-      .map(seg => seg.up?.speedKph)
+      .map(seg => (seg.selectedTraffic ?? seg.up)?.speedKph)
       .filter(s => typeof s === "number" && s > 0);
 
     if (!speeds.length) return;
@@ -833,13 +833,13 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     const nodeMap = {};
     (routeTraffic.requestedRouteNodes || []).forEach(n => { nodeMap[String(n.intNo)] = n; });
     const bCrossroads = routeTraffic.segments
-      .filter(seg => (seg.up?.speedKph ?? 999) < 40)
+      .filter(seg => ((seg.selectedTraffic ?? seg.up)?.speedKph ?? 999) < 40)
       .map(seg => {
         const node = nodeMap[String(seg.toIntNo)];
         return {
           intNo: seg.toIntNo,
           intNm: node?.intNm || `교차로 ${seg.toIntNo}`,
-          speedKph: seg.up?.speedKph,
+          speedKph: (seg.selectedTraffic ?? seg.up)?.speedKph,
         };
       })
       .filter((v, i, arr) => arr.findIndex(x => x.intNo === v.intNo) === i); // 중복 제거
