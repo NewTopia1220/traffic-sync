@@ -172,11 +172,12 @@ function getCurrentPhaseNo(signalCtx, nowMs) {
   return phases[0]?.no ?? null;
 }
 
-function getVehicleFollowingPhaseNo(signalCtx, carBearingDeg = null) {
+function getVehicleFollowingPhaseNo(signalCtx, carBearingDeg = null, movement = null) {
   if (!signalCtx?.phases?.length) return null;
 
   const phases = signalCtx.phases;
-  if (carBearingDeg == null) {
+
+  if (!movement && carBearingDeg == null) {
     const vehiclePhase = phases.find(phase =>
       (phase.dirs || []).some(dir => dir !== "전적색" && dir !== "보행")
     );
@@ -184,10 +185,50 @@ function getVehicleFollowingPhaseNo(signalCtx, carBearingDeg = null) {
   }
 
   const matched = phases.find(phase =>
-    (phase.dirs || []).some(dir => isDirMatchingBearing(dir, carBearingDeg))
+    (phase.dirs || []).some(dir =>
+      movement
+        ? isDirMatchingMovement(dir, movement)
+        : isDirMatchingBearing(dir, carBearingDeg)
+    )
   );
 
+  console.log("차량 movement 매칭 확인:", {
+    intNo: signalCtx?.intNo,
+    intNm: signalCtx?.intNm,
+    movement,
+    matchedPhaseNo: matched?.no,
+    matchedDirs: matched?.dirs,
+    phases: phases.map(p => ({ no: p.no, dirs: p.dirs })),
+  });
+
+
+ 
   if (matched) return matched.no;
+  if (movement) {
+    if (isRightTurnMovement(movement)) {
+      const rightTurnMatched = phases.find(phase =>
+        (phase.dirs || []).some(dir => String(dir).includes("우회전"))
+      );
+
+      console.log("우회전 movement 처리:", {
+        movement,
+        turnType: getMovementTurnType(movement),
+        rightTurnPhaseNo: rightTurnMatched?.no,
+        rightTurnDirs: rightTurnMatched?.dirs,
+      });
+
+      if (rightTurnMatched) {
+        return rightTurnMatched.no;
+      }
+
+      return "__RIGHT_TURN__";
+    }
+
+    const fuzzyMatched = findClosestPhaseByMovement(phases, movement);
+    if (fuzzyMatched) return fuzzyMatched.no;
+
+    return null;
+  }
 
   const fallback = phases.find(phase =>
     (phase.dirs || []).some(dir => dir !== "전적색" && dir !== "보행")
@@ -196,11 +237,11 @@ function getVehicleFollowingPhaseNo(signalCtx, carBearingDeg = null) {
   return fallback?.no ?? phases[0]?.no ?? null;
 }
 
-function isCurrentPhaseGreenForVehicle(signalCtx, nowMs, carBearingDeg = null) {
+function isCurrentPhaseGreenForVehicle(signalCtx, nowMs, carBearingDeg = null, movement = null) {
   if (!signalCtx?.phases?.length) return true;
 
   const currentPhaseNo = getCurrentPhaseNo(signalCtx, nowMs);
-  const followingPhaseNo = getVehicleFollowingPhaseNo(signalCtx, carBearingDeg);
+  const followingPhaseNo = getVehicleFollowingPhaseNo(signalCtx, carBearingDeg, movement);
   const currentPhase = signalCtx.phases.find(phase => String(phase.no) === String(currentPhaseNo));
 
   if (!currentPhase) return true;
@@ -209,19 +250,107 @@ function isCurrentPhaseGreenForVehicle(signalCtx, nowMs, carBearingDeg = null) {
   if (dirs.every(dir => dir === "전적색")) return false;
   if (dirs.includes("보행")) return false;
 
-  if (carBearingDeg == null) {
+  if (!movement && carBearingDeg == null) {
     return dirs.some(dir => dir !== "전적색" && dir !== "보행");
   }
 
-  return String(currentPhaseNo) === String(followingPhaseNo)
-    && dirs.some(dir => isDirMatchingBearing(dir, carBearingDeg));
+  if (followingPhaseNo === "__RIGHT_TURN__") {
+    return true;
+  }
+ 
+  if (String(currentPhaseNo) !== String(followingPhaseNo)) {
+    return false;
+  }
+
+  return dirs.some(dir => dir !== "전적색" && dir !== "보행");
+}
+
+function signedBearingDelta(fromBearing, toBearing) {
+  if (!Number.isFinite(Number(fromBearing)) || !Number.isFinite(Number(toBearing))) {
+    return null;
+  }
+
+  return ((Number(toBearing) - Number(fromBearing) + 540) % 360) - 180;
+}
+
+function getMovementTurnType(movement) {
+  const delta = signedBearingDelta(movement?.approachBearing, movement?.exitBearing);
+  if (delta == null) return null;
+
+  const abs = Math.abs(delta);
+
+  if (abs <= 35) return "straight";
+  if (abs >= 145) return "uturn";
+
+  // bearing 기준: +는 우회전, -는 좌회전
+  return delta > 0 ? "right" : "left";
+}
+
+function isRightTurnMovement(movement) {
+  return getMovementTurnType(movement) === "right";
+}
+
+function isLeftTurnMovement(movement) {
+  return getMovementTurnType(movement) === "left";
 }
 
 
-// "동↔서 직진", "남→북 좌회전" 같은 문자열과 차량 진행 방향을 비교
-function isDirMatchingBearing(dir, carBearingDeg) {
-  if (!dir || dir === "전적색" || dir === "보행" || dir === "미확인") return false;
+function bearingToCompass(bearingDeg) {
+  const a = ((bearingDeg % 360) + 360) % 360;
 
+  if (a < 23 || a >= 338) return "북";
+  if (a < 68) return "북동";
+  if (a < 113) return "동";
+  if (a < 158) return "남동";
+  if (a < 203) return "남";
+  if (a < 248) return "남서";
+  if (a < 293) return "서";
+  return "북서";
+}
+
+function oppositeCompass(compass) {
+  const opposite = {
+    "북": "남",
+    "북동": "남서",
+    "동": "서",
+    "남동": "북서",
+    "남": "북",
+    "남서": "북동",
+    "서": "동",
+    "북서": "남동",
+  };
+
+  return opposite[compass] ?? null;
+}
+
+function parseDirMovement(dir) {
+  if (!dir || dir === "전적색" || dir === "보행" || dir === "미확인") return null;
+
+  const match = dir.match(/^([가-힣]+)(↔|→)([가-힣]+)/);
+  if (!match) return null;
+
+  return {
+    from: match[1],
+    arrow: match[2],
+    to: match[3],
+  };
+}
+
+function isDirMatchingMovement(dir, movement) {
+  const parsed = parseDirMovement(dir);
+  if (!parsed || !movement?.from || !movement?.to) return false;
+
+  if (parsed.arrow === "↔") {
+    return (
+      (movement.from === parsed.from && movement.to === parsed.to) ||
+      (movement.from === parsed.to && movement.to === parsed.from)
+    );
+  }
+
+  return movement.from === parsed.from && movement.to === parsed.to;
+}
+
+function compassDiff(a, b) {
   const compassToDeg = {
     "북": 0,
     "북동": 45,
@@ -233,23 +362,177 @@ function isDirMatchingBearing(dir, carBearingDeg) {
     "북서": 315,
   };
 
-  const fromMatch = dir.match(/^([가-힣]+)[↔→]/);
-  if (!fromMatch) return false;
+  const ad = compassToDeg[a];
+  const bd = compassToDeg[b];
+  if (ad == null || bd == null) return Infinity;
 
-  const fromDir = fromMatch[1];
-  const fromDeg = compassToDeg[fromDir];
+  return angleDiffDeg(ad, bd);
+}
 
-  if (fromDeg === undefined) return false;
+function movementScore(parsed, movement) {
+  if (!parsed || !movement?.from || !movement?.to) return Infinity;
 
-  if (dir.includes("↔")) {
-    const toMatch = dir.match(/↔([가-힣]+)/);
-    if (toMatch) {
-      const toDeg = compassToDeg[toMatch[1]];
-      if (toDeg !== undefined && angleDiffDeg(carBearingDeg, toDeg) < 45) return true;
+  if (parsed.arrow === "↔") {
+    return Math.min(
+      compassDiff(parsed.from, movement.from) + compassDiff(parsed.to, movement.to),
+      compassDiff(parsed.to, movement.from) + compassDiff(parsed.from, movement.to)
+    );
+  }
+
+  return compassDiff(parsed.from, movement.from) + compassDiff(parsed.to, movement.to);
+}
+
+function hasLeftTurnSignal(signalCtx, movement) {
+  if (!signalCtx?.phases?.length || !movement) return true;
+
+  if (!isLeftTurnMovement(movement)) return true;
+
+  const exactMatched = signalCtx.phases.some(phase =>
+    (phase.dirs || []).some(dir => isDirMatchingMovement(dir, movement))
+  );
+
+  if (exactMatched) return true;
+
+  const fuzzyMatched = findClosestPhaseByMovement(signalCtx.phases, movement);
+  return Boolean(fuzzyMatched);
+}
+
+function findClosestPhaseByMovement(phases, movement) {
+  let best = null;
+
+  for (const phase of phases) {
+    for (const dir of phase.dirs || []) {
+      const parsed = parseDirMovement(dir);
+
+      const bearingScore = movementBearingScore(parsed, movement);
+      const textScore = movementScore(parsed, movement);
+      const score = Number.isFinite(bearingScore) ? bearingScore : textScore;
+
+      console.log("phase 점수 계산 상세:", {
+        dir,
+        parsed,
+        movement,
+        bearingScore,
+        textScore,
+        score,
+      });
+
+      if (!best || score < best.score) {
+        best = { phase, dir, parsed, score, bearingScore, textScore };
+      }
     }
   }
 
-  return angleDiffDeg(carBearingDeg, fromDeg) < 45;
+  const limit = best?.parsed?.arrow === "↔" ? 70 : 60;
+
+  if (best && best.score <= limit) {
+    console.log("차량 movement 근접 매칭:", {
+      movement,
+      selectedPhaseNo: best.phase.no,
+      selectedDir: best.dir,
+      score: best.score,
+      bearingScore: best.bearingScore,
+      textScore: best.textScore,
+      limit,
+    });
+    return best.phase;
+    
+  }
+
+  console.log("차량 movement 근접 매칭 실패:", {
+    movement,
+    closestPhaseNo: best?.phase?.no,
+    closestDir: best?.dir,
+    score: best?.score,
+    bearingScore: best?.bearingScore,
+    textScore: best?.textScore,
+    limit,
+  });
+
+  return null;
+}
+
+function compassToBearing(compass) {
+  const compassToDeg = {
+    북: 0,
+    북동: 45,
+    동: 90,
+    남동: 135,
+    남: 180,
+    남서: 225,
+    서: 270,
+    북서: 315,
+  };
+
+  return compassToDeg[compass] ?? null;
+}
+
+function movementBearingScore(parsed, movement) {
+  if (!parsed) return Infinity;
+
+  const hasApproach = Number.isFinite(Number(movement?.approachBearing));
+  const hasExit = Number.isFinite(Number(movement?.exitBearing));
+
+  if (!hasApproach && !hasExit) return Infinity;
+
+  const phaseFromBearing = compassToBearing(parsed.from);
+  const phaseToBearing = compassToBearing(parsed.to);
+
+  if (phaseFromBearing == null || phaseToBearing == null) return Infinity;
+
+  const vehicleFromBearing = hasApproach
+    ? (Number(movement.approachBearing) + 180) % 360
+    : null;
+
+  const vehicleToBearing = hasExit
+    ? Number(movement.exitBearing)
+    : null;
+
+  const oneWayScore = (fromBearing, toBearing) => {
+    let score = 0;
+    let count = 0;
+
+    if (vehicleFromBearing != null) {
+      score += angleDiffDeg(vehicleFromBearing, fromBearing);
+      count += 1;
+    }
+
+    if (vehicleToBearing != null) {
+      score += angleDiffDeg(vehicleToBearing, toBearing);
+      count += 1;
+    }
+
+    return count ? score : Infinity;
+  };
+
+  if (parsed.arrow === "↔") {
+    return Math.min(
+      oneWayScore(phaseFromBearing, phaseToBearing),
+      oneWayScore(phaseToBearing, phaseFromBearing)
+    );
+  }
+
+  return oneWayScore(phaseFromBearing, phaseToBearing);
+}
+
+// "동↔서 직진", "남→북 좌회전" 같은 문자열과 차량 진행 방향을 비교
+function isDirMatchingBearing(dir, carBearingDeg) {
+  if (!dir || dir === "전적색" || dir === "보행" || dir === "미확인") return false;
+  if (carBearingDeg == null) return false;
+
+  const carCompass = bearingToCompass(carBearingDeg);
+
+  const match = dir.match(/^([가-힣]+)(?:↔|→)([가-힣]+)/);
+  if (!match) return false;
+
+  const fromDir = match[1];
+  const toDir = match[2];
+
+  if (dir.includes("↔")) {
+    return carCompass === fromDir || carCompass === toDir;
+  }
+
+  return carCompass === toDir;
 }
 
 async function buildRouteViaNearbyCrossroads(startCr, endCr, crossroads) {
@@ -576,6 +859,7 @@ export default function SimulationMapView({
   onAutoWaypointsChange,
   onRouteTrafficChange,
   onCurrentSignalChange,
+  onResetRoute,
 }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
@@ -590,12 +874,17 @@ export default function SimulationMapView({
   const reverseProgressRef = useRef(1);
   const lastTickRef = useRef(null);
 
+  const routeVehicleMovementsRef = useRef({});
+
   // 신호 기반 정지/출발용 refs
   const signalCacheRef = useRef({});
   const stoppedAtRef = useRef(null);
   const stopProgressRef = useRef(null);
+  const stoppedNodeProgressRef = useRef(null);
+
   const reverseStoppedAtRef = useRef(null);
   const reverseStopProgressRef = useRef(null);
+  const reverseStoppedNodeProgressRef = useRef(null);
   const currentSignalStatusRef = useRef(null);
 
   const routePointsRef = useRef([]);
@@ -628,8 +917,6 @@ export default function SimulationMapView({
 
     // setRoutePlan(buildRouteFromSelectedList(selectedList));
     setRoutePlan(buildRouteFromSelectedList(selectedList, crossroads));
-  // }, [selectedList]);
-  // }, [selectedList, crossroads]);
   }, [
     selectedList.map(item => item.intNo).join("|"),
     crossroads.length,
@@ -640,24 +927,47 @@ export default function SimulationMapView({
     onAutoWaypointsChange?.(viaCrossroads);
   }, [start?.intNo, end?.intNo, viaCrossroads.map(cr => cr.intNo).join("|"), onAutoWaypointsChange]);
 
+  
   useEffect(() => {
     const routeNodes = buildRouteTrafficNodes(start, viaCrossroads, end);
     const key = routeNodes
       .map(node => `${node.intNo || ""}:${node.lat}:${node.lon}`)
       .join("|");
 
+    console.log("route-traffic effect 확인", {
+      start,
+      end,
+      viaCrossroads,
+      routeNodes,
+      routeNodesLength: routeNodes.length,
+      routePointsLength: routePoints.length,
+      key,
+      prevKey: routeTrafficRequestRef.current.key,
+    });
+
     if (routeNodes.length < 2) {
+      console.log("route-traffic skip: routeNodes 부족", routeNodes);
+
       routeTrafficRequestRef.current = { key: "", seq: routeTrafficRequestRef.current.seq + 1 };
       onRouteTrafficChange?.(null);
       return;
     }
 
-    if (routePoints.length < 2) return;
+    if (routePoints.length < 2) {
+      console.log("route-traffic skip: routePoints 부족", routePoints.length);
+      return;
+    }
 
-    if (routeTrafficRequestRef.current.key === key) return;
+    if (routeTrafficRequestRef.current.key === key) {
+      console.log("route-traffic skip: 같은 key라 중복 차단", key);
+      return;
+    }
 
     const seq = routeTrafficRequestRef.current.seq + 1;
     routeTrafficRequestRef.current = { key, seq };
+
+    console.log("route-traffic fetch 실행", routeNodes);
+
     fetchRouteTraffic(routeNodes, seq);
   }, [
     start?.intNo,
@@ -680,11 +990,6 @@ export default function SimulationMapView({
   ]);
 
   useEffect(() => {
-    // VWorld WebGL 3D API(webglMapInit.js.do)는 내부에서 document.write를 사용합니다.
-    // React 컴포넌트가 마운트된 뒤 동적으로 script를 넣으면 Chrome에서
-    // "Failed to execute document.write" 오류가 나면서 지도가 로딩되지 않습니다.
-    // 그래서 이 컴포넌트에서는 동적 로딩하지 않고, index.html에서 먼저 로드된
-    // window.vw/window.Cesium 객체만 기다립니다.
     const apiKey = getVWorldApiKey();
     if (!apiKey) {
       setStatus("VWorld API 키가 없습니다. .env의 VITE_VWORLD_API_KEY를 확인하세요.");
@@ -893,22 +1198,23 @@ export default function SimulationMapView({
           }
         }
 
-        const cartesian = viewer.scene.pickPosition?.(click.position)
-          || viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid);
+        // 수동 경유지 부분 넣을지 말지 고민
+        // const cartesian = viewer.scene.pickPosition?.(click.position)
+        //   || viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid);
 
-        if (!cartesian) return;
+        // if (!cartesian) return;
 
-        const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
-        const lon = Cesium.Math.toDegrees(cartographic.longitude);
-        const lat = Cesium.Math.toDegrees(cartographic.latitude);
+        // const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+        // const lon = Cesium.Math.toDegrees(cartographic.longitude);
+        // const lat = Cesium.Math.toDegrees(cartographic.latitude);
 
-        onSelect?.({
-          intNo: `manual-${Date.now()}`,
-          intNm: "수동 경유지",
-          lon,
-          lat,
-          isManualWaypoint: true,
-        });
+        // onSelect?.({
+        //   intNo: `manual-${Date.now()}`,
+        //   intNm: "수동 경유지",
+        //   lon,
+        //   lat,  
+        //   isManualWaypoint: true,
+        // });
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     }
   }, [
@@ -1132,6 +1438,32 @@ export default function SimulationMapView({
       const data = await res.json();
       if (routeTrafficRequestRef.current.seq !== seq) return;
 
+      routeVehicleMovementsRef.current = data?.vehicleMovements || {};
+      console.log("백엔드 vehicleMovements 저장됨", routeVehicleMovementsRef.current);
+
+      const blockedLeftTurn = await findBlockedLeftTurnNode(routeNodes, data?.vehicleMovements);
+      if (blockedLeftTurn) {
+        alert(`${blockedLeftTurn.node.intNm} 교차로의 해당 방향은 좌회전 신호가 없어 경로를 연결할 수 없습니다.`);
+
+        routeVehicleMovementsRef.current = {};
+        startCarDirectionRef.current = null;
+        routeTrafficRequestRef.current = {
+          key: "",
+          seq: routeTrafficRequestRef.current.seq + 1,
+        };
+
+        onRouteTrafficChange?.(null);
+        onCurrentSignalChange?.(null);
+        onStatsChange?.(null);
+
+        clearOverlays();
+        stopAnimation();
+
+        onResetRoute?.();
+
+        return;
+      }
+
       const rightLanePoints = offsetRoutePoints(routePointsRef.current, 10);
       const startCarPos = rightLanePoints[0];
 
@@ -1201,6 +1533,67 @@ export default function SimulationMapView({
     }
   }
 
+  function getBackendMovementForNode(intNo) {
+    const movement = routeVehicleMovementsRef.current?.[String(intNo)];
+    if (!movement?.from && !movement?.to) return null;
+
+    return {
+      from: movement.from,
+      to: movement.to,
+      approachBearing: movement.approachBearing,
+      exitBearing: movement.exitBearing,
+      source: "link-geometry",
+    };
+  }
+
+  function getReverseBackendMovementForNode(intNo) {
+    const movement = routeVehicleMovementsRef.current?.[String(intNo)];
+    if (!movement?.from && !movement?.to) return null;
+
+    const reverseApproachBearing = Number.isFinite(Number(movement.exitBearing))
+      ? (Number(movement.exitBearing) + 180) % 360
+      : null;
+
+    const reverseExitBearing = Number.isFinite(Number(movement.approachBearing))
+      ? (Number(movement.approachBearing) + 180) % 360
+      : null;
+
+    return {
+      from: movement.to,
+      to: movement.from,
+      approachBearing: reverseApproachBearing,
+      exitBearing: reverseExitBearing,
+      source: "link-geometry-reverse",
+    };
+  }
+
+  async function findBlockedLeftTurnNode(routeNodes, vehicleMovements) {
+    for (const node of routeNodes) {
+      const movement = vehicleMovements?.[String(node.intNo)];
+
+      if (!movement || !isLeftTurnMovement(movement)) continue;
+
+      const cached = signalCacheRef.current[node.intNo];
+      let ctx = cached?.ctx;
+
+      if (!ctx) {
+        const res = await fetch(`${API_BASE}/api/signal/simulation/context/${node.intNo}`);
+        if (!res.ok) continue;
+        ctx = await res.json();
+        signalCacheRef.current[node.intNo] = {
+          ctx,
+          fetchedAt: Date.now(),
+        };
+      }
+
+      if (!hasLeftTurnSignal(ctx, movement)) {
+        return { node, movement };
+      }
+    }
+
+    return null;
+  }
+
   async function fetchSignalCtx(intNo) {
     if (!intNo) return null;
 
@@ -1244,7 +1637,8 @@ export default function SimulationMapView({
     return "unknown";
   }
 
-  function emitCurrentSignalStatus(nextNode, isRedLight, cached = null, carBearingDeg = null) {
+
+  function emitCurrentSignalStatus(nextNode, isRedLight, cached = null, carBearingDeg = null, movement = null) {
     if (!onCurrentSignalChange) return;
 
     const nowMs = Date.now();
@@ -1261,7 +1655,8 @@ export default function SimulationMapView({
 
     const ctx = cached?.ctx || cached || null;
     const currentPhaseNo = ctx ? getCurrentPhaseNo(ctx, nowMs) : null;
-    const vehiclePhaseNo = ctx ? getVehicleFollowingPhaseNo(ctx, carBearingDeg) : null;
+    // const vehiclePhaseNo = ctx ? getVehicleFollowingPhaseNo(ctx, carBearingDeg) : null;
+    const vehiclePhaseNo = ctx ? getVehicleFollowingPhaseNo(ctx, carBearingDeg, movement) : null;
 
     const activeStatus = {
       intNo: nextNode.intNo,
@@ -1366,8 +1761,16 @@ export default function SimulationMapView({
       const cached = signalCacheRef.current[node.intNo];
       const ctx = cached?.ctx || null;
       const currentPhaseNo = ctx ? getCurrentPhaseNo(ctx, nowMs) : null;
-      const vehiclePhaseNo = ctx ? getVehicleFollowingPhaseNo(ctx, bearing) : null;
-      const isGreen = ctx ? isCurrentPhaseGreenForVehicle(ctx, nowMs, bearing) : null;
+
+      const movement = progress == null
+        ? null
+        : (
+            getBackendMovementForNode(node.intNo)
+            ?? getTurnAwareMovementNearNode(progressRef.current, progress, false)
+            ?? getMovementTowardNode(progressRef.current, progress, false)
+          );
+      const vehiclePhaseNo = ctx ? getVehicleFollowingPhaseNo(ctx, bearing, movement) : null;
+      const isGreen = ctx ? isCurrentPhaseGreenForVehicle(ctx, nowMs, bearing, movement) : null;
 
       result[String(node.intNo)] = {
         intNo: node.intNo,
@@ -1514,8 +1917,11 @@ export default function SimulationMapView({
     reverseProgressRef.current = 1;
     stoppedAtRef.current = null;
     stopProgressRef.current = null;
+    stoppedNodeProgressRef.current = null;
+
     reverseStoppedAtRef.current = null;
     reverseStopProgressRef.current = null;
+    reverseStoppedNodeProgressRef.current = null;
   }
 
   function flyToSelectedArea() {
@@ -1790,6 +2196,162 @@ export default function SimulationMapView({
     });
   }
 
+  function getApproachBearingAtProgress(nodeProgress, reverse = false) {
+    const points = routePointsRef.current;
+    const totalLen = routeLengthMeters(points);
+    if (!points?.length || !totalLen || nodeProgress == null) return null;
+
+    const sample = Math.min(40 / totalLen, 0.02);
+
+    if (reverse) {
+      const from = interpolateRoute(points, Math.min(1, nodeProgress + sample));
+      const to = interpolateRoute(points, nodeProgress);
+      return from && to ? routeBearingDeg(from, to) : null;
+    }
+
+    const from = interpolateRoute(points, Math.max(0, nodeProgress - sample));
+    const to = interpolateRoute(points, nodeProgress);
+    return from && to ? routeBearingDeg(from, to) : null;
+  }
+
+  function getMovementAtProgress(nodeProgress, reverse = false) {
+    const points = routePointsRef.current;
+    const totalLen = routeLengthMeters(points);
+    if (!points?.length || !totalLen || nodeProgress == null) return null;
+
+    const sample = Math.min(40 / totalLen, 0.02);
+    const center = interpolateRoute(points, nodeProgress);
+
+    if (!center) return null;
+
+    if (reverse) {
+      const before = interpolateRoute(points, Math.min(1, nodeProgress + sample));
+      const after = interpolateRoute(points, Math.max(0, nodeProgress - sample));
+      if (!before || !after) return null;
+
+      const approachBearing = routeBearingDeg(before, center);
+      const exitBearing = routeBearingDeg(center, after);
+
+      return {
+        from: oppositeCompass(bearingToCompass(approachBearing)),
+        to: bearingToCompass(exitBearing),
+      };
+    }
+
+    const before = interpolateRoute(points, Math.max(0, nodeProgress - sample));
+    const after = interpolateRoute(points, Math.min(1, nodeProgress + sample));
+    if (!before || !after) return null;
+
+    const approachBearing = routeBearingDeg(before, center);
+    const exitBearing = routeBearingDeg(center, after);
+
+    return {
+      from: oppositeCompass(bearingToCompass(approachBearing)),
+      to: bearingToCompass(exitBearing),
+    };
+  }
+
+  function getMovementTowardNode(currentProgress, nodeProgress, reverse = false) {
+    const points = routePointsRef.current;
+    const totalLen = routeLengthMeters(points);
+    if (!points?.length || !totalLen || currentProgress == null || nodeProgress == null) return null;
+
+    const sample = Math.min(70 / totalLen, 0.05);
+
+    if (reverse) {
+      const before = interpolateRoute(points, Math.min(1, nodeProgress + sample));
+      const center = interpolateRoute(points, nodeProgress);
+      const after = interpolateRoute(points, Math.max(0, nodeProgress - sample));
+      if (!before || !center || !after) return null;
+
+      return {
+        from: oppositeCompass(bearingToCompass(routeBearingDeg(before, center))),
+        to: bearingToCompass(routeBearingDeg(center, after)),
+      };
+    }
+
+    const approachProgress = Math.max(0, Math.min(currentProgress, nodeProgress - sample));
+    const exitProgress = Math.min(1, nodeProgress + sample);
+
+    const before = interpolateRoute(points, approachProgress);
+    const center = interpolateRoute(points, nodeProgress);
+    const after = interpolateRoute(points, exitProgress);
+    if (!before || !center || !after) return null;
+
+    return {
+      from: oppositeCompass(bearingToCompass(routeBearingDeg(before, center))),
+      to: bearingToCompass(routeBearingDeg(center, after)),
+    };
+  }
+
+  function getTurnAwareMovementNearNode(currentProgress, nodeProgress, reverse = false) {
+    const points = routePointsRef.current;
+    const totalLen = routeLengthMeters(points);
+    if (!points?.length || !totalLen || currentProgress == null || nodeProgress == null) return null;
+
+    const searchRange = Math.min(140 / totalLen, 0.12);
+    const sample = Math.min(45 / totalLen, 0.05);
+    const step = Math.min(10 / totalLen, 0.01);
+
+    let start;
+    let end;
+
+    if (reverse) {
+      start = Math.max(sample, nodeProgress - searchRange);
+      end = Math.min(1 - sample, currentProgress, nodeProgress + searchRange);
+    } else {
+      start = Math.max(sample, currentProgress, nodeProgress - searchRange);
+      end = Math.min(1 - sample, nodeProgress + searchRange);
+    }
+
+    if (end <= start) return null;
+
+    let bestProgress = null;
+    let bestTurn = -1;
+
+    for (let p = start; p <= end; p += step) {
+      const before = interpolateRoute(points, p - sample);
+      const center = interpolateRoute(points, p);
+      const after = interpolateRoute(points, p + sample);
+      if (!before || !center || !after) continue;
+
+      const inBearing = routeBearingDeg(before, center);
+      const outBearing = routeBearingDeg(center, after);
+      const turn = angleDiffDeg(inBearing, outBearing);
+
+      if (turn > bestTurn) {
+        bestTurn = turn;
+        bestProgress = p;
+      }
+    }
+
+    if (bestProgress == null || bestTurn < 25) return null;
+
+    const before = interpolateRoute(
+      points,
+      reverse ? bestProgress + sample : bestProgress - sample
+    );
+    const center = interpolateRoute(points, bestProgress);
+    const after = interpolateRoute(
+      points,
+      reverse ? bestProgress - sample : bestProgress + sample
+    );
+
+    if (!before || !center || !after) return null;
+
+    const approachBearing = routeBearingDeg(before, center);
+    const exitBearing = routeBearingDeg(center, after);
+
+    return {
+      from: oppositeCompass(bearingToCompass(approachBearing)),
+      to: bearingToCompass(exitBearing),
+      approachBearing,
+      exitBearing,
+      turnProgress: bestProgress,
+      turnDeg: bestTurn,
+    };
+  }
+
   
   function startCarAnimation(timestamp = performance.now()) {
     if (
@@ -1820,8 +2382,24 @@ export default function SimulationMapView({
       const cached = signalCacheRef.current[forwardNode.intNo];
 
       if (cached?.ctx) {
-        const carBearing = getCarBearingDeg(points, progressRef.current);
-        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing);
+        // const carBearing = getCarBearingDeg(points, progressRef.current);
+        const carBearing = getApproachBearingAtProgress(forwardNode.progress, false);
+        // const movement = getMovementAtProgress(forwardNode.progress, false);
+        const movement =
+          getBackendMovementForNode(forwardNode.intNo)
+          ?? getTurnAwareMovementNearNode(progressRef.current, forwardNode.progress, false)
+          ?? getMovementTowardNode(progressRef.current, forwardNode.progress, false);
+
+        console.log("신호 매칭에 쓰는 movement", {
+          intNo: forwardNode?.intNo,
+          intNm: forwardNode?.intNm,
+          carBearing,
+          backendMovement: getBackendMovementForNode(forwardNode?.intNo),
+          finalMovement: movement,
+        });
+
+        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing, movement);
+
 
         if (!green && totalLen) {
           const stopProgress = Math.max(0, forwardNode.progress - (35 / totalLen));
@@ -1830,10 +2408,12 @@ export default function SimulationMapView({
             isForwardRedLight = true;
             stoppedAtRef.current = forwardNode.intNo;
             stopProgressRef.current = stopProgress;
+            stoppedNodeProgressRef.current = forwardNode.progress;
           } else if (forwardNode.metersAhead <= 18) {
             isForwardRedLight = true;
             stoppedAtRef.current = forwardNode.intNo;
             stopProgressRef.current = progressRef.current;
+            stoppedNodeProgressRef.current = forwardNode.progress;
           }
         }
       } else {
@@ -1845,12 +2425,21 @@ export default function SimulationMapView({
       const cached = signalCacheRef.current[stoppedAtRef.current];
 
       if (cached?.ctx) {
-        const carBearing = getCarBearingDeg(points, progressRef.current);
-        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing);
+        const carBearing =
+          getApproachBearingAtProgress(stoppedNodeProgressRef.current, false)
+          ?? getCarBearingDeg(points, progressRef.current);
+        
+        const movement =
+          getBackendMovementForNode(stoppedAtRef.current)
+          ?? getTurnAwareMovementNearNode(progressRef.current, stoppedNodeProgressRef.current, false)
+          ?? getMovementTowardNode(progressRef.current, stoppedNodeProgressRef.current, false);
+
+        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing, movement);
 
         if (green) {
           stoppedAtRef.current = null;
           stopProgressRef.current = null;
+          stoppedNodeProgressRef.current = null;
           isForwardRedLight = false;
         } else {
           isForwardRedLight = true;
@@ -1869,13 +2458,31 @@ export default function SimulationMapView({
       ? {
           intNo: stoppedAtRef.current,
           intNm: signalCacheRef.current[stoppedAtRef.current]?.ctx?.intNm || "",
-          type: "unknown",
+          type: "unknown", 
           metersAhead: 0,
+          progress: stoppedNodeProgressRef.current,
         }
       : null);
-    const carBearingForStatus = getCarBearingDeg(points, progressRef.current);
+
+    const carBearingForStatus =
+      activeSignalNode?.progress != null
+        ? getApproachBearingAtProgress(activeSignalNode.progress, false)
+        : stoppedNodeProgressRef.current != null
+          ? getApproachBearingAtProgress(stoppedNodeProgressRef.current, false)
+          : getCarBearingDeg(points, progressRef.current);
+
+    const movementForStatus =
+      activeSignalNode?.intNo
+        ? (
+            getBackendMovementForNode(activeSignalNode.intNo)
+            ?? getTurnAwareMovementNearNode(progressRef.current, activeSignalNode.progress, false)
+            ?? getMovementTowardNode(progressRef.current, activeSignalNode.progress, false)
+          )
+        : null;
+
     const activeCached = activeSignalNode?.intNo ? signalCacheRef.current[activeSignalNode.intNo] : null;
-    emitCurrentSignalStatus(activeSignalNode, isForwardRedLight, activeCached, carBearingForStatus);
+
+    emitCurrentSignalStatus(activeSignalNode, isForwardRedLight, activeCached, carBearingForStatus, movementForStatus);
 
 
     if (isForwardRedLight && stopProgressRef.current !== null) {
@@ -1898,6 +2505,7 @@ export default function SimulationMapView({
         progressRef.current = 0;
         stoppedAtRef.current = null;
         stopProgressRef.current = null;
+        stoppedNodeProgressRef.current = null;
       }
     }
 
@@ -1907,8 +2515,23 @@ export default function SimulationMapView({
       const cached = signalCacheRef.current[reverseNode.intNo];
 
       if (cached?.ctx) {
-        const carBearing = getReverseCarBearingDeg(points, reverseProgressRef.current);
-        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing);
+      
+        const carBearing = getApproachBearingAtProgress(reverseNode.progress, true);
+        const movement =
+          getReverseBackendMovementForNode(reverseNode.intNo)
+          ?? getTurnAwareMovementNearNode(reverseProgressRef.current, reverseNode.progress, true)
+          ?? getMovementTowardNode(reverseProgressRef.current, reverseNode.progress, true);
+
+        console.log("역방향 신호 매칭 movement", {
+          intNo: reverseNode?.intNo,
+          intNm: reverseNode?.intNm,
+          carBearing,
+          backendMovement: getBackendMovementForNode(reverseNode?.intNo),
+          reverseBackendMovement: getReverseBackendMovementForNode(reverseNode?.intNo),
+          finalMovement: movement,
+        });
+        
+        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing, movement);
 
 
         if (!green && totalLen) {
@@ -1918,10 +2541,12 @@ export default function SimulationMapView({
             isReverseRedLight = true;
             reverseStoppedAtRef.current = reverseNode.intNo;
             reverseStopProgressRef.current = stopProgress;
+            reverseStoppedNodeProgressRef.current = reverseNode.progress;
           } else if (reverseNode.metersAhead <= 18) {
             isReverseRedLight = true;
             reverseStoppedAtRef.current = reverseNode.intNo;
             reverseStopProgressRef.current = reverseProgressRef.current;
+            reverseStoppedNodeProgressRef.current = reverseNode.progress;
           }
         }
       } else {
@@ -1933,12 +2558,23 @@ export default function SimulationMapView({
       const cached = signalCacheRef.current[reverseStoppedAtRef.current];
 
       if (cached?.ctx) {
-        const carBearing = getReverseCarBearingDeg(points, reverseProgressRef.current);
-        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing);
+        // const carBearing = getReverseCarBearingDeg(points, reverseProgressRef.current);
+        const carBearing =
+          getApproachBearingAtProgress(reverseStoppedNodeProgressRef.current, true)
+          ?? getReverseCarBearingDeg(points, reverseProgressRef.current);
+
+      
+        const movement =
+          getReverseBackendMovementForNode(reverseStoppedAtRef.current)
+          ?? getTurnAwareMovementNearNode(reverseProgressRef.current, reverseStoppedNodeProgressRef.current, true)
+          ?? getMovementTowardNode(reverseProgressRef.current, reverseStoppedNodeProgressRef.current, true);      
+       
+        const green = isCurrentPhaseGreenForVehicle(cached.ctx, Date.now(), carBearing, movement);
 
         if (green) {
           reverseStoppedAtRef.current = null;
           reverseStopProgressRef.current = null;
+          reverseStoppedNodeProgressRef.current = null;
           isReverseRedLight = false;
         } else {
           isReverseRedLight = true;
@@ -1969,6 +2605,7 @@ export default function SimulationMapView({
         reverseProgressRef.current = 1;
         reverseStoppedAtRef.current = null;
         reverseStopProgressRef.current = null;
+        reverseStoppedNodeProgressRef.current = null;
       }
     }
 
@@ -2314,10 +2951,11 @@ function mapCarToTrafficDirection(carPos, segment) {
   const traffic = segment[direction];
 
   return {
-    direction, // "up" 또는 "down"
+    direction, // up or down
     traffic,
     distanceMeters: direction === "up" ? upDistance : downDistance,
     upDistanceMeters: upDistance,
     downDistanceMeters: downDistance,
   };
 }
+

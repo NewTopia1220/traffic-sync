@@ -57,7 +57,6 @@ function SimulationChatBot({ intNo, intNm, simulation, autoTrigger }) {
     if (aSim && aSim.length > 0) body.simulation = aSim;
 
 
-    console.log("AI 요청 body:", body);
     fetch(`${API_BASE}/api/simulation-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -688,6 +687,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               onAutoWaypointsChange={setAutoWaypoints}
               onRouteTrafficChange={setRouteTraffic}
               onCurrentSignalChange={setCurrentVehicleSignal}
+              onResetRoute={resetSimulation} 
             />
           </div>
           <div style={{
