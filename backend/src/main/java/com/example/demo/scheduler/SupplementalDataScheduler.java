@@ -62,6 +62,9 @@ public class SupplementalDataScheduler {
     @Value("${topis.speed.refresh.max-wait-ms:12000}")
     private long topisSpeedMaxWaitMs;
 
+    @Value("${topis.speed.refresh.max-links-per-run:80}")
+    private int topisSpeedMaxLinksPerRun;
+
     @Value("${road-risk.refresh.max-per-run:250}")
     private int roadRiskMaxRequestsPerRun;
 
@@ -74,8 +77,12 @@ public class SupplementalDataScheduler {
     @Value("${road-risk.refresh.stop-after-failures:3}")
     private int roadRiskStopAfterFailures;
 
+    @Value("${road-risk.refresh.on-area-change:false}")
+    private boolean roadRiskRefreshOnAreaChange;
+
     private final AtomicBoolean topisSpeedRefreshInProgress = new AtomicBoolean(false);
     private final AtomicBoolean roadRiskRefreshInProgress = new AtomicBoolean(false);
+    private final AtomicInteger topisSpeedRotation = new AtomicInteger(0);
     // 구역 변경으로 인해 이전 run 진행 중 스킵됐을 때 완료 후 즉시 재실행 요청 플래그
     private final AtomicBoolean roadRiskPendingRefresh = new AtomicBoolean(false);
 
@@ -130,17 +137,15 @@ public class SupplementalDataScheduler {
         }
 
         try {
-            Set<String> linkIds = supplementalDataCacheService.getMappings().stream()
-                    .map(this::speedCacheKey)
-                    .filter(linkId -> linkId != null && !linkId.isBlank())
-                    .collect(Collectors.toSet());
+            Set<String> linkIds = supplementalDataCacheService.getMappedLinkIds();
             if (linkIds.isEmpty()) {
                 log.info("TOPIS speed refresh skipped: no speed link mappings for current crossroads");
                 return;
             }
+            List<String> refreshLinkIds = rotatingSpeedRefreshTargets(linkIds);
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger failureCount = new AtomicInteger(0);
-            ParallelRunResult runResult = forEachParallel(linkIds, topisSpeedMaxConcurrency, topisSpeedMaxWaitMs, linkId -> {
+            ParallelRunResult runResult = forEachParallel(refreshLinkIds, topisSpeedMaxConcurrency, topisSpeedMaxWaitMs, linkId -> {
                 try {
                     Optional<RoadSpeedSnapshot> speed = topisApiService.fetchSpeed(linkId);
                     if (speed.isPresent()) {
@@ -167,11 +172,33 @@ public class SupplementalDataScheduler {
                         runResult.cancelledCount(), Math.max(0, topisSpeedMaxWaitMs));
             }
             log.info("TOPIS speed refreshed: success={}, failed={}, cancelled={}, total={}, elapsedMs={}",
-                    successCount.get(), failureCount.get(), runResult.cancelledCount(), linkIds.size(),
+                    successCount.get(), failureCount.get(), runResult.cancelledCount(), refreshLinkIds.size(),
                     System.currentTimeMillis() - startedAtMs);
         } finally {
             topisSpeedRefreshInProgress.set(false);
         }
+    }
+
+    private List<String> rotatingSpeedRefreshTargets(Set<String> linkIds) {
+        List<String> sorted = linkIds.stream()
+                .filter(linkId -> linkId != null && !linkId.isBlank())
+                .sorted()
+                .toList();
+        if (sorted.isEmpty()) {
+            return List.of();
+        }
+
+        int maxPerRun = Math.max(1, topisSpeedMaxLinksPerRun);
+        if (sorted.size() <= maxPerRun) {
+            return sorted;
+        }
+
+        int start = Math.floorMod(topisSpeedRotation.getAndAdd(maxPerRun), sorted.size());
+        List<String> targets = new ArrayList<>(maxPerRun);
+        for (int i = 0; i < maxPerRun; i++) {
+            targets.add(sorted.get((start + i) % sorted.size()));
+        }
+        return targets;
     }
 
     @Scheduled(initialDelay = 20000, fixedRateString = "${road-risk.poll.interval-ms:300000}")
@@ -222,7 +249,9 @@ public class SupplementalDataScheduler {
                     refreshRoadLinkMappings();
                     refreshRoadSpeeds();
                     broadcastCurrentTrafficStatuses();
-                    refreshRoadRisks();
+                    if (roadRiskRefreshOnAreaChange) {
+                        refreshRoadRisks();
+                    }
                 })
                 .exceptionally(e -> {
                     log.warn("Async current area supplemental refresh failed: {}", e.getMessage());
