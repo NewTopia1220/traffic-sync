@@ -640,6 +640,7 @@ export default function MainDashboard({
   selectedGu,
   onSelectGu,
 }) {
+export default function MainDashboard({ onGoMap, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, wsData, stations=[], setStations, selectedGu, onSelectGu, onAreaFetchState }) {
   const [time, setTime] = useState(new Date());
   const [loading, setLoading] = useState(false);
   // "송파구 · 12개 교차로 수집됨" 같은 임시 메시지 (3초 후 사라짐)
@@ -718,6 +719,7 @@ export default function MainDashboard({
   const handleSelectGu = useCallback(async (gu) => {
     setLoading(true);
     setFetchMsg(null);
+    onAreaFetchState?.({ status: "loading", guName: gu.name, count: 0 });
     try {
       const params = new URLSearchParams({
         guName: gu.name,
@@ -728,22 +730,25 @@ export default function MainDashboard({
       const res = await fetch(`${API_BASE}/api/fetch-area?${params.toString()}`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
+        onAreaFetchState?.({ status: "error", guName: gu.name, count: 0 });
         // 503: V2X API 타임아웃 — 캐시는 유지됨, 잠시 후 재시도 안내
         setFetchMsg(`⚠ ${data.message ?? `${gu.name} 수집 실패`}`);
         return;
       }
       onSelectGu(gu);       // App level 상태 업데이트 (페이지 이동 후에도 유지됨)
+      onAreaFetchState?.({ status: "done", guName: gu.name, count: data.count ?? 0 });
       setRiskIdx(0);
       setWatchList([]);
       setSpeedSelected([]);
       setFetchMsg(`${gu.name} · ${data.count ?? 0}개 교차로 수집됨`);
     } catch {
+      onAreaFetchState?.({ status: "error", guName: gu.name, count: 0 });
       setFetchMsg(`${gu.name} 데이터 수집 실패`);
     } finally {
       setLoading(false);
       setTimeout(() => setFetchMsg(null), 3000);
     }
-  }, [onSelectGu]);
+  }, [onSelectGu, onAreaFetchState]);
 
   // ── 활성 데이터 계산 ────────────────────────────────────────────────────────
   // 선택된 구 반경 2.5km 내 교차로만 필터한다. 결과가 없을 때 이전 구역 전체 데이터로 대체하면 화면이 섞여 보인다.

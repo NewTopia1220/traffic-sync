@@ -53,11 +53,49 @@ export default function App() {
   const [stations, setStations] = useState([])                // 메인에서 fetch한 교통량 지점
   // MainDashboard의 handleSelectGu(fetch-area 포함)를 받아두는 ref
   const selectGuRef = useRef(null)
+  const [areaFetchState, setAreaFetchState] = useState({ status: 'idle', guName: null, count: 0 })
+  const [readyArea, setReadyArea] = useState({ guName: null, count: 0 })
+  const [navNotice, setNavNotice] = useState('')
 
   // 로그인 브리핑 카드
   const [loginBriefing, setLoginBriefing] = useState(null) // { name, gu, weatherDesc, temp, pendingCount }
 
-  const goSimulation = () => setPage('simulation')
+  const showNavNotice = (message) => {
+    setNavNotice(message)
+    setTimeout(() => setNavNotice(''), 2500)
+  }
+
+  const isSimulationAreaReady = (gu = selectedGu) =>
+    !!gu && readyArea.guName === gu.name
+
+  const handleAreaFetchState = (nextState) => {
+    setAreaFetchState(nextState)
+    if (nextState?.status === 'done') {
+      setReadyArea({ guName: nextState.guName, count: nextState.count ?? 0 })
+    }
+  }
+
+  const enterSimulation = () => {
+    if (areaFetchState.status === 'loading') {
+      const fetchingGu = areaFetchState.guName
+        ? GU_LIST.find(g => g.name === areaFetchState.guName)
+        : null
+      if (fetchingGu || selectedGu) setMapCenter(fetchingGu || selectedGu)
+      setPage('main')
+      showNavNotice(`${areaFetchState.guName || '선택 구'} 데이터 수집 중입니다. 완료 후 시뮬레이션을 열 수 있습니다.`)
+      return
+    }
+
+    if (!isSimulationAreaReady()) {
+      if (selectedGu) setMapCenter(selectedGu)
+      setPage('main')
+      showNavNotice(`${selectedGu?.name || '선택 구'} 데이터 수집이 끝난 뒤 시뮬레이션을 열 수 있습니다.`)
+      return
+    }
+
+    if (selectedGu) setMapCenter(selectedGu)
+    setPage('simulation')
+  }
 
   // AI 어시스턴트 / 브리핑 로직 일체
   const assistant = useAssistant({
@@ -66,7 +104,7 @@ export default function App() {
       switch (intent.action) {
         case 'navigate':
           if (intent.page === 'map')             { if (selectedGu) setMapCenter(selectedGu); setPage('map') }
-          else if (intent.page === 'simulation') setPage('simulation')
+          else if (intent.page === 'simulation') enterSimulation()
           else if (intent.page === 'cctv')       setPage('cctv')
           else if (intent.page === 'news')       setPage('news')
           break
@@ -87,6 +125,7 @@ export default function App() {
     if (center) setMapCenter(center)
     setPage('map')
   })
+  const goSimulation = () => assistant.tryNav(enterSimulation)
 
   // SVG 지도에서 구 선택 → 선택 상태 갱신 + 브리핑 시작 확인 팝업
   const handleSelectGu = (gu) => {
@@ -152,6 +191,65 @@ export default function App() {
   const showMain = page === 'main'
     || !['map', 'cctv', 'news', 'simulation', 'mypage', 'complaints'].includes(page)
 
+  if (page === 'news') return (
+    <NewsDashboard
+      onGoMain={() => setPage('main')}
+      onGoMap={goMap}
+      onGoCctv={() => setPage('cctv')}
+      onGoSimulation={goSimulation}
+      onGoComplaints={() => setPage('complaints')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
+    />
+  )
+
+  if (page === 'simulation') return (
+    <SimulationDashboard
+      onGoMain={() => setPage('main')}
+      onGoMap={goMap}
+      onGoNews={() => setPage('news')}
+      onGoCctv={() => setPage('cctv')}
+      onGoComplaints={() => setPage('complaints')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
+    />
+  )
+
+  if (page === 'cctv') return (
+    <CctvDashboard
+      onGoMain={() => setPage('main')}
+      onGoMap={goMap}
+      onGoNews={() => setPage('news')}
+      onGoSimulation={goSimulation}
+      onGoComplaints={() => setPage('complaints')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
+    />
+  )
+
+  if (page === 'map') return (
+    <MapDashboard
+      onGoMain={() => setPage('main')}
+      onGoCctv={() => setPage('cctv')}
+      onGoNews={() => setPage('news')}
+      onGoSimulation={goSimulation}
+      onGoComplaints={() => setPage('complaints')}
+      onGoMyPage={() => setPage('mypage')}
+      onLogout={() => setPage('login')}
+      selectedGu={selectedGu}
+      wsData={wsData}
+      setWsData={setWsData}
+      initialCenter={mapCenter}
+      wsStatus={wsStatus}
+      lastUpdate={lastUpdate}
+      stations={stations}
+    />
+  )
+
+  // ── 메인 대시보드 + AI 어시스턴트 팝업들 ────────────────────────
   return (
     <>
       {simulationMounted && (
@@ -195,16 +293,19 @@ export default function App() {
         />
       )}
 
-      {page === 'news' && (
-        <NewsDashboard
-          onGoMain={() => setPage('main')}
-          onGoMap={goMap}
-          onGoCctv={() => setPage('cctv')}
-          onGoSimulation={goSimulation}
-          onGoComplaints={() => setPage('complaints')}
-          onGoMyPage={() => setPage('mypage')}
-          onLogout={() => setPage('login')}
-          selectedGu={selectedGu}
+      <NavBlockToast message={assistant.navBlockMsg || navNotice} />
+
+      {/* 음성 어시스턴트 채팅 팝업 (최소화 상태가 아닐 때만) */}
+      {assistant.voiceUI.active && !assistant.voiceMinimized && (
+        <VoiceAssistantPanel
+          voiceUI={assistant.voiceUI}
+          voiceSTTActive={assistant.voiceSTTActive}
+          msgEndRef={assistant.msgEndRef}
+          onStartSTT={assistant.startVoiceSTT}
+          onStopTTS={assistant.stopAllTTS}
+          onMinimize={assistant.minimizeVoiceUI}
+          onClose={assistant.closeVoiceUI}
+          onEmailConfirm={assistant.handleEmailConfirmClick}
         />
       )}
 
@@ -240,76 +341,25 @@ export default function App() {
         />
       )}
 
-      {showMain && (
-        <>
-          <AssistantKeyframes />
-
-          {loginBriefing && (
-            <LoginBriefingCard
-              briefing={loginBriefing}
-              onClose={() => {
-                stopAllTTS()
-                setLoginBriefing(null)
-                assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
-              }}
-              onTTSDone={() => {
-                setLoginBriefing(null)
-                assistant.activatePendingBriefing(loginBriefing.name, loginBriefing.gu)
-              }}
-            />
-          )}
-
-          <NavBlockToast message={assistant.navBlockMsg} />
-
-          {/* 음성 어시스턴트 채팅 팝업 (최소화 상태가 아닐 때만) */}
-          {assistant.voiceUI.active && !assistant.voiceMinimized && (
-            <VoiceAssistantPanel
-              voiceUI={assistant.voiceUI}
-              voiceSTTActive={assistant.voiceSTTActive}
-              msgEndRef={assistant.msgEndRef}
-              onStartSTT={assistant.startVoiceSTT}
-              onStopTTS={assistant.stopAllTTS}
-              onMinimize={assistant.minimizeVoiceUI}
-              onClose={assistant.closeVoiceUI}
-              onEmailConfirm={assistant.handleEmailConfirmClick}
-            />
-          )}
-
-          {/* 항상 보이는 AI 플로팅 버튼 */}
-          <AIFloatingButton
-            active={assistant.voiceUI.active}
-            minimized={assistant.voiceMinimized}
-            onClick={assistant.onFloatingClick}
-          />
-
-          {/* 구 분석 시작 확인 팝업 — 보이스 패널이 열려있으면 그 왼쪽에 위치 */}
-          <PendingBriefingPopup
-            pending={assistant.pendingBriefing}
-            onStart={assistant.acceptPendingBriefing}
-            onDismiss={assistant.dismissPendingBriefing}
-            shifted={assistant.voiceUI.active && !assistant.voiceMinimized}
-          />
-
-          <MainDashboard
-            onGoMap={goMap}
-            onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
-            onGoNews={() => assistant.tryNav(() => setPage('news'))}
-            onGoSimulation={() => assistant.tryNav(goSimulation)}
-            onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
-            onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
-            onLogout={() => assistant.tryNav(() => setPage('login'))}
-            wsData={wsData}
-            setWsData={setWsData}
-            stations={stations}
-            setStations={setStations}
-            selectedGu={selectedGu}
-            onSelectGu={handleSelectGu}
-            onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
-            isMuted={assistant.isMuted}
-            onToggleMute={assistant.toggleMute}
-          />
-        </>
-      )}
+      <MainDashboard
+        onGoMap={goMap}
+        onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
+        onGoNews={() => assistant.tryNav(() => setPage('news'))}
+        onGoSimulation={goSimulation}
+        onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
+        onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
+        onLogout={() => assistant.tryNav(() => setPage('login'))}
+        wsData={wsData}
+        setWsData={setWsData}
+        stations={stations}
+        setStations={setStations}
+        selectedGu={selectedGu}
+        onSelectGu={handleSelectGu}
+        onAreaFetchState={handleAreaFetchState}
+        onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
+        isMuted={assistant.isMuted}
+        onToggleMute={assistant.toggleMute}
+      />
     </>
   )
 }

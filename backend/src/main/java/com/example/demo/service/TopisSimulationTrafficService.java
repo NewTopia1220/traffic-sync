@@ -14,6 +14,8 @@ import com.example.demo.repository.TopisRoadAxisRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -24,6 +26,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -51,7 +60,209 @@ public class TopisSimulationTrafficService {
     @Value("${topis.route-traffic.master-cache-ttl-ms:60000}")
     private long masterCacheTtlMs;
 
+    @Value("${topis.simulation-network.endpoint-match-distance-meters:180}")
+    private double networkEndpointMatchDistanceMeters;
+
+    @Value("${topis.simulation-network.cache-ttl-ms:3600000}")
+    private long managedTrafficCacheTtlMs;
+
+    @Value("${topis.simulation-network.prewarm-enabled:true}")
+    private boolean managedTrafficPrewarmEnabled;
+
+    @Value("${topis.speed.cache-ttl-ms:90000}")
+    private long topisSpeedCacheTtlMs;
+
+    @Value("${topis.simulation-traffic.area.default-radius-km:2.5}")
+    private double managedTrafficDefaultRadiusKm;
+
+    @Value("${topis.simulation-traffic.speed-prefetch.enabled:true}")
+    private boolean managedTrafficSpeedPrefetchEnabled;
+
+    @Value("${topis.simulation-traffic.speed-prefetch.max-concurrency:12}")
+    private int managedTrafficSpeedPrefetchMaxConcurrency;
+
+    @Value("${topis.simulation-traffic.speed-prefetch.max-wait-ms:3500}")
+    private long managedTrafficSpeedPrefetchMaxWaitMs;
+
+    @Value("${topis.simulation-traffic.speed-prefetch.max-links:160}")
+    private int managedTrafficSpeedPrefetchMaxLinks;
+
     private volatile MasterCache masterCache;
+    private volatile ManagedTrafficCache managedTrafficCache;
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void prewarmManagedTrafficCacheOnStartup() {
+        if (!managedTrafficPrewarmEnabled) {
+            return;
+        }
+
+        CompletableFuture.runAsync(() -> {
+            long startedAtMs = System.currentTimeMillis();
+            try {
+                ManagedTrafficCache network = loadManagedTrafficCache();
+                supplementalDataCacheService.updateManagedTrafficLinkIds(network.linkIds());
+                log.info("TOPIS managed traffic geometry cache warmed: links={}, crossroads={}, elapsedMs={}",
+                        network.links().size(), network.crossroadCount(), System.currentTimeMillis() - startedAtMs);
+            } catch (Exception e) {
+                log.warn("TOPIS managed traffic geometry cache warmup failed: {}", e.getMessage());
+            }
+        });
+    }
+
+    public Map<String, Object> buildManagedTrafficLinks() {
+        return buildManagedTrafficLinks(null, null, null);
+    }
+
+    public Map<String, Object> buildManagedTrafficLinks(Double centerLat, Double centerLon, Double radiusKm) {
+        ManagedTrafficCache network = loadManagedTrafficCache();
+        List<Map<String, Object>> scopedCachedLinks = managedTrafficLinksInArea(network, centerLat, centerLon, radiusKm);
+        Set<String> scopedLinkIds = scopedCachedLinks.stream()
+                .map(link -> stringValue(link, "linkId"))
+                .filter(linkId -> linkId != null && !linkId.isBlank())
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+
+        supplementalDataCacheService.updateManagedTrafficLinkIds(scopedLinkIds);
+        prefetchManagedTrafficSpeeds(scopedLinkIds);
+
+        List<Map<String, Object>> links = new ArrayList<>(scopedCachedLinks.size());
+        for (Map<String, Object> cachedLink : scopedCachedLinks) {
+            Map<String, Object> link = new LinkedHashMap<>(cachedLink);
+            applyCachedSpeed(link, String.valueOf(link.get("linkId")));
+            links.add(link);
+        }
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("source", "topis-managed-crossroad-network");
+        response.put("crossroadCount", network.crossroadCount());
+        response.put("areaScoped", isAreaRequest(centerLat, centerLon));
+        response.put("areaCenterLat", centerLat);
+        response.put("areaCenterLon", centerLon);
+        response.put("areaRadiusKm", effectiveAreaRadiusKm(radiusKm));
+        response.put("linkCount", links.size());
+        response.put("links", links);
+        response.put("generatedAtMs", System.currentTimeMillis());
+        response.put("geometryCachedAtMs", network.loadedAtMs());
+        response.put("geometryCacheAgeMs", Math.max(0, System.currentTimeMillis() - network.loadedAtMs()));
+        response.put("reason", network.reason());
+        return response;
+    }
+
+    private ManagedTrafficCache loadManagedTrafficCache() {
+        ManagedTrafficCache current = managedTrafficCache;
+        long now = System.currentTimeMillis();
+        if (current != null && now - current.loadedAtMs() < managedTrafficCacheTtlMs) {
+            return current;
+        }
+
+        synchronized (this) {
+            current = managedTrafficCache;
+            now = System.currentTimeMillis();
+            if (current != null && now - current.loadedAtMs() < managedTrafficCacheTtlMs) {
+                return current;
+            }
+
+            current = buildManagedTrafficCache(now);
+            managedTrafficCache = current;
+            return current;
+        }
+    }
+
+    private ManagedTrafficCache buildManagedTrafficCache(long loadedAtMs) {
+        List<ManagedCrossroad> crossroads = signalCrossroadRepository.findAll().stream()
+                .map(this::managedCrossroad)
+                .flatMap(Optional::stream)
+                .toList();
+
+        MasterCache cache = loadMasterCache();
+        if (crossroads.size() < 2) {
+            return new ManagedTrafficCache(
+                    crossroads.size(),
+                    List.of(),
+                    Set.of(),
+                    loadedAtMs,
+                    "At least two signal crossroads are required"
+            );
+        }
+        if (cache.axisLinksByLinkId().isEmpty() || cache.geometriesByLinkId().isEmpty()) {
+            return new ManagedTrafficCache(
+                    crossroads.size(),
+                    List.of(),
+                    Set.of(),
+                    loadedAtMs,
+                    "TOPIS master link data is empty"
+            );
+        }
+
+        List<Map<String, Object>> links = new ArrayList<>();
+        Set<String> seenLinkIds = new java.util.LinkedHashSet<>();
+
+        for (TopisAxisLinkEntity link : cache.axisLinksByLinkId().values()) {
+            TopisLinkGeometry geometry = cache.geometriesByLinkId().get(link.getLinkId());
+            if (geometry == null || geometry.getVertices() == null || geometry.getVertices().size() < 2) {
+                continue;
+            }
+
+            List<GeoPoint> vertices = geometry.getVertices();
+            ManagedEndpoint from = nearestEndpointCrossroad(vertices.get(0), crossroads);
+            ManagedEndpoint to = nearestEndpointCrossroad(vertices.get(vertices.size() - 1), crossroads);
+            if (from == null || to == null || from.crossroad().intNo().equals(to.crossroad().intNo())) {
+                continue;
+            }
+
+            if (!seenLinkIds.add(link.getLinkId())) {
+                continue;
+            }
+            links.add(managedTrafficLinkPayload(link, geometry, from, to, cache));
+        }
+
+        return new ManagedTrafficCache(
+                crossroads.size(),
+                List.copyOf(links),
+                Set.copyOf(seenLinkIds),
+                loadedAtMs,
+                null
+        );
+    }
+
+    public Map<String, Object> buildManagedTrafficLinkStatuses(Collection<String> linkIds) {
+        ManagedTrafficCache network = loadManagedTrafficCache();
+        supplementalDataCacheService.updateManagedTrafficLinkIds(linkIds);
+        Map<String, Map<String, Object>> staticLinksById = network.links().stream()
+                .filter(link -> link.get("linkId") != null)
+                .collect(Collectors.toMap(
+                        link -> String.valueOf(link.get("linkId")),
+                        Function.identity(),
+                        (left, right) -> left,
+                        LinkedHashMap::new
+                ));
+
+        List<Map<String, Object>> statuses = linkIds == null
+                ? List.of()
+                : linkIds.stream()
+                .filter(linkId -> linkId != null && !linkId.isBlank())
+                .distinct()
+                .map(linkId -> {
+                    Map<String, Object> payload = new LinkedHashMap<>();
+                    payload.put("linkId", linkId);
+                    Map<String, Object> staticLink = staticLinksById.get(linkId);
+                    if (staticLink != null) {
+                        payload.put("roadDivCd", staticLink.get("roadDivCd"));
+                        payload.put("roadType", staticLink.get("roadType"));
+                        payload.put("axisCd", staticLink.get("axisCd"));
+                        payload.put("axisName", staticLink.get("axisName"));
+                        payload.put("axisDir", staticLink.get("axisDir"));
+                    }
+                    applyCachedSpeed(payload, linkId);
+                    return payload;
+                })
+                .toList();
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("source", "topis-managed-crossroad-network-status");
+        response.put("statuses", statuses);
+        response.put("generatedAtMs", System.currentTimeMillis());
+        return response;
+    }
 
     public Map<String, Object> buildRouteTraffic(Map<String, Object> request) {
         List<RouteNode> nodes = routeNodes(request == null ? null : request.get("routeNodes"));
@@ -154,7 +365,7 @@ public class TopisSimulationTrafficService {
                 continue;
             }
 
-            LinkResult linkResult = buildLink(entry.getKey(), link, speedCache);
+            LinkResult linkResult = buildLink(entry.getKey(), link, axis, speedCache);
             String key = directionKey(entry.getKey());
             if (key != null) {
                 segment.put(key, linkResult.payload());
@@ -193,6 +404,7 @@ public class TopisSimulationTrafficService {
     private LinkResult buildLink(
             String axisDir,
             CandidateLink candidate,
+            TopisRoadAxisEntity axis,
             Map<String, Optional<RoadSpeedSnapshot>> speedCache
     ) {
         List<Double> speeds = new ArrayList<>();
@@ -202,19 +414,28 @@ public class TopisSimulationTrafficService {
         Optional<RoadSpeedSnapshot> speed = speedForLink(linkId, speedCache);
         Map<String, Object> linkPayload = new LinkedHashMap<>();
         linkPayload.put("linkId", linkId);
+        linkPayload.put("roadDivCd", axis == null ? null : axis.getRoadDivCd());
+        linkPayload.put("roadType", trafficRoadType(axis));
         linkPayload.put("vertices", verticesPayload(candidate.geometry().getVertices()));
 
         if (speed.isPresent()) {
             RoadSpeedSnapshot snapshot = speed.get();
+            boolean speedStale = isSpeedStale(snapshot);
             linkPayload.put("speedKph", snapshot.getSpeedKph());
-            linkPayload.put("congestion", generalRoadCongestion(snapshot.getSpeedKph()));
-            if (snapshot.getSpeedKph() != null) {
+            linkPayload.put("congestion", speedStale
+                    ? generalRoadCongestion(null, axis == null ? null : axis.getRoadDivCd())
+                    : generalRoadCongestion(snapshot.getSpeedKph(), axis == null ? null : axis.getRoadDivCd()));
+            linkPayload.put("speedStale", speedStale);
+            linkPayload.put("lastFetchedAtMs", snapshot.getLastFetchedAtMs());
+            if (!speedStale && snapshot.getSpeedKph() != null) {
                 speeds.add(snapshot.getSpeedKph());
                 bottleneck = new Bottleneck(linkId, axisDir, snapshot.getSpeedKph());
             }
         } else {
             linkPayload.put("speedKph", null);
-            linkPayload.put("congestion", generalRoadCongestion(null));
+            linkPayload.put("congestion", generalRoadCongestion(null, axis == null ? null : axis.getRoadDivCd()));
+            linkPayload.put("speedStale", true);
+            linkPayload.put("lastFetchedAtMs", null);
         }
 
         return new LinkResult(linkPayload, speeds, bottleneck);
@@ -253,6 +474,203 @@ public class TopisSimulationTrafficService {
 
         speedCache.put(linkId, speed);
         return speed;
+    }
+
+    private Map<String, Object> managedTrafficLinkPayload(
+            TopisAxisLinkEntity link,
+            TopisLinkGeometry geometry,
+            ManagedEndpoint from,
+            ManagedEndpoint to,
+            MasterCache cache
+    ) {
+        TopisRoadAxisEntity axis = cache.axesByAxisCd().get(link.getAxisCd());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("linkId", link.getLinkId());
+        payload.put("axisCd", link.getAxisCd());
+        payload.put("axisName", axis == null ? null : axis.getAxisName());
+        payload.put("roadDivCd", axis == null ? null : axis.getRoadDivCd());
+        payload.put("roadType", trafficRoadType(axis));
+        payload.put("axisDir", link.getAxisDir());
+        payload.put("linkSeq", link.getLinkSeq());
+        payload.put("fromIntNo", from.crossroad().intNo());
+        payload.put("fromIntNm", from.crossroad().intNm());
+        payload.put("fromLat", from.crossroad().point().getLat());
+        payload.put("fromLon", from.crossroad().point().getLon());
+        payload.put("toIntNo", to.crossroad().intNo());
+        payload.put("toIntNm", to.crossroad().intNm());
+        payload.put("toLat", to.crossroad().point().getLat());
+        payload.put("toLon", to.crossroad().point().getLon());
+        payload.put("fromMatchDistanceMeters", round1(from.distanceMeters()));
+        payload.put("toMatchDistanceMeters", round1(to.distanceMeters()));
+        payload.put("matchType", "endpoint");
+        payload.put("lengthMeters", round1(polylineLengthMeters(geometry.getVertices())));
+        payload.put("vertices", verticesPayload(geometry.getVertices()));
+        return payload;
+    }
+
+    private List<Map<String, Object>> managedTrafficLinksInArea(
+            ManagedTrafficCache network,
+            Double centerLat,
+            Double centerLon,
+            Double radiusKm
+    ) {
+        if (!isAreaRequest(centerLat, centerLon)) {
+            return network.links();
+        }
+
+        GeoPoint center = new GeoPoint(centerLat, centerLon);
+        double radiusMeters = effectiveAreaRadiusKm(radiusKm) * 1000.0;
+        return network.links().stream()
+                .filter(link -> endpointWithinArea(link, center, radiusMeters, "from")
+                        || endpointWithinArea(link, center, radiusMeters, "to"))
+                .toList();
+    }
+
+    private boolean endpointWithinArea(Map<String, Object> link, GeoPoint center, double radiusMeters, String prefix) {
+        Double lat = doubleValue(link, prefix + "Lat");
+        Double lon = doubleValue(link, prefix + "Lon");
+        if (lat == null || lon == null) {
+            return false;
+        }
+        return GeoDistanceUtils.haversineMeters(center, new GeoPoint(lat, lon)) <= radiusMeters;
+    }
+
+    private boolean isAreaRequest(Double centerLat, Double centerLon) {
+        return centerLat != null && centerLon != null
+                && Double.isFinite(centerLat) && Double.isFinite(centerLon);
+    }
+
+    private double effectiveAreaRadiusKm(Double radiusKm) {
+        if (radiusKm == null || !Double.isFinite(radiusKm) || radiusKm <= 0) {
+            return Math.max(0.1, managedTrafficDefaultRadiusKm);
+        }
+        return Math.min(Math.max(radiusKm, 0.1), 10.0);
+    }
+
+    private void prefetchManagedTrafficSpeeds(Collection<String> linkIds) {
+        if (!managedTrafficSpeedPrefetchEnabled || !topisApiService.isConfigured() || linkIds == null || linkIds.isEmpty()) {
+            return;
+        }
+
+        List<String> targets = linkIds.stream()
+                .filter(linkId -> linkId != null && !linkId.isBlank())
+                .distinct()
+                .filter(this::shouldPrefetchManagedTrafficSpeed)
+                .limit(Math.max(1, managedTrafficSpeedPrefetchMaxLinks))
+                .toList();
+
+        if (targets.isEmpty()) {
+            return;
+        }
+
+        int threadCount = Math.max(1, Math.min(managedTrafficSpeedPrefetchMaxConcurrency, targets.size()));
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        try {
+            List<Callable<Void>> tasks = targets.stream()
+                    .map(linkId -> (Callable<Void>) () -> {
+                        fetchAndCacheManagedTrafficSpeed(linkId);
+                        return null;
+                    })
+                    .toList();
+
+            List<Future<Void>> futures = managedTrafficSpeedPrefetchMaxWaitMs > 0
+                    ? executor.invokeAll(tasks, managedTrafficSpeedPrefetchMaxWaitMs, TimeUnit.MILLISECONDS)
+                    : executor.invokeAll(tasks);
+            long cancelled = futures.stream().filter(Future::isCancelled).count();
+            if (cancelled > 0) {
+                log.debug("TOPIS simulation traffic speed prefetch timed out: requested={}, cancelled={}",
+                        targets.size(), cancelled);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.debug("TOPIS simulation traffic speed prefetch interrupted: {}", e.getMessage());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private boolean shouldPrefetchManagedTrafficSpeed(String linkId) {
+        Optional<RoadSpeedSnapshot> cached = supplementalDataCacheService.getSpeed(linkId);
+        return cached.isEmpty() || isSpeedStale(cached.get());
+    }
+
+    private void fetchAndCacheManagedTrafficSpeed(String linkId) {
+        if (Thread.currentThread().isInterrupted()) {
+            return;
+        }
+        try {
+            Optional<RoadSpeedSnapshot> speed = topisApiService.fetchSpeed(linkId);
+            speed.ifPresent(supplementalDataCacheService::updateSpeed);
+        } catch (Exception e) {
+            log.debug("TOPIS simulation traffic speed prefetch failed (linkId={}): {}", linkId, e.getMessage());
+        }
+    }
+
+    private void applyCachedSpeed(Map<String, Object> payload, String linkId) {
+        applySpeed(payload, supplementalDataCacheService.getSpeed(linkId));
+    }
+
+    private void applySpeed(Map<String, Object> payload, Optional<RoadSpeedSnapshot> speed) {
+        if (speed.isPresent()) {
+            RoadSpeedSnapshot snapshot = speed.get();
+            boolean speedStale = isSpeedStale(snapshot);
+            payload.put("speedKph", snapshot.getSpeedKph());
+            payload.put("travelTimeSec", snapshot.getTravelTimeSec());
+            payload.put("congestion", speedStale
+                    ? generalRoadCongestion(null, payload.get("roadDivCd"))
+                    : generalRoadCongestion(snapshot.getSpeedKph(), payload.get("roadDivCd")));
+            payload.put("speedStale", speedStale);
+            payload.put("lastFetchedAtMs", snapshot.getLastFetchedAtMs());
+            return;
+        }
+
+        payload.put("speedKph", null);
+        payload.put("travelTimeSec", null);
+        payload.put("congestion", generalRoadCongestion(null, payload.get("roadDivCd")));
+        payload.put("speedStale", true);
+        payload.put("lastFetchedAtMs", null);
+    }
+
+    private boolean isSpeedStale(RoadSpeedSnapshot snapshot) {
+        if (snapshot == null || snapshot.isStale()) {
+            return true;
+        }
+        long fetchedAtMs = snapshot.getLastFetchedAtMs();
+        if (fetchedAtMs <= 0) {
+            return true;
+        }
+        long maxAgeMs = Math.max(1, topisSpeedCacheTtlMs);
+        return System.currentTimeMillis() - fetchedAtMs > maxAgeMs;
+    }
+
+    private Optional<ManagedCrossroad> managedCrossroad(SignalCrossroadEntity crossroad) {
+        if (crossroad == null) {
+            return Optional.empty();
+        }
+        Double lon = parseCoord(crossroad.getXCoord());
+        Double lat = parseCoord(crossroad.getYCoord());
+        if (lon == null || lat == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new ManagedCrossroad(
+                crossroad.getIntNo(),
+                crossroad.getIntNm(),
+                new GeoPoint(lat, lon)
+        ));
+    }
+
+    private ManagedEndpoint nearestEndpointCrossroad(GeoPoint point, List<ManagedCrossroad> crossroads) {
+        ManagedEndpoint best = null;
+        for (ManagedCrossroad crossroad : crossroads) {
+            double distance = GeoDistanceUtils.haversineMeters(point, crossroad.point());
+            if (distance > networkEndpointMatchDistanceMeters) {
+                continue;
+            }
+            if (best == null || distance < best.distanceMeters()) {
+                best = new ManagedEndpoint(crossroad, distance);
+            }
+        }
+        return best;
     }
 
     private List<CandidateLink> candidateLinks(GeoPoint from, GeoPoint to, MasterCache cache) {
@@ -495,7 +913,17 @@ public class TopisSimulationTrafficService {
         return Math.round(value * 10.0) / 10.0;
     }
 
-    private static String generalRoadCongestion(Double speedKph) {
+    private static String trafficRoadType(TopisRoadAxisEntity axis) {
+        if (axis == null) {
+            return "\uC2DC\uB0B4\uB3C4\uB85C";
+        }
+        if ("02".equals(String.valueOf(axis.getRoadDivCd()).trim())) {
+            return "\uB3C4\uC2DC\uACE0\uC18D\uB3C4\uB85C";
+        }
+        return "\uC2DC\uB0B4\uB3C4\uB85C";
+    }
+
+    private static String generalRoadCongestion(Double speedKph, Object roadDivCd) {
         if (speedKph == null) {
             return "\uC815\uBCF4\uC5C6\uC74C";
         }
@@ -576,6 +1004,21 @@ public class TopisSimulationTrafficService {
     }
 
     private record RouteNode(String intNo, String intNm, GeoPoint point) {
+    }
+
+    private record ManagedCrossroad(String intNo, String intNm, GeoPoint point) {
+    }
+
+    private record ManagedEndpoint(ManagedCrossroad crossroad, double distanceMeters) {
+    }
+
+    private record ManagedTrafficCache(
+            int crossroadCount,
+            List<Map<String, Object>> links,
+            Set<String> linkIds,
+            long loadedAtMs,
+            String reason
+    ) {
     }
 
     private record CandidateLink(
