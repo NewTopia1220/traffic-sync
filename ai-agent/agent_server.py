@@ -336,24 +336,41 @@ async def stop_agent():
 async def free_chat(req: ChatRequest):
     """지도 페이지 자유 챗봇 — 에이전트가 교차로 검색 후 분석"""
 
+    analysis_rule = (
+        "\n\n[분석 작성 규칙 — 반드시 준수]\n"
+        "데이터를 단순 나열하지 말고 교차로별로 아래 형식으로 작성:\n"
+        "① 현재 상태: 속도·위험등급·혼잡도 요약\n"
+        "② 혼잡 원인: 어느 방향 신호가 왜 막히는지 (rmndCs 높은 적색 방향 기준)\n"
+        "③ 조정 권고: 구체적으로 어떤 현시를 몇 초 조정할지\n"
+        "반드시 전체 분석 내용을 답변에 먼저 출력하고, 이메일은 그 다음에 발송할 것.\n"
+        "이메일 전송 완료 메시지로 답변을 끝내지 말 것. 분석 본문이 답변의 핵심."
+    )
+
     email_ctx = (
         f"\n[요청 유저 이메일: {req.userEmail}]"
-        f"\n메일 발송 요청이 있으면 send_email_report 도구를 호출하고 to 필드에 위 이메일을 반드시 사용할 것."
+        f"\n메일 발송 요청이 있으면 분석 완료 후 send_email_report 도구로 동일한 분석 내용을 발송할 것."
     ) if req.userEmail else ""
 
     if req.crsrdId:
         prompt = (
             f"/no_think\n"
-            f"교차로 ID {req.crsrdId}의 실시간 교통 데이터를 조회하고, "
-            f"다음 질문에 한국어로 답해줘: {req.question}"
+            f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
+            f"현재 선택된 교차로 ID는 {req.crsrdId}야.\n"
+            f"질문이 병목·TOP에 관한 거면 get_bottleneck_list를 먼저 호출해서 병목 순위를 구하고 "
+            f"각 교차로를 get_traffic_data로 조회해서 분석해줘. 선택된 교차로는 무시해도 됨.\n"
+            f"특정 교차로에 대한 질문이면 get_traffic_data({req.crsrdId})를 사용해줘.\n"
+            f"질문: {req.question}"
+            f"{analysis_rule}"
             f"{email_ctx}"
         )
     else:
         prompt = (
             f"/no_think\n"
             f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
-            f"필요하면 MCP 도구로 데이터를 조회해서 답해줘.\n"
+            f"구 단위 분석 요청이면 get_district_traffic 도구를 한 번만 호출하고, "
+            f"반환된 속도·위험도·날씨 데이터만으로 분석을 완성해줘. 추가 도구 호출 불필요.\n"
             f"질문: {req.question}"
+            f"{analysis_rule}"
             f"{email_ctx}"
         )
 
@@ -379,23 +396,39 @@ async def free_chat_stream(req: ChatRequest, request: Request):
     """ReAct 루프 단계별 SSE 스트리밍 — 프론트 팝업 시각화용"""
     import json as _json
 
+    analysis_rule = (
+        "\n\n[분석 작성 규칙 — 반드시 준수]\n"
+        "데이터를 단순 나열하지 말고 반드시 아래 형식으로 작성:\n"
+        "① 현재 상태: 속도·위험등급·혼잡도 요약\n"
+        "② 혼잡 원인: 어느 방향 신호가 왜 막히는지 (rmndCs 높은 적색 방향 기준)\n"
+        "③ 조정 권고: 구체적으로 어떤 현시를 몇 초 조정할지\n"
+        "이메일 본문도 동일한 분석 형식으로 작성할 것. 데이터 나열 금지."
+    )
+
     email_ctx = (
         f"\n[요청 유저 이메일: {req.userEmail}]"
-        f"\n메일 발송 요청이 있으면 send_email_report 도구를 호출하고 to 필드에 위 이메일을 반드시 사용할 것."
+        f"\n메일 발송 요청이 있으면 분석 완료 후 send_email_report 도구로 동일한 분석 내용을 발송할 것."
     ) if req.userEmail else ""
 
     if req.crsrdId:
         prompt = (
             f"/no_think\n"
-            f"교차로 ID {req.crsrdId}의 실시간 교통 데이터를 조회하고, "
-            f"다음 질문에 한국어로 답해줘: {req.question}{email_ctx}"
+            f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
+            f"현재 선택된 교차로 ID는 {req.crsrdId}야.\n"
+            f"질문이 병목·TOP에 관한 거면 get_bottleneck_list를 먼저 호출해서 병목 순위를 구하고 "
+            f"각 교차로를 get_traffic_data로 조회해서 분석해줘. 선택된 교차로는 무시해도 됨.\n"
+            f"특정 교차로에 대한 질문이면 get_traffic_data({req.crsrdId})를 사용해줘.\n"
+            f"질문: {req.question}"
+            f"{analysis_rule}{email_ctx}"
         )
     else:
         prompt = (
             f"/no_think\n"
             f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
-            f"필요하면 MCP 도구로 데이터를 조회해서 답해줘.\n"
-            f"질문: {req.question}{email_ctx}"
+            f"구 단위 분석 요청이면 get_district_traffic 도구를 한 번만 호출하고, "
+            f"반환된 속도·위험도·날씨 데이터만으로 분석을 완성해줘. 추가 도구 호출 불필요.\n"
+            f"질문: {req.question}"
+            f"{analysis_rule}{email_ctx}"
         )
 
     async def generate():

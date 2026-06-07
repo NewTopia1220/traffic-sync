@@ -223,7 +223,7 @@ export default function AIChatBot({ selected, onClose }) {
     const abortCtrl = new AbortController();
     abortCtrlRef.current = abortCtrl;
     userStoppedRef.current = false;  // 새 요청마다 초기화
-    const abortTimer = setTimeout(() => abortCtrl.abort(), 90_000);
+    const abortTimer = setTimeout(() => abortCtrl.abort(), 120_000);
 
     try {
       const res = await fetch(`${PYTHON_BASE}/api/agent/chat/stream`, {
