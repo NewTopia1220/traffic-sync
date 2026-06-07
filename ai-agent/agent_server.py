@@ -28,7 +28,7 @@ from langgraph.prebuilt import create_react_agent
 # ── 설정 ────────────────────────────────────────────────────────────────────────
 
 OLLAMA_URL  = "http://localhost:11434"
-OLLAMA_MODEL = "qwen3:30b-a3b"
+OLLAMA_MODEL = "qwen2.5:14b"
 MCP_SERVER_PATH = os.path.join(os.path.dirname(__file__), "mcp_server.py")
 PYTHON_BIN  = sys.executable
 
@@ -40,11 +40,20 @@ _ollama_client = OllamaAsyncClient(host=OLLAMA_URL)
 
 llm = ChatOllama(
     model=OLLAMA_MODEL,
-    async_client=_ollama_client,   # 우리가 만든 클라이언트 주입
+    async_client=_ollama_client,
     base_url=OLLAMA_URL,
     temperature=0.3,
     num_predict=4096,
-    num_ctx=8192,       # 도구 결과 누적되는 컨텍스트 창 확장
+    num_ctx=8192,
+)
+
+# 시뮬레이션 전용 LLM — think 모드 비활성화 + 출력 토큰 제한
+sim_llm = ChatOllama(
+    model="qwen2.5:14b",
+    base_url=OLLAMA_URL,
+    temperature=0.3,
+    num_predict=-1,
+    num_ctx=16384,
 )
 
 # 에이전트는 앱 시작 시 한 번만 생성 (MCP 클라이언트 포함)
@@ -144,9 +153,11 @@ class ChatRequest(BaseModel):
 
 class SimulationChatRequest(BaseModel):
     question: str
-    context: dict | None = None       # Spring이 조립한 신호계획 컨텍스트
-    simulation: list | None = None    # 관제사 조정값 [{ no, sec, dirs }]
-    userEmail: str | None = None      # 요청한 유저 이메일 (메일 발송 시 사용)
+    context: dict | None = None         # 단일 신호계획 (기존 수동 챗봇용)
+    contexts: list | None = None        # 다중 병목 교차로 신호계획 [{ intNo, intNm, phases, ... }]
+    simulation: list | None = None      # 관제사 조정값 [{ no, sec, dirs }]
+    routeTraffic: list | None = None    # 경로 구간별 실시간 속도 [{ fromIntNo, toIntNo, axisName, speedKph, congestion }]
+    userEmail: str | None = None        # 요청한 유저 이메일 (메일 발송 시 사용)
 
 class DistrictRequest(BaseModel):
     district: str
@@ -154,12 +165,73 @@ class DistrictRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
+    adjustment: dict | None = None       # 단일 (하위 호환)
+    adjustments: list | None = None      # 다중 병목 조정값
 
 class ReportResponse(BaseModel):
     report: str
     district: str
 
 # ── 헬퍼 ────────────────────────────────────────────────────────────────────────
+
+def extract_adjustments(text: str):
+    """AI 응답에서 JSON 파싱 → adjustments 리스트 반환
+    지원 형식:
+      ```json { "adjustments": [...] } ```  ← 백틱 형식
+      {"adjustments": [...]} 텍스트         ← 백틱 없는 raw JSON
+      { "intNo": "...", "phases": [...] }   ← 단일 (하위 호환)
+    """
+    import re as _re
+    import json as _j
+
+    def _parse(data):
+        if isinstance(data, dict) and "adjustments" in data:
+            items = data["adjustments"]
+            valid = [a for a in items if isinstance(a, dict) and "intNo" in a and "phases" in a]
+            return valid if valid else None
+        if isinstance(data, dict) and "intNo" in data and "phases" in data:
+            return [data]
+        return None
+
+    # 1. ```json...``` 형식
+    match = _re.search(r"```json\s*(.*?)\s*```", text, _re.DOTALL)
+    if match:
+        try:
+            return _parse(_j.loads(match.group(1)))
+        except Exception:
+            pass
+
+    # 2. 백틱 없이 { 로 시작하는 raw JSON
+    start = text.find('{"adjustments"')
+    if start == -1:
+        start = text.find('{"intNo"')
+    if start != -1:
+        try:
+            decoder = _j.JSONDecoder()
+            data, _ = decoder.raw_decode(text[start:])
+            return _parse(data)
+        except Exception:
+            pass
+
+    return None
+
+
+def strip_json_block(text: str) -> str:
+    """AI 응답에서 JSON 블록 제거 — 사용자 표시용 텍스트 정리"""
+    import re as _re
+    import json as _j
+    # ```json...``` 제거
+    cleaned = _re.sub(r"```json.*?```", "", text, flags=_re.DOTALL).strip()
+    # 앞에 붙은 raw JSON 제거
+    if cleaned.startswith('{"adjustments"') or cleaned.startswith('{"intNo"'):
+        try:
+            decoder = _j.JSONDecoder()
+            _, end_idx = decoder.raw_decode(cleaned)
+            cleaned = cleaned[end_idx:].strip()
+        except Exception:
+            pass
+    return cleaned
+
 
 def extract_answer(result: dict) -> str:
     """LangGraph ReAct 결과에서 최종 텍스트 추출"""
@@ -264,24 +336,41 @@ async def stop_agent():
 async def free_chat(req: ChatRequest):
     """지도 페이지 자유 챗봇 — 에이전트가 교차로 검색 후 분석"""
 
+    analysis_rule = (
+        "\n\n[분석 작성 규칙 — 반드시 준수]\n"
+        "데이터를 단순 나열하지 말고 교차로별로 아래 형식으로 작성:\n"
+        "① 현재 상태: 속도·위험등급·혼잡도 요약\n"
+        "② 혼잡 원인: 어느 방향 신호가 왜 막히는지 (rmndCs 높은 적색 방향 기준)\n"
+        "③ 조정 권고: 구체적으로 어떤 현시를 몇 초 조정할지\n"
+        "반드시 전체 분석 내용을 답변에 먼저 출력하고, 이메일은 그 다음에 발송할 것.\n"
+        "이메일 전송 완료 메시지로 답변을 끝내지 말 것. 분석 본문이 답변의 핵심."
+    )
+
     email_ctx = (
         f"\n[요청 유저 이메일: {req.userEmail}]"
-        f"\n메일 발송 요청이 있으면 send_email_report 도구를 호출하고 to 필드에 위 이메일을 반드시 사용할 것."
+        f"\n메일 발송 요청이 있으면 분석 완료 후 send_email_report 도구로 동일한 분석 내용을 발송할 것."
     ) if req.userEmail else ""
 
     if req.crsrdId:
         prompt = (
             f"/no_think\n"
-            f"교차로 ID {req.crsrdId}의 실시간 교통 데이터를 조회하고, "
-            f"다음 질문에 한국어로 답해줘: {req.question}"
+            f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
+            f"현재 선택된 교차로 ID는 {req.crsrdId}야.\n"
+            f"질문이 병목·TOP에 관한 거면 get_bottleneck_list를 먼저 호출해서 병목 순위를 구하고 "
+            f"각 교차로를 get_traffic_data로 조회해서 분석해줘. 선택된 교차로는 무시해도 됨.\n"
+            f"특정 교차로에 대한 질문이면 get_traffic_data({req.crsrdId})를 사용해줘.\n"
+            f"질문: {req.question}"
+            f"{analysis_rule}"
             f"{email_ctx}"
         )
     else:
         prompt = (
             f"/no_think\n"
             f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
-            f"필요하면 MCP 도구로 데이터를 조회해서 답해줘.\n"
+            f"구 단위 분석 요청이면 get_district_traffic 도구를 한 번만 호출하고, "
+            f"반환된 속도·위험도·날씨 데이터만으로 분석을 완성해줘. 추가 도구 호출 불필요.\n"
             f"질문: {req.question}"
+            f"{analysis_rule}"
             f"{email_ctx}"
         )
 
@@ -307,23 +396,39 @@ async def free_chat_stream(req: ChatRequest, request: Request):
     """ReAct 루프 단계별 SSE 스트리밍 — 프론트 팝업 시각화용"""
     import json as _json
 
+    analysis_rule = (
+        "\n\n[분석 작성 규칙 — 반드시 준수]\n"
+        "데이터를 단순 나열하지 말고 반드시 아래 형식으로 작성:\n"
+        "① 현재 상태: 속도·위험등급·혼잡도 요약\n"
+        "② 혼잡 원인: 어느 방향 신호가 왜 막히는지 (rmndCs 높은 적색 방향 기준)\n"
+        "③ 조정 권고: 구체적으로 어떤 현시를 몇 초 조정할지\n"
+        "이메일 본문도 동일한 분석 형식으로 작성할 것. 데이터 나열 금지."
+    )
+
     email_ctx = (
         f"\n[요청 유저 이메일: {req.userEmail}]"
-        f"\n메일 발송 요청이 있으면 send_email_report 도구를 호출하고 to 필드에 위 이메일을 반드시 사용할 것."
+        f"\n메일 발송 요청이 있으면 분석 완료 후 send_email_report 도구로 동일한 분석 내용을 발송할 것."
     ) if req.userEmail else ""
 
     if req.crsrdId:
         prompt = (
             f"/no_think\n"
-            f"교차로 ID {req.crsrdId}의 실시간 교통 데이터를 조회하고, "
-            f"다음 질문에 한국어로 답해줘: {req.question}{email_ctx}"
+            f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
+            f"현재 선택된 교차로 ID는 {req.crsrdId}야.\n"
+            f"질문이 병목·TOP에 관한 거면 get_bottleneck_list를 먼저 호출해서 병목 순위를 구하고 "
+            f"각 교차로를 get_traffic_data로 조회해서 분석해줘. 선택된 교차로는 무시해도 됨.\n"
+            f"특정 교차로에 대한 질문이면 get_traffic_data({req.crsrdId})를 사용해줘.\n"
+            f"질문: {req.question}"
+            f"{analysis_rule}{email_ctx}"
         )
     else:
         prompt = (
             f"/no_think\n"
             f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
-            f"필요하면 MCP 도구로 데이터를 조회해서 답해줘.\n"
-            f"질문: {req.question}{email_ctx}"
+            f"구 단위 분석 요청이면 get_district_traffic 도구를 한 번만 호출하고, "
+            f"반환된 속도·위험도·날씨 데이터만으로 분석을 완성해줘. 추가 도구 호출 불필요.\n"
+            f"질문: {req.question}"
+            f"{analysis_rule}{email_ctx}"
         )
 
     async def generate():
@@ -410,35 +515,206 @@ async def simulation_chat(req: SimulationChatRequest):
     """시뮬레이션 페이지 챗봇 — Spring이 조립한 컨텍스트를 프롬프트에 직접 삽입"""
     import json
 
+    # 단일 context (수동 챗봇)
     ctx_block = ""
-    if req.context:
-        ctx_block = f"\n\n[신호계획 컨텍스트]\n{json.dumps(req.context, ensure_ascii=False, indent=2)}"
+    if req.context and not req.contexts:
+        c = req.context
+        phases = c.get("phases", [])
+        phase_str = ", ".join(
+            f"현시{p.get('no')}:{p.get('sec')}s({'/'.join(p.get('dirs', []))})"
+            for p in phases
+        )
+        ctx_block = f"\n\n[신호계획 - {c.get('intNm') or c.get('intNo')} (intNo:{c.get('intNo')})] cycleVal={c.get('cycleVal')}s | {phase_str}"
+
+    # 다중 contexts (병목 자동 분석) — 토큰 절약을 위해 요약 형식
+    if req.contexts:
+        parts = []
+        for c in req.contexts:
+            name = c.get("intNm") or c.get("intNo") or "?"
+            phases = c.get("phases", [])
+            phase_str = ", ".join(
+                f"현시{p.get('no')}:{p.get('sec')}s({'/'.join(p.get('dirs', []))})"
+                for p in phases
+            )
+            parts.append(f"[신호계획 - {name} (intNo:{c.get('intNo')})] cycleVal={c.get('cycleVal')}s | {phase_str}")
+        ctx_block = "\n\n" + "\n".join(parts)
 
     sim_block = ""
     if req.simulation:
         sim_block = (
             f"\n\n[관제사 조정값]\n"
             f"{json.dumps(req.simulation, ensure_ascii=False, indent=2)}\n"
-            f"위 조정값은 관제사가 슬라이더로 변경한 현시별 초(sec)야. "
-            f"원래 신호계획과 비교해서 어떤 현시가 얼마나 바뀌었는지도 분석해줘."
+            f"원래 신호계획과 비교해서 어떤 현시가 얼마나 바뀌었는지 분석해줘."
         )
 
-    email_ctx = (
-        f"\n[요청 유저 이메일: {req.userEmail}]"
-        f"\n메일 발송 요청이 있으면 send_email_report 도구를 호출하고 to 필드에 위 이메일을 반드시 사용할 것."
-    ) if req.userEmail else ""
+    traffic_block = ""
+    if req.routeTraffic:
+        lines = []
+        for seg in req.routeTraffic:
+            spd = seg.get("speedKph")
+            cng = seg.get("congestion", "")
+            spd_str = f"{spd}km/h" if spd is not None else "미수집"
+            bottleneck_mark = " ★병목" if spd is not None and spd < 40 else ""
+            lines.append(
+                f"  {seg.get('fromIntNo','?')}→{seg.get('toIntNo','?')}"
+                f" ({seg.get('axisName','')}) | {spd_str} | {cng}{bottleneck_mark}"
+            )
+        traffic_block = (
+            "\n\n[경로 구간별 실시간 속도 — 40km/h 이하가 병목]\n" + "\n".join(lines)
+        )
 
-    prompt = (
-        f"/no_think\n"
-        f"서울 신호 시뮬레이션 시스템이야. 반드시 한국어로 답해줘."
-        f"{ctx_block}"
-        f"{sim_block}\n\n"
-        f"질문: {req.question}"
-        f"{email_ctx}"
+    # Webster 공식 기반 JSON 출력 지시
+    json_instruction = (
+        "\n\n[신호 최적화 — Webster 공식 적용 절차]\n"
+        "① 실측 속도로 포화도(Y) 결정: 40km/h 미만=0.85, 40~60=0.65, 60초과=0.4\n"
+        "② Co = (1.5 × L + 5) / (1 - ΣY),  L = 현시수 × 4s\n"
+        "③ Co를 직진/좌회전/보행 중요도 비율로 배분 (보행 최소 20s)\n"
+        "④ 각 교차로별 조정값을 아래 JSON으로 출력\n\n"
+        "반드시 JSON 블록을 맨 앞에 출력하고, 그 뒤 분석 설명을 붙여:\n"
+        "```json\n"
+        "{\"adjustments\": [{\"intNo\": \"47\", \"phases\": [{\"no\": 1, \"sec\": 80}, {\"no\": 2, \"sec\": 60}]}]}\n"
+        "```\n"
+        "JSON 다음 설명에는 반드시 아래 내용을 포함할 것:\n"
+        "- 실측 속도(km/h)와 이에 따른 Y값\n"
+        "- 계산된 최적 주기(Co)와 기존 cycleVal 비교\n"
+        "- 어떤 현시를 왜 늘리고 줄였는지 (방향명 + 초 단위로 명시)\n"
+        "intNo는 신호계획 괄호 안 숫자 ID 그대로 사용. 교차로 이름 절대 금지.\n"
+        "phases는 기존 현시만 사용. 전체 합계가 cycleVal을 초과하지 말 것."
     )
 
-    result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
-    return ChatResponse(answer=extract_answer(result))
+    prompt = (
+        f"서울 신호 시뮬레이션 시스템이야. 반드시 한국어로 답해줘."
+        f"{ctx_block}"
+        f"{sim_block}"
+        f"{traffic_block}"
+        f"{json_instruction}\n\n"
+        f"질문: {req.question}"
+    )
+
+    # 시뮬레이션 챗은 도구 호출 불필요 → sim_llm 직접 호출 (think=False)
+    print(f"\n[SIM-CHAT PROMPT — 총 {len(prompt)}자]\n{prompt}\n", flush=True)
+    response = await sim_llm.ainvoke(prompt)
+    raw = response.content if hasattr(response, "content") else str(response)
+    adjustments_preview = extract_adjustments(raw)
+    adj_count = len(adjustments_preview) if adjustments_preview else 0
+    print(f"\n[SIM-CHAT RAW — {len(raw)}자 / adjustments {adj_count}개]\n{raw[:1200]}\n", flush=True)
+    if isinstance(raw, list):
+        raw = " ".join(item.get("text", "") if isinstance(item, dict) else str(item) for item in raw).strip()
+    if "<think>" in raw:
+        after = raw.split("</think>")[-1].strip()
+        raw = after if after else raw.split("<think>", 1)[-1].split("</think>")[0].strip()
+
+    adjustments = extract_adjustments(raw)
+    clean_answer = strip_json_block(raw).strip() if adjustments else raw.strip()
+
+    # JSON만 반환하고 설명이 없으면 기본 메시지 생성
+    if not clean_answer and adjustments:
+        names = ", ".join(a.get("intNo", "") for a in adjustments)
+        clean_answer = f"Webster 공식 기반으로 교차로 {names}의 신호를 최적화했습니다."
+    elif not clean_answer:
+        clean_answer = "신호계획을 분석했습니다. 현재 구간의 속도 데이터를 확인하세요."
+
+    return ChatResponse(
+        answer=clean_answer,
+        adjustment=adjustments[0] if adjustments and len(adjustments) == 1 else None,
+        adjustments=adjustments,
+    )
+
+
+@app.post("/api/agent/simulation-chat/stream")
+async def simulation_chat_stream(req: SimulationChatRequest, request: Request):
+    """시뮬레이션 챗 SSE 스트리밍 — 토큰 단위 실시간 전송"""
+    import json as _json
+
+    # 동일한 프롬프트 조립 (simulation_chat 과 동일 로직)
+    ctx_block = ""
+    if req.contexts:
+        parts = []
+        for c in req.contexts:
+            name = c.get("intNm") or c.get("intNo") or "?"
+            # 신호계획 요약만 (토큰 절약)
+            phases = c.get("phases", [])
+            phase_str = ", ".join(f"현시{p.get('no')}:{p.get('sec')}s({'/'.join(p.get('dirs',[]))})" for p in phases)
+            parts.append(f"[신호계획 - {name} (intNo:{c.get('intNo')})] cycleVal={c.get('cycleVal')}s | {phase_str}")
+        ctx_block = "\n\n" + "\n".join(parts)
+    elif req.context:
+        c = req.context
+        phases = c.get("phases", [])
+        phase_str = ", ".join(f"현시{p.get('no')}:{p.get('sec')}s({'/'.join(p.get('dirs',[]))})" for p in phases)
+        ctx_block = f"\n\n[신호계획 - {c.get('intNm') or c.get('intNo')} (intNo:{c.get('intNo')})] cycleVal={c.get('cycleVal')}s | {phase_str}"
+
+    sim_block = ""
+    if req.simulation:
+        sim_block = (
+            f"\n\n[관제사 조정값]\n"
+            f"{_json.dumps(req.simulation, ensure_ascii=False, indent=2)}\n"
+            f"원래 신호계획과 비교해서 어떤 현시가 얼마나 바뀌었는지 분석해줘."
+        )
+
+    traffic_block = ""
+    if req.routeTraffic:
+        lines = []
+        for seg in req.routeTraffic:
+            spd = seg.get("speedKph")
+            mark = " ★병목" if spd is not None and spd < 15 else ""
+            lines.append(f"  {seg.get('fromIntNo')}→{seg.get('toIntNo')} | {spd}km/h{mark}")
+        traffic_block = "\n\n[경로 속도 — 40km/h↓ 병목]\n" + "\n".join(lines)
+
+    json_instruction = (
+        "\n\n신호 조정이 필요하면 답변 맨 앞에 먼저 출력:\n"
+        "```json\n{\"adjustments\":[{\"intNo\":\"번호\",\"phases\":[{\"no\":현시번호,\"sec\":초}]}]}\n```\n"
+        "그 다음 1~2문장 설명. phases는 위 신호계획의 기존 현시만 사용."
+    )
+
+    prompt = (
+        f"서울 신호 시뮬레이션이야. 한국어로 답해줘."
+        f"{ctx_block}{sim_block}{traffic_block}{json_instruction}\n\n질문: {req.question}"
+    )
+
+    async def generate():
+        full_text = ""
+        in_think = False
+        try:
+            async for chunk in sim_llm.astream(prompt):
+                if await request.is_disconnected():
+                    return
+                token = chunk.content if hasattr(chunk, "content") else str(chunk)
+                if not token:
+                    continue
+                full_text += token
+
+                # <think> 블록은 스트리밍 안 함
+                if "<think>" in full_text and "</think>" not in full_text:
+                    in_think = True
+                    continue
+                if in_think and "</think>" in full_text:
+                    in_think = False
+                    continue
+                if in_think:
+                    continue
+
+                yield f"data: {_json.dumps({'type': 'token', 'content': token}, ensure_ascii=False)}\n\n"
+
+            # 완성 후 파싱
+            if "<think>" in full_text:
+                full_text = full_text.split("</think>")[-1].strip() or full_text
+            adjustments = extract_adjustments(full_text)
+            clean = strip_json_block(full_text).strip() if adjustments else full_text.strip()
+            if not clean and adjustments:
+                names = ", ".join(a.get("intNo", "") for a in adjustments)
+                clean = f"Webster 공식 기반으로 교차로 {names}의 신호를 최적화했습니다."
+            elif not clean:
+                clean = "신호계획을 분석했습니다. 현재 구간의 속도 데이터를 확인하세요."
+            yield f"data: {_json.dumps({'type': 'done', 'answer': clean, 'adjustments': adjustments}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            yield f"data: {_json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/agent/bottleneck-email", response_model=ChatResponse)

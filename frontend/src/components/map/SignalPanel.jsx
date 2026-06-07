@@ -59,11 +59,11 @@ function TrafficLight({ status, rmndCs, elapsed }) {
         borderRadius: 8,
         padding: "6px 0",
         display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-        width: 32, flexShrink: 0,
+        width: 28, flexShrink: 0,
       }}>
         {/* 빨간불: isRed일 때만 밝은 빨강 + glow, 꺼진 상태는 매우 어두운 빨강 */}
         <div style={{
-          width: 19, height: 19, borderRadius: "50%",
+          width: 16, height: 16, borderRadius: "50%",
           background: isRed ? "#ef4444" : "#3f1010",
           boxShadow: isRed ? "0 0 8px #ef4444" : "none",
           transition: "all 0.3s", // 신호 전환 시 부드럽게 변화
@@ -71,7 +71,7 @@ function TrafficLight({ status, rmndCs, elapsed }) {
 
         {/* 노란불: 초록도 빨강도 아닐 때 (gray 상태, 전환 중간) */}
         <div style={{
-          width: 19, height: 19, borderRadius: "50%",
+          width: 16, height: 16, borderRadius: "50%",
           background: (!isRed && !isGreen) ? "#f59e0b" : "#3f3010",
           boxShadow: (!isRed && !isGreen) ? "0 0 8px #f59e0b" : "none",
           transition: "all 0.3s",
@@ -79,7 +79,7 @@ function TrafficLight({ status, rmndCs, elapsed }) {
 
         {/* 초록불: isGreen일 때만 밝은 초록 + glow */}
         <div style={{
-          width: 19, height: 19, borderRadius: "50%",
+          width: 16, height: 16, borderRadius: "50%",
           background: isGreen ? "#22c55e" : "#0a2810",
           boxShadow: isGreen ? "0 0 8px #22c55e" : "none",
           transition: "all 0.3s",
@@ -89,7 +89,7 @@ function TrafficLight({ status, rmndCs, elapsed }) {
       {/* 남은 시간 카운트다운 (rmndCs가 null이면 표시 안 함) */}
       {remaining != null && (
         <div style={{
-          fontSize: 15, fontWeight: 800, fontFamily: "monospace",
+          fontSize: 13, fontWeight: 800, fontFamily: "monospace",
           // 신호 상태에 따라 숫자 색상도 맞춤
           color: isGreen ? "#22c55e" : isRed ? "#ef4444" : "#6b7280",
         }}>
@@ -130,12 +130,12 @@ function DirCard({ dir, label, arrow, signals, elapsed }) {
     <div style={{
       background: "rgba(18,16,10,0.75)",
       border: "1px solid rgba(42,36,24,0.8)",
-      borderRadius: 8, padding: "12px 10px",
+      borderRadius: 8, padding: "10px 8px",
       display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
       flex: 1, minWidth: 0, overflow: "hidden", // 같은 행의 카드들이 균등한 너비 차지
     }}>
       {/* 방향 라벨: 화살표 + 방향명 */}
-      <div style={{ fontSize: 17, fontWeight: 800, color: "#4ea6ff", lineHeight: 1.1 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, color: "#4ea6ff", lineHeight: 1.1 }}>
         {arrow} {label}
       </div>
 
@@ -233,7 +233,7 @@ export default function SignalPanel({ cr }) {
 
         {/* 중앙 박스: 교차로 이름 + 위험도 도넛 차트 */}
         <div style={{
-          width: 92, minWidth: 92, height: 104, flexShrink: 0,
+          width: 82, minWidth: 82, height: 94, flexShrink: 0,
           background: "rgba(18,16,10,0.75)",
           border: "1px solid rgba(42,36,24,0.8)",
           borderRadius: 8,
@@ -251,13 +251,13 @@ export default function SignalPanel({ cr }) {
               안쪽 작은 원으로 덮어 도넛 모양 만들기
               색상은 위험도 API 등급(anals_grd), 숫자는 점수(anals_value)를 그대로 사용 */}
           <div style={{
-            width: 42, height: 42, borderRadius: "50%",
+            width: 36, height: 36, borderRadius: "50%",
             background: `conic-gradient(${riskGradeColor} ${riskPct}%, #1f2937 0)`,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             {/* 안쪽 원 (도넛 구멍 역할) + 점수 텍스트 */}
             <div style={{
-              width: 31, height: 31, borderRadius: "50%",
+              width: 27, height: 27, borderRadius: "50%",
               background: "rgba(0,0,0,0.82)",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: riskText.length > 4 ? 11 : 15, fontWeight: 700,

@@ -276,10 +276,11 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> dict:
             valid.sort(key=spd)
             top10 = [
                 {
+                    "crsrdId": s.get("crsrdId", ""),
                     "name": s.get("crsrdNm", ""),
                     "speed_kmh": spd(s),
-                    "risk_grade": s.get("riskGrade"),    # 위험도 등급 (예: "위험", "보통", "안전")
-                    "risk_index": s.get("riskIndex"),    # 위험 지수 (수치)
+                    "risk_grade": s.get("riskGrade"),
+                    "risk_index": s.get("riskIndex"),
                     "congestion": s.get("congestion"),
                 }
                 for s in valid[:10]

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { GU_LIST } from "../constants/seoulGeoData";
+import AppHeader from "../components/common/AppHeader";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
@@ -44,7 +45,18 @@ function PhotoModal({ urls, onClose }) {
   );
 }
 
-export default function ComplaintManagePage({ onBack }) {
+export default function ComplaintManagePage({
+  onBack,
+  onGoMain,
+  onGoMap,
+  onGoNews,
+  onGoCctv,
+  onGoSimulation,
+  onGoComplaints,
+  onGoMyPage,
+  onLogout,
+  headerSelectedGu,
+}) {
   const [complaints,     setComplaints]   = useState([]);
   const [allComplaints,  setAllComplaints] = useState([]); // 사이드바 카운트용 전체
   const [loading,        setLoading]      = useState(true);
@@ -144,28 +156,36 @@ export default function ComplaintManagePage({ onBack }) {
   return (
     <div style={{ fontFamily: V.sans, background: V.bg0, color: V.ink0, height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-      {/* ── 헤더 ── */}
-      <div style={{ height: 54, display: "flex", alignItems: "center", gap: 16, padding: "0 20px", borderBottom: `1px solid ${V.line}`, background: V.bg1, flexShrink: 0 }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: V.ink0 }}>민원 관리</span>
-        <span style={{ color: V.ink3, fontFamily: V.mono, fontSize: 11 }}>│</span>
-        <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2 }}>Traffic-Sync 교통 관제 시스템</span>
-        <div style={{ display: "flex", gap: 10, marginLeft: 8 }}>
-          {[["접수", counts.접수, V.org], ["처리중", counts.처리중, V.blu], ["완료", counts.완료, V.grn]].map(([label, cnt, color]) => (
-            <span key={label} style={{ fontFamily: V.mono, fontSize: 11, color, fontWeight: 700 }}>{label} {cnt}</span>
-          ))}
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-          <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink2 }}>{time}</span>
-          <button onClick={reload} style={{ height: 32, padding: "0 14px", background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 12, cursor: "pointer", fontFamily: V.mono }}>새로고침</button>
-          <button onClick={onBack} style={{ height: 32, padding: "0 14px", background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink2, fontSize: 12, cursor: "pointer", fontFamily: V.sans }}>← 지도로</button>
-        </div>
-      </div>
+      {/* ── 공통 헤더 ── */}
+      <AppHeader
+        activePage="complaints"
+        selectedGu={headerSelectedGu}
+        statusText={`민원 ${counts.전체}건`}
+        statusLive={counts.전체 > 0}
+        onGoMain={onGoMain}
+        onGoMap={onGoMap}
+        onGoNews={onGoNews}
+        onGoCctv={onGoCctv}
+        onGoSimulation={onGoSimulation}
+        onGoComplaints={onGoComplaints}
+        onGoMyPage={onGoMyPage}
+        onLogout={onLogout}
+        complaintCount={counts.접수 + counts.처리중}
+        rightExtra={
+          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            {[["접수", counts.접수, V.org], ["처리중", counts.처리중, V.blu], ["완료", counts.완료, V.grn]].map(([label, cnt, color]) => (
+              <span key={label} style={{ fontFamily: V.mono, fontSize: 11, color, fontWeight: 700, whiteSpace: "nowrap" }}>{label} {cnt}</span>
+            ))}
+            <button onClick={reload} style={{ height: 28, padding: "0 10px", background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 11, cursor: "pointer", fontFamily: V.mono, whiteSpace: "nowrap" }}>새로고침</button>
+          </div>
+        }
+      />
 
       {/* ── 메인 (2컬럼) ── */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
 
         {/* ── 좌측 구 사이드바 ── */}
-        <div style={{ width: 200, borderRight: `1px solid ${V.line}`, overflowY: "auto", flexShrink: 0 }}>
+        <div style={{ width: 180, borderRight: `1px solid ${V.line}`, overflowY: "auto", flexShrink: 0 }}>
           <div style={{ padding: "12px 16px 8px", fontSize: 13, color: V.ink3, fontWeight: 600, letterSpacing: 1, fontFamily: V.mono }}>구 선택</div>
 
           {/* 전체 */}
@@ -173,7 +193,7 @@ export default function ComplaintManagePage({ onBack }) {
             style={{ padding: "11px 16px", cursor: "pointer", background: !selectedGu ? "#0d0d0d" : "transparent", borderLeft: !selectedGu ? `2px solid ${V.blu}` : "2px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
             onMouseEnter={e => { if (selectedGu) e.currentTarget.style.background = "#080808"; }}
             onMouseLeave={e => { if (selectedGu) e.currentTarget.style.background = "transparent"; }}>
-            <span style={{ fontSize: 15, fontWeight: !selectedGu ? 700 : 400, color: !selectedGu ? V.ink0 : V.ink1 }}>전체 보기</span>
+            <span style={{ fontSize: 13, fontWeight: !selectedGu ? 700 : 400, color: !selectedGu ? V.ink0 : V.ink1 }}>전체 보기</span>
           </div>
 
           {/* 25개 구 — 미처리 건수 내림차순 */}
@@ -185,7 +205,7 @@ export default function ComplaintManagePage({ onBack }) {
                 style={{ padding: "10px 16px", cursor: "pointer", background: isSel ? "#0d0d0d" : "transparent", borderLeft: isSel ? `2px solid ${V.blu}` : "2px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
                 onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = "#080808"; }}
                 onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
-                <span style={{ fontSize: 14, fontWeight: isSel ? 700 : 400, color: isSel ? V.ink0 : pending > 0 ? V.ink1 : V.ink3 }}>{g.name}</span>
+                <span style={{ fontSize: 13, fontWeight: isSel ? 700 : 400, color: isSel ? V.ink0 : pending > 0 ? V.ink1 : V.ink3 }}>{g.name}</span>
                 {pending > 0 && (
                   <span style={{ fontFamily: V.mono, fontSize: 13, fontWeight: 700, color: V.org }}>{pending}</span>
                 )}
@@ -198,10 +218,10 @@ export default function ComplaintManagePage({ onBack }) {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
 
           {/* 필터 툴바 */}
-          <div style={{ height: 46, display: "flex", alignItems: "center", gap: 10, padding: "0 20px", borderBottom: `1px solid ${V.line}`, flexShrink: 0 }}>
-            <span style={{ fontSize: 17, fontWeight: 700, color: V.ink0 }}>
+          <div style={{ height: 42, display: "flex", alignItems: "center", gap: 10, padding: "0 16px", borderBottom: `1px solid ${V.line}`, flexShrink: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: V.ink0 }}>
               {selectedGu ?? "전체"}
-              <span style={{ fontFamily: V.mono, fontSize: 14, color: V.ink2, fontWeight: 400, marginLeft: 8 }}>{filtered.length}건</span>
+              <span style={{ fontFamily: V.mono, fontSize: 13, color: V.ink2, fontWeight: 400, marginLeft: 8 }}>{filtered.length}건</span>
             </span>
 
             <span style={{ fontFamily: V.mono, fontSize: 10, color: V.ink3, letterSpacing: ".5px", marginLeft: 8 }}>STATUS</span>
@@ -235,7 +255,7 @@ export default function ComplaintManagePage({ onBack }) {
                 <thead>
                   <tr>
                     {["#", "상태", "분류", "제목", "주소", "신청자", "접수 일시", "사진", "처리"].map((h, i) => (
-                      <th key={h} style={{ position: "sticky", top: 0, background: "#0a0a0a", borderBottom: `1px solid ${V.line}`, textAlign: i >= 7 ? "center" : "left", fontFamily: V.mono, fontSize: 10, fontWeight: 700, color: V.ink2, letterSpacing: ".5px", textTransform: "uppercase", padding: "10px 14px", whiteSpace: "nowrap" }}>{h}</th>
+                      <th key={h} style={{ position: "sticky", top: 0, background: "#0a0a0a", borderBottom: `1px solid ${V.line}`, textAlign: i >= 7 ? "center" : "left", fontFamily: V.mono, fontSize: 10, fontWeight: 700, color: V.ink2, letterSpacing: ".5px", textTransform: "uppercase", padding: "8px 12px", whiteSpace: "nowrap" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -249,16 +269,16 @@ export default function ComplaintManagePage({ onBack }) {
                     const photos = c.photoUrls || [];
                     return (
                       <tr key={c.id} style={{ background: i % 2 === 0 ? "rgba(255,255,255,.015)" : V.bg0 }}>
-                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 11, color: V.ink3 }}>#{c.id}</td>
-                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}` }}>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 11, color: V.ink3 }}>#{c.id}</td>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${V.line}` }}>
                           <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: meta.color }}>{c.status}</span>
                         </td>
-                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink2, fontSize: 12, whiteSpace: "nowrap" }}>{c.category}</td>
-                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink0, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</td>
-                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink2, fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.address}</td>
-                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, color: V.ink1, fontWeight: 600, whiteSpace: "nowrap" }}>{c.userName}</td>
-                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 11, color: V.ink2, whiteSpace: "nowrap" }}>{fmtDt(c.createdAt)}</td>
-                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, textAlign: "center" }}>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${V.line}`, color: V.ink2, fontSize: 12, whiteSpace: "nowrap" }}>{c.category}</td>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${V.line}`, color: V.ink0, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</td>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${V.line}`, color: V.ink2, fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.address}</td>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${V.line}`, color: V.ink1, fontWeight: 600, whiteSpace: "nowrap" }}>{c.userName}</td>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${V.line}`, fontFamily: V.mono, fontSize: 11, color: V.ink2, whiteSpace: "nowrap" }}>{fmtDt(c.createdAt)}</td>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${V.line}`, textAlign: "center" }}>
                           {photos.length > 0 ? (
                             <button onClick={() => setPhotoModal(photos)}
                               style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 2, color: V.ink1, fontSize: 11, cursor: "pointer", padding: "3px 8px", fontFamily: V.mono }}>
@@ -266,7 +286,7 @@ export default function ComplaintManagePage({ onBack }) {
                             </button>
                           ) : <span style={{ color: V.ink3, fontSize: 11 }}>—</span>}
                         </td>
-                        <td style={{ padding: "11px 14px", borderBottom: `1px solid ${V.line}`, textAlign: "center", whiteSpace: "nowrap" }}>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${V.line}`, textAlign: "center", whiteSpace: "nowrap" }}>
                           <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
                             {meta.next ? (
                               <button onClick={() => patchStatus(c.id, meta.next)}
@@ -293,7 +313,7 @@ export default function ComplaintManagePage({ onBack }) {
           </div>
 
           {/* 하단 */}
-          <div style={{ height: 36, display: "flex", alignItems: "center", padding: "0 20px", borderTop: `1px solid ${V.line}`, background: V.bg1, fontFamily: V.mono, fontSize: 11, color: V.ink3, gap: 12, flexShrink: 0 }}>
+          <div style={{ height: 32, display: "flex", alignItems: "center", padding: "0 16px", borderTop: `1px solid ${V.line}`, background: V.bg1, fontFamily: V.mono, fontSize: 11, color: V.ink3, gap: 12, flexShrink: 0 }}>
             <span>총 {filtered.length}건</span>
             <span style={{ color: V.line }}>·</span>
             <span>전체 {complaints.length}건</span>
