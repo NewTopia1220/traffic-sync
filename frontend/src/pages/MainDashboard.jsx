@@ -640,6 +640,8 @@ export default function MainDashboard({
   selectedGu,
   onSelectGu,
   onAreaFetchState,
+  isMuted = false,
+  onToggleMute,
 }) {
   const [time, setTime] = useState(new Date());
   const [loading, setLoading] = useState(false);
@@ -955,6 +957,26 @@ export default function MainDashboard({
         onLogout={onLogout}
         rightExtra={(
           <>
+            {onToggleMute && (
+              <button
+                onClick={onToggleMute}
+                title={isMuted ? "음소거 해제" : "음소거"}
+                style={{
+                  background: isMuted ? "#1a0a0a" : "transparent",
+                  border: `1px solid ${isMuted ? "#5a1a1a" : V.line}`,
+                  borderRadius: 999,
+                  width: 32, height: 32,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer",
+                  color: isMuted ? "#ff5566" : V.ink1,
+                  fontSize: 15,
+                  flexShrink: 0,
+                  transition: "border-color .2s, color .2s",
+                }}
+              >
+                {isMuted ? "🔇" : "🔊"}
+              </button>
+            )}
             {selectedGu && (
               <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
             )}

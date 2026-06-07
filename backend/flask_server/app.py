@@ -11,7 +11,8 @@ app = Flask(__name__)
 CORS(app)
 
 # 1. 모델 로드
-model = joblib.load('xgboost_traffic_model.joblib')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+model = joblib.load(os.path.join(BASE_DIR, 'xgboost_traffic_model.joblib'))
 
 # 2. DB 접속 설정
 db_config = {
@@ -19,7 +20,7 @@ db_config = {
      "password": "Heeyoun1220!",
      "dsn": "koreapoint_medium",
 
-     "wallet_location": "C:/Final!!!!!!!/traffic-sync/backend/src/main/resources/wallet"
+     "wallet_location": "/Users/parkheeyoun/traffic-sync-git/backend/src/main/resources/wallet"
 
 }
 
