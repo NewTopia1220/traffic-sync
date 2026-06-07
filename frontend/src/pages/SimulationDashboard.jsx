@@ -550,7 +550,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const llmTimerRef = useRef(null);
 
   const start = selectedList[0] ?? null;
-  const end = selectedList[1] ?? null;
+  const end = selectedList.length >= 2 ? selectedList[selectedList.length - 1] : null;
   const waypointList = autoWaypoints || [];
   const clampedWaypointIndex = waypointList.length
     ? Math.min(Math.max(selectedWaypointIndex, 0), waypointList.length - 1)
@@ -915,30 +915,33 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       // 선택 규칙:
       // 1번째 노드 클릭 = 출발지
       // 2번째 노드 클릭 = 목적지
-      // 이후 다른 노드 클릭 = 출발지는 유지하고 목적지만 교체
-      // 같은 노드를 다시 클릭해도 선택 해제하지 않습니다.
+      // 3번째 이후 노드 클릭 = 기존 목적지는 경유지로 유지하고, 새로 누른 노드가 최종 목적지
+      // 예: A → B → C 선택 시 A=출발지, B=경유지, C=목적지
       if (prev.length === 0) {
         setSliderTarget("start");
         return [cr];
       }
 
-      if (prev.length === 1) {
-        if (String(prev[0].intNo) === String(cr.intNo)) {
+      const clickedIndex = prev.findIndex(item => String(item.intNo) === String(cr.intNo));
+
+      if (clickedIndex !== -1) {
+        if (clickedIndex === 0) {
           setSliderTarget("start");
           return prev;
         }
 
-        setSliderTarget("end");
-        return [prev[0], cr];
-      }
+        if (clickedIndex === prev.length - 1) {
+          setSliderTarget("end");
+          return prev;
+        }
 
-      if (String(prev[0].intNo) === String(cr.intNo) || String(prev[1].intNo) === String(cr.intNo)) {
-        setSliderTarget(String(prev[0].intNo) === String(cr.intNo) ? "start" : "end");
+        setSliderTarget("waypoint");
+        setSelectedWaypointIndex(Math.max(0, clickedIndex - 1));
         return prev;
       }
 
       setSliderTarget("end");
-      return [prev[0], cr];
+      return [...prev, cr];
     });
   };
 

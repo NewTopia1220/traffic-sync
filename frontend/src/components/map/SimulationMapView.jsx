@@ -842,9 +842,10 @@ export default function SimulationMapView({
     onDriveViewChange?.(driveView);
   }, [driveView, onDriveViewChange]);
 
-  const routeSelectedList = selectedList.slice(0, 2);
-  const start = routeSelectedList[0] ?? null;
-  const end = routeSelectedList[1] ?? null;
+  // 선택 노드는 순서대로 모두 유지합니다.
+  // 1번째 선택 = 출발지, 마지막 선택 = 목적지
+  // 중간에 선택했던 노드는 사용자가 지정한 경유지로 유지됩니다.
+  const routeSelectedList = selectedList;
   const start = selectedList[0] ?? null;
   const end = selectedList.length >= 2 ? selectedList[selectedList.length - 1] : null;
   const isSimulationActive = !!(start && end);
@@ -879,8 +880,8 @@ export default function SimulationMapView({
       return;
     }
 
-    // 첫 번째 선택은 출발지, 두 번째 선택은 항상 목적지로 고정합니다.
-    // 이후 자동 탐색된 노드만 경유지/병목지로 표시합니다.
+    // 첫 번째 선택은 출발지, 마지막 선택은 목적지로 사용합니다.
+    // 그 사이에 사용자가 추가로 누른 노드는 수동 경유지로 유지합니다.
     setRoutePlan(buildRouteFromSelectedList(routeSelectedList, crossroads));
   }, [
     routeSelectedList.map(item => item.intNo).join("|"),
@@ -1450,6 +1451,96 @@ export default function SimulationMapView({
 
     return candidates[0];
   }
+
+  function getRouteProgressOnPolyline(point, points) {
+    if (!point || !points || points.length < 2) return null;
+
+    const totalLen = routeLengthMeters(points);
+    if (!totalLen) return null;
+
+    let walked = 0;
+    let bestProgress = 0;
+    let bestDistance = Infinity;
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const seg = perpendicularDistanceToSegmentMeters(point, points[i], points[i + 1]);
+      const segLen = distanceMeters(points[i], points[i + 1]);
+
+      if (seg.distance < bestDistance) {
+        bestDistance = seg.distance;
+        bestProgress = (walked + seg.progress * segLen) / totalLen;
+      }
+
+      walked += segLen;
+    }
+
+    return { progress: bestProgress, distance: bestDistance };
+  }
+
+  function expandRouteWithNearbyCrossroads(basePoints, baseVia, from, to, crossroads, totalDist) {
+    if (!basePoints || basePoints.length < 2) return { points: basePoints || [], viaCrossroads: baseVia || [] };
+
+    const fromLL = getCrLonLat(from);
+    const toLL = getCrLonLat(to);
+    if (!fromLL || !toLL) return { points: basePoints, viaCrossroads: baseVia || [] };
+
+    const candidates = [];
+    const seen = new Set([String(from?.intNo), String(to?.intNo)]);
+
+    (baseVia || []).forEach(cr => {
+      if (cr?.intNo != null) seen.add(String(cr.intNo));
+      const ll = getCrLonLat(cr);
+      const routeInfo = getRouteProgressOnPolyline(ll, basePoints);
+      if (ll && routeInfo && routeInfo.progress > 0.02 && routeInfo.progress < 0.98) {
+        candidates.push({ ...cr, __ll: ll, __progress: routeInfo.progress, __distance: routeInfo.distance });
+      }
+    });
+
+    (crossroads || []).forEach(cr => {
+      if (!cr || cr.intNo == null) return;
+      const key = String(cr.intNo);
+      if (seen.has(key)) return;
+
+      const ll = getCrLonLat(cr);
+      if (!ll) return;
+
+      const routeInfo = getRouteProgressOnPolyline(ll, basePoints);
+      if (!routeInfo) return;
+
+      // 선택한 출발지-목적지 사이 실제 경로 주변의 교차로를 자동 경유지로 보강합니다.
+      // 이렇게 해야 직선/최단 경로가 중간 노드를 건너뛰지 않고, 화면에서 도로 노드를 따라갑니다.
+      const detour = distanceMeters(fromLL, ll) + distanceMeters(ll, toLL);
+      const isNearRoute = routeInfo.distance <= 85;
+      const isBetweenEndpoints = routeInfo.progress > 0.035 && routeInfo.progress < 0.965;
+      const isReasonableDetour = detour <= Math.max(totalDist * 1.55, totalDist + 500);
+
+      if (!isNearRoute || !isBetweenEndpoints || !isReasonableDetour) return;
+
+      candidates.push({ ...cr, __ll: ll, __progress: routeInfo.progress, __distance: routeInfo.distance });
+      seen.add(key);
+    });
+
+    const ordered = candidates
+      .sort((a, b) => a.__progress - b.__progress || a.__distance - b.__distance)
+      .filter((cr, idx, arr) => {
+        const prev = arr[idx - 1];
+        if (!prev) return true;
+        return distanceMeters(cr.__ll, prev.__ll) > 18;
+      });
+
+    return {
+      points: [basePoints[0], ...ordered.map(cr => cr.__ll), basePoints[basePoints.length - 1]],
+      viaCrossroads: ordered.map(cr => {
+        const { __ll, __progress, __distance, ...rest } = cr;
+        return {
+          ...rest,
+          routeProgress: __progress,
+          routeDistanceMeters: Math.round(__distance),
+        };
+      }),
+    };
+  }
+
   useEffect(() => {
     if (!mapReady || !viewerRef.current || !window.Cesium) return;
 
@@ -1503,9 +1594,22 @@ export default function SimulationMapView({
       const totalDist = distanceMeters(fromLL, toLL);
       const segmentRoute = buildStableMarkerGraphRoute(from, to, crossroads, totalDist);
 
-      const segmentPoints = segmentRoute.points.length >= 2
+      const baseSegmentPoints = segmentRoute.points.length >= 2
         ? segmentRoute.points
         : [fromLL, toLL];
+
+      const expandedSegment = expandRouteWithNearbyCrossroads(
+        baseSegmentPoints,
+        segmentRoute.viaCrossroads,
+        from,
+        to,
+        crossroads,
+        totalDist
+      );
+
+      const segmentPoints = expandedSegment.points.length >= 2
+        ? expandedSegment.points
+        : baseSegmentPoints;
 
       if (finalPoints.length === 0) {
         finalPoints.push(segmentPoints[0]);
@@ -1515,7 +1619,7 @@ export default function SimulationMapView({
 
       const segmentVia = [
         from,
-        ...segmentRoute.viaCrossroads,
+        ...expandedSegment.viaCrossroads,
         to,
       ];
 
@@ -1710,51 +1814,7 @@ export default function SimulationMapView({
       const data = await res.json();
       if (routeTrafficRequestRef.current.seq !== seq) return;
 
-      const rightLanePoints = offsetRoutePoints(routePointsRef.current, 10);
-      const startCarPos = rightLanePoints[0];
-
-      const firstSegment =
-        data?.segments?.find(seg => seg?.up?.vertices?.length || seg?.down?.vertices?.length)
-        ?? data?.segments?.[0];
-
-      const matched = mapCarToTrafficDirection(startCarPos, firstSegment);
-      if (matched?.direction && !travelDir) {
-        startCarDirectionRef.current = matched.direction;
-
-        fetchRouteTraffic(routeNodes, seq);
-        return;
-      }
-
-      console.log("출발지 오른쪽 차선 차량 좌표:", startCarPos);
-      console.log("매칭 대상 segment:", firstSegment);
-
-      if (matched) {
-        console.log(
-          `오른쪽 차선 차량은 ${matched.direction === "up" ? "상행" : "하행"}으로 매핑됨`,
-          {
-            direction: matched.direction,
-            traffic: matched.traffic,
-            selectedDistanceMeters: matched.distanceMeters,
-            upDistanceMeters: matched.upDistanceMeters,
-            downDistanceMeters: matched.downDistanceMeters,
-          }
-        );
-        console.log("up vertices:", firstSegment?.up?.vertices);
-        console.log("down vertices:", firstSegment?.down?.vertices);
-        console.log("up vertices length:", firstSegment?.up?.vertices?.length);
-        console.log("down vertices length:", firstSegment?.down?.vertices?.length);
-      } else {
-        console.warn("오른쪽 차선 차량 상행/하행 매핑 실패", {
-          startCarPos,
-          firstSegment,
-          upVertices: firstSegment?.up?.vertices,
-          downVertices: firstSegment?.down?.vertices,
-          upVerticesLength: firstSegment?.up?.vertices?.length,
-          downVerticesLength: firstSegment?.down?.vertices?.length,
-        });
-      }
-
-      onRouteTrafficChange?.({
+      const payload = {
         ...data,
         requestedRouteNodes: routeNodes,
         requestedTravelDir: travelDir,
@@ -2669,14 +2729,15 @@ export default function SimulationMapView({
       const segment = segments[i];
 
       const selectedDirectionKey = getSelectedDirectionKey(segment, routeTrafficRef.current);
+      const selectedLaneLabel = selectedDirectionKey === "down" ? "하행" : "상행";
+
+      // 차량은 출발지→목적지 진행 방향 기준 오른쪽 차선(+offset)으로 주행합니다.
+      // 따라서 속도선도 up/down 이름에 따라 좌우를 바꾸지 않고,
+      // 선택된 속도 데이터만 사용하되 화면 표시는 항상 선택 주행 차선(+offset)에 맞춥니다.
       const lanes = [
-        selectedDirectionKey === "down"
-          ? { key: "down", label: "하행", offset: -12, labelOffset: -28 }
-          : { key: "up", label: "상행", offset: 12, labelOffset: 28 },
+        { key: selectedDirectionKey, label: selectedLaneLabel, offset: 12, labelOffset: 28 },
       ];
 
-      // 선택한 출발지→목적지 진행 방향의 속도선만 표시합니다.
-      // 반대방향(up/down 중 선택되지 않은 방향)은 도로 위에 그리지 않습니다.
       const selectedLabelDirectionKey = selectedDirectionKey;
 
       lanes.forEach(lane => {
