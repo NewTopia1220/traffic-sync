@@ -208,22 +208,15 @@ export function useAssistant({ page, onNavIntent }) {
     }
   }
 
-  // AI 플로팅 버튼: 패널 열기(누적 대화 표시) / 토글
+  // AI 플로팅 버튼: 패널 열려있으면 닫기, 최소화 상태면 펼치기, 없으면 새 세션
   const onFloatingClick = () => {
-    const idleOrDone = voiceUI.status === 'idle' || voiceUI.status === 'done'
     if (voiceUI.active && !voiceMinimized) {
-      if (idleOrDone && !BUSY_STATUS.includes(voiceUI.status)) {
-        // 대기/완료 상태면 새 음성 세션 시작 (두들기면 바로 말할 수 있게)
-        voiceSessionRef.current?.()
-      } else {
-        setVoiceMinimized(true)     // 처리 중이면 최소화
-      }
+      closeVoiceUI()               // X → 항상 완전히 닫기
     } else if (voiceUI.messages.length > 0) {
-      // 최소화 상태 → 펼치기
       setVoiceUI(prev => ({ ...prev, active: true }))
       setVoiceMinimized(false)
     } else {
-      voiceSessionRef.current?.()   // 대화 이력 없으면 새 세션 시작
+      voiceSessionRef.current?.()
     }
   }
 
