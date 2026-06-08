@@ -18,17 +18,17 @@ export default function KpiCard({ value, unit, label, sub, status }) {
       : { c: V.ink1, bg: V.bg0, bd: V.line };
 
   return (
-    <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "18px 22px", position: "relative", minHeight: 118 }}>
+    <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "14px 18px", position: "relative", minHeight: 96 }}>
       {status && (
         <span style={{ fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: s.c, position: "absolute", top: 14, right: 16 }}>
           {status}
         </span>
       )}
-      <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 52, color: "#fff", letterSpacing: "-1.8px", lineHeight: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
-        {value}<span style={{ fontSize: 16, color: V.ink2, fontWeight: 500 }}>{unit}</span>
+      <div style={{ fontFamily: V.mono, fontWeight: 700, fontSize: 44, color: "#fff", letterSpacing: "-1.8px", lineHeight: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
+        {value}<span style={{ fontSize: 12, color: V.ink2, fontWeight: 500 }}>{unit}</span>
       </div>
-      <div style={{ fontSize: 17, color: V.ink0, fontWeight: 600, marginTop: 8 }}>{label}</div>
-      <div style={{ fontSize: 14, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>{sub}</div>
+      <div style={{ fontSize: 15, color: V.ink0, fontWeight: 600, marginTop: 7 }}>{label}</div>
+      <div style={{ fontSize: 12, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>{sub}</div>
     </div>
   );
 }
