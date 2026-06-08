@@ -7,6 +7,16 @@ const V = {
   sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
 };
 
+function useIsMobile(breakpoint = 768) {
+  const [mobile, setMobile] = useState(() => window.innerWidth < breakpoint);
+  useEffect(() => {
+    const handler = () => setMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, [breakpoint]);
+  return mobile;
+}
+
 export default function AppHeader({
   activePage = "main",
   selectedGu,
@@ -24,10 +34,23 @@ export default function AppHeader({
   complaintCount = 0,
 }) {
   const [time, setTime] = useState(new Date());
+  const [menuOpen, setMenuOpen] = useState(false);
+  const isMobile = useIsMobile();
+
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // 모바일에서 메뉴 열릴 때 바깥 클릭 닫기
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e) => {
+      if (!e.target.closest("[data-mobile-menu]")) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [menuOpen]);
 
   const tabs = [
     ["통합 대시보드", "main"],
@@ -39,6 +62,7 @@ export default function AppHeader({
   ];
 
   const go = (tab) => {
+    setMenuOpen(false);
     if (tab === "main") return onGoMain?.();
     if (tab === "map") return onGoMap?.(selectedGu);
     if (tab === "news") return onGoNews?.();
@@ -47,6 +71,100 @@ export default function AppHeader({
     if (tab === "complaints") return onGoComplaints?.();
   };
 
+  // ── 모바일 헤더 ──────────────────────────────────────────────────
+  if (isMobile) {
+    const activeLabel = tabs.find(([, t]) => t === activePage)?.[0] ?? "메뉴";
+    return (
+      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 12px", height: 52, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 100, fontFamily: V.sans }}>
+
+        {/* 로고 */}
+        <button onClick={onGoMain} style={{ display: "flex", alignItems: "center", gap: 7, background: "transparent", border: 0, padding: 0, cursor: "pointer", flexShrink: 0 }}>
+          <div style={{ width: 22, height: 22, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}`, flexShrink: 0 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: V.grn, display: "block" }} />
+          </div>
+          <span style={{ fontWeight: 700, fontSize: 13, color: V.ink0, whiteSpace: "nowrap" }}>Traffic-Sync</span>
+        </button>
+
+        {/* 현재 페이지명 */}
+        <span style={{ fontSize: 11, color: V.ink2, flexShrink: 0 }}>/ {activeLabel}</span>
+
+        {/* 선택된 구 */}
+        {selectedGu && (
+          <span style={{ fontSize: 11, color: V.org, flexShrink: 0 }}>· {selectedGu.name}</span>
+        )}
+
+        {/* LIVE 상태 */}
+        {statusText && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: V.ink1, flexShrink: 0 }}>
+            <span style={{ width: 5, height: 5, borderRadius: "50%", background: statusLive ? V.grn : V.ink3, display: "inline-block" }} />
+            LIVE
+          </span>
+        )}
+
+        {/* rightExtra (음소거 버튼 등) */}
+        {rightExtra && <div style={{ flexShrink: 0 }}>{rightExtra}</div>}
+
+        {/* 로그아웃 버튼 */}
+        {onLogout && (
+          <button
+            onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }}
+            style={{ background: "transparent", border: "1px solid #3a1820", borderRadius: 999, padding: "5px 10px", color: V.red, fontSize: 12, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
+          >
+            로그아웃
+          </button>
+        )}
+
+        {/* 햄버거 메뉴 버튼 */}
+        <button
+          data-mobile-menu
+          onClick={() => setMenuOpen(o => !o)}
+          style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${V.line}`, borderRadius: 6, width: 36, height: 36, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, cursor: "pointer", flexShrink: 0 }}
+        >
+          {[0, 1, 2].map(i => (
+            <span key={i} style={{ width: 16, height: 1.5, background: V.ink1, borderRadius: 2, display: "block" }} />
+          ))}
+        </button>
+
+        {/* 드롭다운 메뉴 */}
+        {menuOpen && (
+          <div
+            data-mobile-menu
+            style={{ position: "fixed", top: 52, right: 0, left: 0, background: "#0d0d0d", borderBottom: `1px solid ${V.line}`, zIndex: 200, padding: "8px 0" }}
+          >
+            {tabs.map(([label, tab]) => {
+              const isActive = tab === activePage;
+              const isCivil = tab === "complaints";
+              return (
+                <button
+                  key={tab}
+                  onClick={() => go(tab)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "13px 20px", background: isActive ? "#111" : "transparent", border: 0, color: isActive ? V.blu : "#fff", fontSize: 15, fontWeight: isActive ? 700 : 400, cursor: "pointer", textAlign: "left", fontFamily: V.sans, position: "relative" }}
+                >
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: isActive ? V.blu : isCivil ? V.org : V.ink3, display: "inline-block", flexShrink: 0 }} />
+                  {label}
+                  {isCivil && complaintCount > 0 && (
+                    <span style={{ marginLeft: "auto", background: V.org, borderRadius: 999, fontSize: 11, fontWeight: 700, color: "#000", padding: "1px 7px" }}>
+                      {complaintCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            {onGoMyPage && (
+              <button
+                onClick={() => { setMenuOpen(false); onGoMyPage(); }}
+                style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "13px 20px", background: "transparent", border: 0, borderTop: `1px solid ${V.line}`, color: V.ink1, fontSize: 15, cursor: "pointer", textAlign: "left", fontFamily: V.sans }}
+              >
+                마이페이지
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── 데스크톱 헤더 (기존 그대로) ──────────────────────────────────
   return (
     <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 12px", height: 60, display: "flex", alignItems: "center", gap: 8, flexShrink: 0, position: "sticky", top: 0, zIndex: 100, fontFamily: V.sans, overflow: "hidden", whiteSpace: "nowrap" }}>
       <button onClick={onGoMain} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 210, flexShrink: 0, background: "transparent", border: 0, padding: 0, cursor: "pointer", textAlign: "left", fontFamily: V.sans }}>
@@ -69,7 +187,6 @@ export default function AppHeader({
               style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "6px 10px", borderRadius: 999, fontSize: 13, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans, position: "relative", whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1.15 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
               {label}
-              {/* 미처리 민원 배지 */}
               {isCivil && complaintCount > 0 && (
                 <span style={{ position: "absolute", top: 4, right: 6, minWidth: 16, height: 16, background: V.org, borderRadius: 999, fontFamily: V.mono, fontSize: 9, fontWeight: 700, color: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>
                   {complaintCount}
