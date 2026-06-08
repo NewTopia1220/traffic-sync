@@ -56,7 +56,7 @@ export default function AppHeader({
     ["통합 대시보드", "main"],
     ["실시간 지도", "map"],
     ["뉴스", "news"],
-    ["CCTV 관제", "cctv"],
+    ["CCTV", "cctv"],
     ["신호 시뮬레이션", "simulation"],
     ["민원 관리", "complaints"],
   ];
@@ -82,7 +82,7 @@ export default function AppHeader({
           <div style={{ width: 22, height: 22, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}`, flexShrink: 0 }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: V.grn, display: "block" }} />
           </div>
-          <span style={{ fontWeight: 700, fontSize: 13, color: V.ink0, whiteSpace: "nowrap" }}>Traffic-Sync</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: V.ink0, whiteSpace: "nowrap" }}>Syncro</span>
         </button>
 
         {/* 현재 페이지명 */}
@@ -172,8 +172,7 @@ export default function AppHeader({
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: V.grn, display: "block" }} />
         </div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: V.ink0 }}>Traffic-Sync 관제 시스템</div>
-          <div style={{ fontSize: 10, color: V.ink2 }}>V2X 공공 API 기반 실시간 교통 관제 플랫폼</div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: V.ink0 }}>Syncro 교통 관제 시스템</div>
         </div>
       </button>
 

@@ -191,6 +191,9 @@ export default function App() {
   const showMain = page === 'main'
     || !['map', 'cctv', 'news', 'simulation', 'mypage', 'complaints'].includes(page)
 
+  // 민원 관리 페이지에서는 전역 AI 챗봇 플로팅 버튼/패널을 숨긴다.
+  const showAssistantOverlay = page !== 'complaints'
+
   if (page === 'news') return (
     <NewsDashboard
       onGoMain={() => setPage('main')}
@@ -296,7 +299,7 @@ export default function App() {
       <NavBlockToast message={assistant.navBlockMsg || navNotice} />
 
       {/* 음성 어시스턴트 채팅 팝업 (최소화 상태가 아닐 때만) */}
-      {assistant.voiceUI.active && !assistant.voiceMinimized && (
+      {showAssistantOverlay && assistant.voiceUI.active && !assistant.voiceMinimized && (
         <VoiceAssistantPanel
           voiceUI={assistant.voiceUI}
           voiceSTTActive={assistant.voiceSTTActive}
@@ -375,18 +378,22 @@ export default function App() {
       )}
 
       {/* AI 플로팅 버튼 */}
-      <AIFloatingButton
-        active={assistant.voiceUI.active}
-        minimized={assistant.voiceMinimized}
-        onClick={assistant.onFloatingClick}
-      />
+      {showAssistantOverlay && (
+        <AIFloatingButton
+          active={assistant.voiceUI.active}
+          minimized={assistant.voiceMinimized}
+          onClick={assistant.onFloatingClick}
+        />
+      )}
 
       {/* 구 분석 시작 확인 팝업 */}
-      <PendingBriefingPopup
-        pending={assistant.pendingBriefing}
-        onStart={assistant.acceptPendingBriefing}
-        onDismiss={assistant.dismissPendingBriefing}
-      />
+      {showAssistantOverlay && (
+        <PendingBriefingPopup
+          pending={assistant.pendingBriefing}
+          onStart={assistant.acceptPendingBriefing}
+          onDismiss={assistant.dismissPendingBriefing}
+        />
+      )}
     </>
   )
 }

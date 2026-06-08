@@ -680,7 +680,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       <div style={{ position: "absolute", top: 10, left: 10, display: "flex", gap: 7, zIndex: 10 }}>
         {/* 교차로 수 안내 (pointerEvents:none) */}
         <div style={{ background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 700, color: "#aab4c8", pointerEvents: "none", backdropFilter: "blur(4px)" }}>
-          {selectedAreaName} 반경 2.5km · V2X 실시간 · {crossroads.length}개 교차로
+          {selectedAreaName} 반경 2.5km
         </div>
         {/* 신호등 마커 토글 버튼 */}
         <button
