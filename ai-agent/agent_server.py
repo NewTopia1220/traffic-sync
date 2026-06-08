@@ -74,7 +74,15 @@ async def lifespan(app: FastAPI):
     })
 
     tools = await mcp_client.get_tools()
-    agent = create_react_agent(llm, tools)
+    agent = create_react_agent(
+        llm,
+        tools,
+        prompt=(
+            "당신은 서울시 교통 관제 AI 어시스턴트입니다.\n"
+            "반드시 한국어로만 답변하십시오. 중국어·영어 등 다른 언어는 절대 사용하지 마십시오.\n"
+            "모든 분석 결과, 보고서, 권고사항은 한국어로 작성하십시오."
+        ),
+    )
     print(f"[에이전트] MCP 도구 {len(tools)}개 로드 완료", flush=True)
 
     yield
@@ -194,17 +202,35 @@ def extract_adjustments(text: str):
             return [data]
         return None
 
+    def _repair(s: str) -> str:
+        """LLM이 생성하는 구조 오류 수리"""
+        # 패턴 1: 마지막 phase 객체에서 } 빠뜨림
+        # "sec": 33]}  →  "sec": 33}]
+        s = _re.sub(r'("(?:sec|no)"\s*:\s*\d+)\s*\]', r'\1}]', s)
+        # 패턴 2: key/value 순서 역전
+        # {"no": 3": "sec", 20}  →  {"no": 3, "sec": 20}
+        s = _re.sub(r'"no"\s*:\s*(\d+)"\s*:\s*"sec"\s*,\s*(\d+)', r'"no": \1, "sec": \2', s)
+        return s
+
     def _try_load(s: str):
-        """파싱 시도 → 실패하면 닫는 괄호를 최대 3개 붙여 재시도"""
+        """파싱 시도 → 실패하면 수리 후 재시도, 그 다음 suffix 보정"""
         try:
             return _j.loads(s)
         except Exception:
             pass
-        for suffix in ("}", "]}", "}]}", "}]}"):
+        # 중간 구조 수리 후 재시도
+        repaired = _repair(s)
+        if repaired != s:
             try:
-                return _j.loads(s + suffix)
+                return _j.loads(repaired)
             except Exception:
                 pass
+        for src in (s, repaired):
+            for suffix in ("}", "]}", "}]}", "}]}"):
+                try:
+                    return _j.loads(src + suffix)
+                except Exception:
+                    pass
         return None
 
     # 1. ```json...``` 형식
@@ -747,6 +773,7 @@ async def bottleneck_email(req: DistrictRequest):
     """병목 리포트 텍스트만 생성 — 메일 발송은 Spring이 담당"""
     prompt = (
         f"/no_think\n"
+        f"[중요] 반드시 한국어로만 작성할 것. 중국어·영어 등 다른 언어 사용 절대 금지.\n\n"
         f"get_district_traffic 도구로 서울 {req.district} 교통 데이터를 조회해줘.\n"
         f"조회 결과를 바탕으로 아래 형식을 그대로 지켜서 리포트 본문만 출력해줘. 다른 말은 절대 하지 말고 양식 그대로만 출력.\n\n"
         f"교통관제 자동화 시스템입니다.\n"
@@ -761,7 +788,7 @@ async def bottleneck_email(req: DistrictRequest):
         f"[날씨 현황]\n"
         f"기온 {{temperatureC}}°C / 강수량 {{precipitationMm}}mm / 풍속 {{windSpeedMs}}m/s\n\n"
         f"[시스템 분석 및 조치 권고]\n"
-        f"(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장)\n\n"
+        f"(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장. 반드시 한국어로 작성)\n\n"
         f"---\n"
         f"TrafficSync 자동 발송 | 조치 후 관제 시스템에서 확인 바랍니다.\n\n"
         f"병목 교차로가 없으면 아래 양식만 출력:\n"
@@ -783,6 +810,7 @@ async def bottleneck_email_stream(req: DistrictRequest, request: Request):
 
     prompt = (
         f"/no_think\n"
+        f"[중요] 반드시 한국어로만 작성할 것. 중국어·영어 등 다른 언어 사용 절대 금지.\n\n"
         f"get_district_traffic 도구로 서울 {req.district} 교통 데이터를 조회해줘.\n"
         f"조회 결과를 바탕으로 아래 형식을 그대로 지켜서 리포트 본문만 출력해줘. 다른 말은 절대 하지 말고 양식 그대로만 출력.\n\n"
         f"교통관제 자동화 시스템입니다.\n"
@@ -792,7 +820,7 @@ async def bottleneck_email_stream(req: DistrictRequest, request: Request):
         f"순위 | 교차로명 | 현재속도 | 위험등급\n"
         f"(병목 교차로를 순위별로 작성. 없으면 '해당 없음' 한 줄)\n\n"
         f"[날씨 현황]\n기온 {{temperatureC}}°C / 강수량 {{precipitationMm}}mm / 풍속 {{windSpeedMs}}m/s\n\n"
-        f"[시스템 분석 및 조치 권고]\n(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장)\n\n"
+        f"[시스템 분석 및 조치 권고]\n(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장. 반드시 한국어로 작성)\n\n"
         f"---\nTrafficSync 자동 발송"
     )
 

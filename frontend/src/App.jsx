@@ -359,6 +359,8 @@ export default function App() {
         onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
         isMuted={assistant.isMuted}
         onToggleMute={assistant.toggleMute}
+        isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+        onToggleMic={assistant.onFloatingClick}
       />
 
       {/* 로그인 브리핑 카드 */}
