@@ -6,6 +6,10 @@ import AppHeader from "../components/common/AppHeader";
 
 // 스프링 REST API 주소 (.env의 VITE_API_URL)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
+const OLD_SPARK_HISTORY_KEY = "traffic-sync:spark-history:v1";
+const SPARK_RUNTIME_VERSION = "visible-card-baseline:v1";
+const SPARK_MAX_SAMPLES = 720;
+const SPARK_SAMPLE_INTERVAL_MS = 5000;
 
 // ── 전역 색상/폰트 디자인 토큰 ──────────────────────────────────────────────
 // 컴포넌트 인라인 스타일에서 일관된 색상을 쓰기 위한 상수 맵
@@ -59,11 +63,10 @@ function BottleneckEmailBtn({ district, apiBase }) {
 /**
  * 실시간 속도 히스토리 초기 배열 생성
  * 더미 랜덤값을 만들지 않고, 실제 API 속도가 들어온 경우에만 같은 값으로 시작한다.
- * @param {number} base  - 기준 속도값 (km/h)
- * @param {number} len   - 생성할 데이터 포인트 수 (기본 40)
+ * @param {number} base  - 첫 속도값 (km/h)
  * @returns {number[]}   - 실제 속도 기반 초기 배열
  */
-function makeSpark(base, len = 40) {
+function makeSpark(base) {
   return Number.isFinite(base) ? [base] : [];
 }
 
@@ -86,14 +89,15 @@ function makeSpark(base, len = 40) {
  * @param {string}   color  - 선/영역 색상 hex
  */
 function Sparkline({ values, color }) {
-  if (!values || values.length < 2) return null;
+  if (!values || values.length === 0) return null;
+  const series = values.length === 1 ? [values[0], values[0]] : values;
   const W = 300, H = 100;
-  const min = Math.min(...values), max = Math.max(...values);
-  const range = max - min || 1;
+  const min = Math.min(...series), max = Math.max(...series);
+  const range = max - min;
   // 각 값을 SVG 좌표로 변환
-  const pts = values.map((v, i) => {
-    const x = (i / (values.length - 1)) * W;
-    const y = H - ((v - min) / range) * (H - 6) - 3; // 위아래 3px 여백
+  const pts = series.map((v, i) => {
+    const x = (i / (series.length - 1)) * W;
+    const y = range === 0 ? H / 2 : H - ((v - min) / range) * (H - 6) - 3; // 위아래 3px 여백
     return `${x},${y}`;
   }).join(" ");
   const gradId = `sg${color.replace("#", "")}`; // 색상별 고유 gradient id
@@ -129,8 +133,9 @@ function Sparkline({ values, color }) {
  */
 function KpiCard({ value, unit, label, sub, status }) {
   // 상태별 배지 스타일
-  const s = status === "심각" ? { c: V.red, bg: "#1a0a10", bd: "#3a1820" }
+  const s = status === "심각" || status === "정체" ? { c: V.red, bg: "#1a0a10", bd: "#3a1820" }
     : status === "위험" || status === "서행" || status === "피크" || status === "주의" ? { c: V.org, bg: "#1a1206", bd: "#3a2a14" }
+    : status === "원활" ? { c: V.grn, bg: "#0c1a12", bd: "#1a3a24" }
     : { c: V.ink1, bg: V.bg0, bd: V.line };
   return (
     <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "14px 18px", position: "relative", minHeight: 96 }}>
@@ -152,10 +157,10 @@ function KpiCard({ value, unit, label, sub, status }) {
 
 // ── statusOf ─────────────────────────────────────────────────────────────────
 // 속도값 → 혼잡 상태 문자열 변환 유틸
-// 20 미만: 혼잡, 20~40: 서행, 40 이상: 원활
+// 15 미만: 정체, 15~25 미만: 서행, 25 이상: 원활
 function statusOf(v) {
-  if (v < 20) return "혼잡";
-  if (v < 40) return "서행";
+  if (v < 15) return "정체";
+  if (v < 25) return "서행";
   return "원활";
 }
 
@@ -221,14 +226,21 @@ function riskRank(item) {
  */
 function LivCard({ name, color, speed, sparkData }) {
   const st = speed != null ? statusOf(speed) : "—";
-  const stColor = st === "혼잡" ? V.red : st === "서행" ? V.org : st === "원활" ? V.grn : V.ink2;
+  const stColor = st === "정체" ? V.red : st === "서행" ? V.org : st === "원활" ? V.grn : V.ink2;
   const cnt = sparkData?.length ?? 0;
   // 최근 10개 평균 (슬라이딩 윈도우)
   const winAvg = cnt > 0 ? Math.round(sparkData.slice(-10).reduce((a, b) => a + b, 0) / Math.min(10, cnt)) : null;
   const mn = cnt > 0 ? Math.round(Math.min(...sparkData)) : null;
   const mx = cnt > 0 ? Math.round(Math.max(...sparkData)) : null;
-  // 최근 6포인트 대비 현재값의 변화량 (추세 화살표용)
-  const trend = cnt >= 2 ? Math.round(sparkData[cnt - 1] - sparkData[Math.max(0, cnt - 6)]) : null;
+  // 이 카드의 첫 관측값 대비 현재 표시 속도 변화량.
+  const currentSpeed = Number(speed);
+  const baselineSpeed = cnt > 0 ? Number(sparkData[0]) : null;
+  const trend = Number.isFinite(currentSpeed) && Number.isFinite(baselineSpeed)
+    ? Math.round(currentSpeed - baselineSpeed)
+    : null;
+  const trendColor = trend == null || trend === 0 ? V.ink1 : trend > 0 ? V.grn : V.red;
+  const trendIcon = trend == null || trend === 0 ? "━" : trend > 0 ? "▲" : "▼";
+  const trendLabel = trend == null ? "" : `${trend > 0 ? "+" : ""}${trend} km/h`;
 
   return (
     <div style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "14px 16px 10px", display: "flex", flexDirection: "column", gap: 8, minHeight: 172 }}>
@@ -243,14 +255,14 @@ function LivCard({ name, color, speed, sparkData }) {
         <span style={{ fontSize: 44, fontWeight: 700, color: "#fff", lineHeight: 1, letterSpacing: "-1px" }}>{speed ?? "—"}</span>
         <span style={{ fontSize: 14, color: V.ink2 }}>km/h</span>
         {trend !== null && (
-          <span style={{ marginLeft: "auto", fontSize: 13, color: trend >= 0 ? V.grn : V.red }}>
-            {trend >= 0 ? "▲" : "▼"} {Math.abs(trend)} km/h
+          <span style={{ marginLeft: "auto", fontSize: 13, color: trendColor }}>
+            {trendIcon} {trendLabel}
           </span>
         )}
       </div>
       {/* Sparkline — flex:1로 남은 공간 꽉 채움 */}
       <div style={{ flex: 1, minHeight: 64 }}>
-        {sparkData && sparkData.length > 1
+        {sparkData && sparkData.length > 0
           ? <Sparkline values={sparkData} color={color} />
           : <div style={{ height: "100%", border: `1px dashed ${V.line}`, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", color: "#5a6378", fontFamily: V.mono, fontSize: 11 }}>SPARKLINE · 대기 중</div>
         }
@@ -650,8 +662,16 @@ export default function MainDashboard({
   const [speedSelected, setSpeedSelected] = useState([]);
   // 교차로ID → 속도 히스토리 배열 (ref: setState 없이 직접 push/shift)
   const sparkRef = useRef({});
-  // 교차로ID → 마지막으로 그래프에 반영한 스냅샷 키
-  const sparkSampleKeyRef = useRef({});
+  const sparkVersionRef = useRef(null);
+  if (sparkVersionRef.current !== SPARK_RUNTIME_VERSION) {
+    sparkRef.current = {};
+    sparkVersionRef.current = SPARK_RUNTIME_VERSION;
+    try {
+      window.localStorage.removeItem(OLD_SPARK_HISTORY_KEY);
+    } catch {
+      // localStorage를 쓸 수 없어도 현재 세션 그래프는 정상 동작한다.
+    }
+  }
 
   // 관심 교차로 목록 (최대 8개, 수동 등록)
   const [watchList, setWatchList] = useState([]);
@@ -681,33 +701,26 @@ export default function MainDashboard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // sparkline 히스토리 최대 보관 개수. WebSocket으로 새 스냅샷이 올 때만 실제 관측값을 추가한다.
-  const LIV_MAX = 720;
+  // sparkline 히스토리 최대 보관 개수. 5초 샘플링 기준 60분치다.
+  const LIV_MAX = SPARK_MAX_SAMPLES;
 
-  // WebSocket/REST로 새 스냅샷이 들어올 때만 속도 히스토리에 추가한다.
-  // 5초마다 같은 speed를 반복 저장하면 실제 변화가 없는데도 관측수가 늘어나는 착시가 생긴다.
-  useEffect(() => {
-    let changed = false;
-    wsData.forEach(c => {
-      if (!Number.isFinite(c.speed)) return;
+  const appendSparkSample = useCallback((id, speed) => {
+    const key = String(id ?? "");
+    const value = Number(speed);
+    if (!key || !Number.isFinite(value)) return false;
 
-      const sampleKey = `${c.serverTimeMs ?? ""}:${c.totDt ?? ""}:${c.speed}`;
-      if (sparkSampleKeyRef.current[c.crsrdId] === sampleKey) {
-        return;
-      }
-
-      const arr = sparkRef.current[c.crsrdId] ?? [];
-      arr.push(c.speed);
-      if (arr.length > LIV_MAX) arr.shift();
-      sparkRef.current[c.crsrdId] = arr;
-      sparkSampleKeyRef.current[c.crsrdId] = sampleKey;
-      changed = true;
-    });
-
-    if (changed) {
-      setTime(new Date()); // 강제 리렌더 (sparkRef는 ref라 자동 리렌더 안 됨)
+    const arr = sparkRef.current[key] ?? [];
+    arr.push(value);
+    if (arr.length > LIV_MAX) {
+      arr.splice(0, arr.length - LIV_MAX);
     }
-  }, [wsData]);
+    sparkRef.current[key] = arr;
+    return true;
+  }, [LIV_MAX]);
+
+  const flushSparkHistory = useCallback(() => {
+    setTime(new Date()); // 강제 리렌더 (sparkRef는 ref라 자동 리렌더 안 됨)
+  }, []);
 
   /**
    * handleSelectGu — 서울 SVG 지도에서 구 클릭 시 호출
@@ -752,10 +765,11 @@ export default function MainDashboard({
 
   // ── 활성 데이터 계산 ────────────────────────────────────────────────────────
   // 선택된 구 반경 2.5km 내 교차로만 필터한다. 결과가 없을 때 이전 구역 전체 데이터로 대체하면 화면이 섞여 보인다.
-  const guData = selectedGu
-    ? wsData.filter(c => c.lat && c.lon && calcDistKm(c.lat, c.lon, selectedGu.lat, selectedGu.lon) <= 2.5)
-    : wsData;
-  const activeData = selectedGu ? guData : wsData;
+  const activeData = useMemo(() => (
+    selectedGu
+      ? wsData.filter(c => c.lat && c.lon && calcDistKm(c.lat, c.lon, selectedGu.lat, selectedGu.lon) <= 2.5)
+      : wsData
+  ), [selectedGu, wsData]);
   const isLive = wsData.length > 0; // WebSocket 연결 여부
 
 
@@ -794,7 +808,7 @@ export default function MainDashboard({
   const maxRiskItem  = [...riskReadyData].sort((a, b) => riskRank(b) - riskRank(a))[0];
   const maxRisk      = maxRiskItem?.riskScore ?? "—";
   const guLabel      = selectedGu ? `${selectedGu.name} 반경 2.5km` : "전체";
-  const speedStatus  = typeof avgSpeed === "number" ? (avgSpeed >= 40 ? "정상" : avgSpeed >= 20 ? "서행" : "혼잡") : "대기";
+  const speedStatus  = typeof avgSpeed === "number" ? statusOf(avgSpeed) : "대기";
   const maxRiskGrade = riskReadyData.reduce((max, c) => Math.max(max, riskGradeValue(c.riskGrade) ?? 0), 0);
   const riskStatus   = riskReadyData.length === 0 ? "대기" : maxRiskGrade >= 4 ? "심각" : maxRiskGrade >= 3 ? "위험" : maxRiskGrade >= 2 ? "주의" : "정상";
 
@@ -840,16 +854,18 @@ export default function MainDashboard({
     ? speedSelected.map((s, i) => {
         const live = activeData.find(c => c.crsrdId === s.id);
         const spd = live?.speed ?? s.speed;
-        return { name: s.name, color: CARD_COLORS[i % 3], speed: spd, sparkData: sparkRef.current[s.id] ?? makeSpark(spd, 30) };
+        return { id: s.id, name: s.name, color: CARD_COLORS[i % 3], speed: spd, sparkData: sparkRef.current[s.id] ?? makeSpark(spd) };
       })
     : speedCardSource.length > 0
     ? [...speedCardSource].sort((a, b) => a.speed - b.speed).slice(0, 3).map((c, i) => ({
+        id: c.crsrdId,
         name: c.crsrdNm, color: CARD_COLORS[i],
         speed: c.speed,
-        sparkData: sparkRef.current[c.crsrdId] ?? makeSpark(c.speed, 30),
+        sparkData: sparkRef.current[c.crsrdId] ?? makeSpark(c.speed),
       }))
     : activeData.length > 0
     ? activeData.slice(0, 3).map((c, i) => ({
+        id: c.crsrdId,
         name: c.crsrdNm, color: CARD_COLORS[i],
         speed: null,
         sparkData: [],
@@ -860,6 +876,52 @@ export default function MainDashboard({
         { name: "수집 대기", color: V.org, speed: null, sparkData: [] },
         { name: "수집 대기", color: V.grn, speed: null, sparkData: [] },
       ];
+  const sparkSampleCount = displayCards.reduce((max, c) => Math.max(max, c.sparkData?.length ?? 0), 0);
+  const sparkMinutes = Math.min(60, Math.floor((sparkSampleCount * SPARK_SAMPLE_INTERVAL_MS) / 60000));
+  const visibleCardSampleKey = displayCards.map(c => `${c.id ?? ""}:${c.speed ?? ""}`).join("|");
+
+  useEffect(() => {
+    let changed = false;
+    displayCards.forEach(c => {
+      const key = String(c.id ?? "");
+      const speed = Number(c.speed);
+      if (!key || !Number.isFinite(speed)) return;
+
+      const arr = sparkRef.current[key];
+      if (!arr || arr.length === 0) {
+        sparkRef.current[key] = [speed];
+        changed = true;
+        return;
+      }
+
+      if (arr[arr.length - 1] !== speed) {
+        changed = appendSparkSample(key, speed) || changed;
+      }
+    });
+    if (changed) {
+      flushSparkHistory();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appendSparkSample, visibleCardSampleKey, flushSparkHistory]);
+
+  useEffect(() => {
+    const sampleTargets = displayCards
+      .map(c => ({ id: c.id, speed: Number(c.speed) }))
+      .filter(c => c.id && Number.isFinite(c.speed));
+    if (sampleTargets.length === 0) return;
+
+    const timer = setInterval(() => {
+      let changed = false;
+      sampleTargets.forEach(c => {
+        changed = appendSparkSample(c.id, c.speed) || changed;
+      });
+      if (changed) {
+        flushSparkHistory();
+      }
+    }, SPARK_SAMPLE_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [appendSparkSample, flushSparkHistory, visibleCardSampleKey]);
 
   /**
    * toggleSpeedCard — 속도 카드 드롭다운 토글
@@ -980,7 +1042,7 @@ export default function MainDashboard({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, padding: "6px 10px" }}>
         <KpiCard value={activeData.length || 0} unit="개" label="모니터링 교차로" sub={guLabel} status="정상" />
         <KpiCard value={riskReadyData.length ? highRisk : "—"} unit={riskReadyData.length ? "개" : ""} label="위험 교차로" sub={riskReadyData.length ? "등급 3 이상" : "위험도 수집 대기"} status={riskStatus} />
-        <KpiCard value={avgSpeed} unit="km/h" label="현재 평균 속도" sub="전 교차로 추정" status={speedStatus === "혼잡" ? "혼잡" : speedStatus === "서행" ? "서행" : "정상"} />
+        <KpiCard value={avgSpeed} unit="km/h" label="현재 평균 속도" sub="전 교차로 추정" status={speedStatus} />
         <KpiCard value={maxRisk} unit={hasRiskScore(maxRisk) ? "점" : ""} label="최고 위험도" sub={maxRiskItem?.crsrdNm ?? "위험도 수집 대기"} status={maxRiskItem ? riskLevel(maxRiskItem.riskScore, maxRiskItem.riskGrade) : "대기"} />
       </div>
 
@@ -1001,15 +1063,15 @@ export default function MainDashboard({
           </div>
           <div style={{ padding: 10, flex: 1, display: "flex", flexDirection: "column" }}>
             {/* LivCard 3개 */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, flex: 1 }}>
-              {displayCards.map((c, i) => <LivCard key={i} {...c} />)}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, flex: 1 }}>
+              {displayCards.map((c, i) => <LivCard key={c.id ?? i} {...c} />)}
             </div>
             {/* 하단 상태 바 */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "7px 10px", background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink2, flexShrink: 0 }}>
               <span>마지막 갱신 {isLive ? time.toLocaleTimeString("ko-KR") : "—"}</span>
               <span style={{ color: V.ink3 }}>·</span>
-              <span>누적 —분 / 최대 60분</span>
-              <span style={{ marginLeft: "auto", color: "#5a6378" }}>5초 간격 샘플링 · localStorage 보관</span>
+              <span>누적 {sparkMinutes}분 / 최대 60분</span>
+              <span style={{ marginLeft: "auto", color: "#5a6378" }}>5초 간격 샘플링 · 현재 화면 기준</span>
             </div>
           </div>
         </div>
