@@ -53,20 +53,20 @@ function CctvModal({ cctv, onClose }) {
       <div onClick={e => e.stopPropagation()} style={{ width: "90vw", maxWidth: 1180, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, overflow: "hidden", display: "flex", flexDirection: "column" }}>
 
         {/* 모달 헤더: CCTV명 · ID · CH · 스트림 상태 · 닫기 버튼 */}
-        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${V.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ padding: "12px 20px", borderBottom: `1px solid ${V.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 17, fontWeight: 800, color: V.ink0 }}>{cctv.cctvNm}</span>
-            <span style={{ fontFamily: V.mono, fontSize: 13.5, color: V.ink2 }}>ID: {cctv.cctvId}</span>
-            {cctv.cctvCh && <span style={{ fontFamily: V.mono, fontSize: 13.5, color: V.ink2 }}>CH: {cctv.cctvCh}</span>}
+            <span style={{ fontSize: 15, fontWeight: 800, color: V.ink0 }}>{cctv.cctvNm}</span>
+            <span style={{ fontFamily: V.mono, fontSize: 12.5, color: V.ink2 }}>ID: {cctv.cctvId}</span>
+            {cctv.cctvCh && <span style={{ fontFamily: V.mono, fontSize: 12.5, color: V.ink2 }}>CH: {cctv.cctvCh}</span>}
             {/* 스트림 연결 상태 표시 */}
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: cctv.streamId ? V.grn : V.ink3, display: "inline-block" }} />
-              <span style={{ fontSize: 13.5, color: cctv.streamId ? V.grn : V.ink3 }}>
+              <span style={{ fontSize: 12.5, color: cctv.streamId ? V.grn : V.ink3 }}>
                 {cctv.streamId ? "스트림 연결됨" : "스트림 없음"}
               </span>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "5px 14px", color: V.ink1, fontSize: 14.5, cursor: "pointer", fontFamily: "inherit" }}>✕</button>
+          <button onClick={onClose} style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "5px 14px", color: V.ink1, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>✕</button>
         </div>
 
         {/* 영상 영역 (65vh 고정 높이) */}
@@ -98,11 +98,11 @@ function CctvModal({ cctv, onClose }) {
             // streamId 없는 경우 안내 화면
             <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
               <div style={{ fontSize: 48, opacity: 0.08 }}>📷</div>
-              <div style={{ fontSize: 14, color: V.ink3 }}>스트림 정보 없음</div>
+              <div style={{ fontSize: 12, color: V.ink3 }}>스트림 정보 없음</div>
             </div>
           )}
           {/* 좌상단: CCTV 이름 오버레이 (pointerEvents none으로 클릭 방해 안 함) */}
-          <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.75)", border: `1px solid ${V.line}`, borderRadius: 2, padding: "4px 10px", fontSize: 14.5, color: V.ink1, pointerEvents: "none" }}>
+          <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.75)", border: `1px solid ${V.line}`, borderRadius: 2, padding: "4px 10px", fontSize: 13, color: V.ink1, pointerEvents: "none" }}>
             {cctv.cctvNm}
           </div>
           {/* 우상단: LIVE 배지 (streamId 있을 때만 표시) */}
@@ -115,7 +115,7 @@ function CctvModal({ cctv, onClose }) {
         </div>
 
         {/* 하단 메타 정보: 좌표 · ID · 채널 */}
-        <div style={{ padding: "11px 20px", borderTop: `1px solid ${V.line}`, display: "flex", gap: 24, fontFamily: V.mono, fontSize: 13.5, color: V.ink2 }}>
+        <div style={{ padding: "11px 20px", borderTop: `1px solid ${V.line}`, display: "flex", gap: 24, fontFamily: V.mono, fontSize: 12.5, color: V.ink2 }}>
           <span>{cctv.lat?.toFixed(5)}°N, {cctv.lon?.toFixed(5)}°E</span>
           <span>ID: {cctv.cctvId}</span>
           {cctv.cctvCh && <span>CH: {cctv.cctvCh}</span>}
@@ -229,31 +229,31 @@ export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulat
 
         {/* ── 좌측: 구 선택 사이드바 (180px 고정) ── */}
         <div style={{ width: 210, borderRight: `1px solid ${V.line}`, overflowY: "auto", flexShrink: 0 }}>
-          <div style={{ padding: "12px 16px 8px", fontSize: 14, color: V.ink3, fontWeight: 600, letterSpacing: 1, fontFamily: V.mono }}>구 선택</div>
+          <div style={{ padding: "12px 16px 8px", fontSize: 12, color: V.ink3, fontWeight: 600, letterSpacing: 1, fontFamily: V.mono }}>구 선택</div>
 
           {/* 전체 보기 버튼 */}
           {/* openGu === null이면 파란 좌측 테두리 + 진한 배경으로 선택 표시 */}
           <div
             onClick={() => setOpenGu(null)}
-            style={{ padding: "11px 16px", cursor: "pointer", background: !openGu ? "#0d0d0d" : "transparent", borderLeft: !openGu ? `2px solid ${V.blu}` : "2px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+            style={{ padding: "9px 16px", cursor: "pointer", background: !openGu ? "#0d0d0d" : "transparent", borderLeft: !openGu ? `2px solid ${V.blu}` : "2px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
             onMouseEnter={e => { if (openGu) e.currentTarget.style.background = "#080808"; }}
             onMouseLeave={e => { if (openGu) e.currentTarget.style.background = "transparent"; }}
           >
-            <span style={{ fontSize: 17, fontWeight: !openGu ? 700 : 400, color: !openGu ? V.ink0 : V.ink1 }}>전체 보기</span>
-            <span style={{ fontFamily: V.mono, fontSize: 15.5, color: V.blu }}>{cctvList.length}</span>
+            <span style={{ fontSize: 14, fontWeight: !openGu ? 700 : 400, color: !openGu ? V.ink0 : V.ink1 }}>전체 보기</span>
+            <span style={{ fontFamily: V.mono, fontSize: 12.5, color: V.blu }}>{cctvList.length}</span>
           </div>
 
           {/* 구별 목록 (GU_LIST 순서대로 정렬, CCTV 없는 구 제외) */}
           {guGroups.map(gu => (
             <div key={gu.name}
               onClick={() => setOpenGu(gu.name)}
-              style={{ padding: "11px 16px", cursor: "pointer", background: openGu === gu.name ? "#0d0d0d" : "transparent", borderLeft: openGu === gu.name ? `2px solid ${V.blu}` : "2px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              style={{ padding: "9px 16px", cursor: "pointer", background: openGu === gu.name ? "#0d0d0d" : "transparent", borderLeft: openGu === gu.name ? `2px solid ${V.blu}` : "2px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}
               onMouseEnter={e => { if (openGu !== gu.name) e.currentTarget.style.background = "#080808"; }}
               onMouseLeave={e => { if (openGu !== gu.name) e.currentTarget.style.background = "transparent"; }}
             >
-              <span style={{ fontSize: 17, fontWeight: openGu === gu.name ? 700 : 400, color: openGu === gu.name ? V.ink0 : V.ink1 }}>{gu.name}</span>
+              <span style={{ fontSize: 14, fontWeight: openGu === gu.name ? 700 : 400, color: openGu === gu.name ? V.ink0 : V.ink1 }}>{gu.name}</span>
               {/* 해당 구 CCTV 수 */}
-              <span style={{ fontFamily: V.mono, fontSize: 15.5, color: V.blu }}>{gu.cctvs.length}</span>
+              <span style={{ fontFamily: V.mono, fontSize: 12.5, color: V.blu }}>{gu.cctvs.length}</span>
             </div>
           ))}
         </div>
@@ -262,25 +262,25 @@ export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulat
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
 
           {/* 리스트 상단: 현재 구/전체 표시 + 검색창 */}
-          <div style={{ padding: "14px 22px", borderBottom: `1px solid ${V.line}`, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-            <span style={{ fontSize: 18, fontWeight: 800, color: V.ink0 }}>
+          <div style={{ padding: "12px 20px", borderBottom: `1px solid ${V.line}`, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: V.ink0 }}>
               {openGu ?? "전체"}{" "}
-              <span style={{ fontFamily: V.mono, fontSize: 15.5, color: V.ink2, fontWeight: 400 }}>{displayList.length}개</span>
+              <span style={{ fontFamily: V.mono, fontSize: 13, color: V.ink2, fontWeight: 400 }}>{displayList.length}개</span>
             </span>
             {/* 실시간 검색: onChange마다 search 갱신 → displayList 즉시 재계산 */}
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="CCTV 이름 검색..."
-              style={{ marginLeft: "auto", background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "9px 15px", color: V.ink0, fontSize: 16, outline: "none", fontFamily: "inherit", width: 240 }}
+              style={{ marginLeft: "auto", background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, padding: "8px 13px", color: V.ink0, fontSize: 13, outline: "none", fontFamily: "inherit", width: 220 }}
             />
           </div>
 
           {/* 테이블 컬럼 헤더 (5컬럼 grid) */}
           {/* gridTemplateColumns: CCTV이름(2fr) ID(1fr) 채널(1fr) 좌표(1fr) 상태(90px) */}
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px", padding: "10px 22px", borderBottom: `1px solid ${V.line}`, flexShrink: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px", padding: "8px 20px", borderBottom: `1px solid ${V.line}`, flexShrink: 0 }}>
             {["CCTV 이름", "ID", "채널", "좌표", "상태"].map(h => (
-              <div key={h} style={{ fontSize: 15, color: V.ink3, fontWeight: 700, fontFamily: V.mono, letterSpacing: 0.5 }}>{h}</div>
+              <div key={h} style={{ fontSize: 12.5, color: V.ink3, fontWeight: 700, fontFamily: V.mono, letterSpacing: 0.5 }}>{h}</div>
             ))}
           </div>
 
@@ -295,7 +295,7 @@ export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulat
               </div>
             ) : displayList.length === 0 ? (
               // 검색 결과 없음
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 220, color: V.ink3, fontSize: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 220, color: V.ink3, fontSize: 14 }}>
                 검색 결과 없음
               </div>
             ) : displayList.map((cctv, i) => (
@@ -305,7 +305,7 @@ export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulat
                 onClick={() => setModal(cctv)}
                 style={{
                   display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px",
-                  padding: "16px 22px",
+                  padding: "12px 20px",
                   borderBottom: `1px solid ${V.line}`,
                   cursor: "pointer",
                   background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)",
@@ -316,23 +316,23 @@ export default function CctvDashboard({ onGoMain, onGoMap, onGoNews, onGoSimulat
               >
                 {/* CCTV 이름 */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 17, color: V.ink0, fontWeight: 500 }}>{cctv.cctvNm}</span>
+                  <span style={{ fontSize: 14, color: V.ink0, fontWeight: 500 }}>{cctv.cctvNm}</span>
                 </div>
                 {/* ID (L010xxx 형식) */}
-                <div style={{ fontSize: 15.5, color: V.ink2, fontFamily: V.mono, alignSelf: "center" }}>{cctv.cctvId}</div>
+                <div style={{ fontSize: 13, color: V.ink2, fontFamily: V.mono, alignSelf: "center" }}>{cctv.cctvId}</div>
                 {/* 채널 번호 (없으면 —) */}
-                <div style={{ fontSize: 15.5, color: V.ink2, fontFamily: V.mono, alignSelf: "center" }}>
+                <div style={{ fontSize: 13, color: V.ink2, fontFamily: V.mono, alignSelf: "center" }}>
                   {cctv.cctvCh ? `CH ${cctv.cctvCh}` : "—"}
                 </div>
                 {/* 좌표 (소수점 4자리) */}
-                <div style={{ fontSize: 15, color: V.ink3, fontFamily: V.mono, alignSelf: "center" }}>
+                <div style={{ fontSize: 12, color: V.ink3, fontFamily: V.mono, alignSelf: "center" }}>
                   {cctv.lat?.toFixed(4)}, {cctv.lon?.toFixed(4)}
                 </div>
                 {/* 상태: streamId 있으면 초록 LIVE / 없으면 회색 NO SRC */}
                 {/* boxShadow로 초록 glow 효과 (LIVE 강조) */}
                 <div style={{ display: "flex", alignItems: "center", gap: 5, alignSelf: "center" }}>
                   <span style={{ width: 6, height: 6, borderRadius: "50%", background: cctv.streamId ? V.grn : V.ink3, display: "inline-block", flexShrink: 0, boxShadow: cctv.streamId ? `0 0 4px ${V.grn}` : "none" }} />
-                  <span style={{ fontSize: 15, color: cctv.streamId ? V.grn : V.ink3, fontFamily: V.mono }}>
+                  <span style={{ fontSize: 13, color: cctv.streamId ? V.grn : V.ink3, fontFamily: V.mono }}>
                     {cctv.streamId ? "LIVE" : "NO SRC"}
                   </span>
                 </div>
