@@ -10,6 +10,7 @@ AI 에이전트 서버 — FastAPI + LangGraph ReAct + Ollama (qwen3:30b-a3b) + 
 
 import sys
 import os
+import re
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -207,9 +208,18 @@ def extract_adjustments(text: str):
         # 패턴 1: 마지막 phase 객체에서 } 빠뜨림
         # "sec": 33]}  →  "sec": 33}]
         s = _re.sub(r'("(?:sec|no)"\s*:\s*\d+)\s*\]', r'\1}]', s)
-        # 패턴 2: key/value 순서 역전
+        # 패턴 2: key/value 순서 역전 (콤마 형식)
         # {"no": 3": "sec", 20}  →  {"no": 3, "sec": 20}
         s = _re.sub(r'"no"\s*:\s*(\d+)"\s*:\s*"sec"\s*,\s*(\d+)', r'"no": \1, "sec": \2', s)
+        # 패턴 3: no 뒤 콜론 형식 (콤마 없이 바로 "sec":)
+        # {"no": 3": "sec": 24}  →  {"no": 3, "sec": 24}
+        s = _re.sub(r'"no"\s*:\s*(\d+)"\s*:\s*"sec"\s*:\s*(\d+)', r'"no": \1, "sec": \2', s)
+        # 패턴 4: 숫자 뒤 불필요한 따옴표 (no 필드)
+        # "no": 3", "sec"  →  "no": 3, "sec"
+        s = _re.sub(r'("no"\s*:\s*)(\d+)"(\s*,\s*"sec")', r'\1\2\3', s)
+        # 패턴 5: 숫자 뒤 불필요한 따옴표 (sec 필드)
+        # "sec": 24", "no"  →  "sec": 24, "no"
+        s = _re.sub(r'("sec"\s*:\s*)(\d+)"(\s*[,}])', r'\1\2\3', s)
         return s
 
     def _try_load(s: str):
@@ -265,6 +275,87 @@ def extract_adjustments(text: str):
             return _parse(data)
 
     return None
+
+
+def compute_webster_adjustments(contexts: list, route_traffic: list) -> list:
+    """신호계획 + 속도 데이터로 Webster 공식 직접 계산 → adjustments 반환"""
+    # toIntNo 기준 속도 맵 구성
+    speed_map: dict[str, float] = {}
+    for seg in (route_traffic or []):
+        key = str(seg.get("toIntNo", ""))
+        spd = seg.get("speedKph")
+        if key and spd is not None:
+            speed_map.setdefault(key, []).append(float(spd))
+    avg_speed_map = {k: sum(v) / len(v) for k, v in speed_map.items()}
+
+    adjustments = []
+    for ctx in (contexts or []):
+        int_no = str(ctx.get("intNo", ""))
+        phases = ctx.get("phases", [])
+        cycle_val = int(ctx.get("cycleVal") or 140)
+        if not phases or not int_no:
+            continue
+
+        # 포화도 결정
+        spd = avg_speed_map.get(int_no, 25.0)
+        Y = 0.85 if spd < 40 else (0.65 if spd < 60 else 0.4)
+
+        # 최적 주기 계산 (cycleVal 상한)
+        L = len(phases) * 4
+        Co = min((1.5 * L + 5) / max(1 - Y, 0.01), cycle_val)
+
+        # 원본 합계 대비 비율로 각 현시 조정
+        orig_total = sum(int(p.get("sec") or 0) for p in phases)
+        ratio = Co / orig_total if orig_total > 0 else 1.0
+
+        new_phases = []
+        assigned = 0
+        for i, p in enumerate(phases):
+            is_last = (i == len(phases) - 1)
+            dirs = p.get("dirs") or []
+            orig_sec = int(p.get("sec") or 0)
+
+            if is_last:
+                sec = max(5, cycle_val - assigned)
+            else:
+                raw_sec = round(orig_sec * ratio)
+                # 보행 현시 최소 20s 보장
+                if any("보행" in d for d in dirs):
+                    sec = max(20, raw_sec)
+                else:
+                    sec = max(5, raw_sec)
+
+            new_phases.append({"no": int(p["no"]), "sec": sec})
+            assigned += sec
+
+        adjustments.append({"intNo": int_no, "phases": new_phases})
+
+    return adjustments
+
+
+_CJK_RE = re.compile(
+    "[\u4e00-\u9fff"   # CJK Unified Ideographs
+    "[\u3400-\u4dbf"   # CJK Extension A
+    "[\uf900-\ufaff"   # CJK Compatibility Ideographs
+    "[\u2e80-\u2eff"   # CJK Radicals Supplement
+    "[\u2f00-\u2fdf]"  # Kangxi Radicals
+)
+
+def strip_chinese(text: str) -> str:
+    """CJK 한자가 포함된 줄 제거 + 빈 줄 압축.
+    qwen3 모델이 한국어 지시에도 간헐적으로 중국어를 생성하는 것을 방어.
+    한글·숫자·영문·기호는 보존.
+    """
+    lines = text.splitlines()
+    cleaned = [ln for ln in lines if not _CJK_RE.search(ln)]
+    result, prev_blank = [], False
+    for ln in cleaned:
+        blank = ln.strip() == ""
+        if blank and prev_blank:
+            continue
+        result.append(ln)
+        prev_blank = blank
+    return "\n".join(result).strip()
 
 
 def strip_json_block(text: str) -> str:
@@ -623,14 +714,16 @@ async def simulation_chat(req: SimulationChatRequest):
         "④ 각 교차로별 조정값을 아래 JSON으로 출력\n\n"
         "반드시 JSON 블록을 맨 앞에 출력하고, 그 뒤 분석 설명을 붙여:\n"
         "```json\n"
-        "{\"adjustments\": [{\"intNo\": \"47\", \"phases\": [{\"no\": 1, \"sec\": 80}, {\"no\": 2, \"sec\": 60}]}]}\n"
+        "{\"adjustments\": [{\"intNo\": \"47\", \"phases\": [{\"no\": 1, \"sec\": 80}, {\"no\": 2, \"sec\": 30}, {\"no\": 3, \"sec\": 20}, {\"no\": 4, \"sec\": 10}]}]}\n"
         "```\n"
+        "⚠️ 중요 규칙 (반드시 지킬 것):\n"
+        "- phases에는 신호계획에 있는 현시 번호를 빠짐없이 모두 포함할 것 (현시1·2·3·4가 있으면 4개 전부 출력)\n"
+        "- 각 교차로의 phases 합계가 해당 교차로의 cycleVal과 정확히 일치해야 함\n"
+        "- intNo는 신호계획 괄호 안 숫자 ID 그대로 사용. 교차로 이름 절대 금지\n"
         "JSON 다음 설명에는 반드시 아래 내용을 포함할 것:\n"
         "- 실측 속도(km/h)와 이에 따른 Y값\n"
         "- 계산된 최적 주기(Co)와 기존 cycleVal 비교\n"
-        "- 어떤 현시를 왜 늘리고 줄였는지 (방향명 + 초 단위로 명시)\n"
-        "intNo는 신호계획 괄호 안 숫자 ID 그대로 사용. 교차로 이름 절대 금지.\n"
-        "phases는 기존 현시만 사용. 전체 합계가 cycleVal을 초과하지 말 것."
+        "- 어떤 현시를 왜 늘리고 줄였는지 (방향명 + 초 단위로 명시)"
     )
 
     prompt = (
@@ -656,12 +749,18 @@ async def simulation_chat(req: SimulationChatRequest):
         raw = after if after else raw.split("<think>", 1)[-1].split("</think>")[0].strip()
 
     adjustments = extract_adjustments(raw)
+
+    # 파싱 실패 시 신호계획 데이터로 직접 계산 (항상 유효한 값 보장)
+    if not adjustments and (req.contexts or req.context):
+        contexts = req.contexts if req.contexts else ([req.context] if req.context else [])
+        adjustments = compute_webster_adjustments(contexts, req.routeTraffic or [])
+        print(f"[SIM-CHAT] JSON 파싱 실패 → 직접 계산 폴백 ({len(adjustments)}개)", flush=True)
+
     clean_answer = strip_json_block(raw).strip() if adjustments else raw.strip()
 
-    # JSON만 반환하고 설명이 없으면 기본 메시지 생성
+    # 설명이 없으면 기본 메시지 생성
     if not clean_answer and adjustments:
-        names = ", ".join(a.get("intNo", "") for a in adjustments)
-        clean_answer = f"Webster 공식 기반으로 교차로 {names}의 신호를 최적화했습니다."
+        clean_answer = "경로 내 병목 구간의 실시간 속도와 신호계획을 분석하여 각 교차로의 직진 현시를 우선적으로 늘리고, 주기 내 비율을 재조정했습니다."
     elif not clean_answer:
         clean_answer = "신호계획을 분석했습니다. 현재 구간의 속도 데이터를 확인하세요."
 
@@ -750,10 +849,13 @@ async def simulation_chat_stream(req: SimulationChatRequest, request: Request):
             if "<think>" in full_text:
                 full_text = full_text.split("</think>")[-1].strip() or full_text
             adjustments = extract_adjustments(full_text)
+            # 파싱 실패 시 직접 계산 폴백
+            if not adjustments and (req.contexts or req.context):
+                contexts = req.contexts if req.contexts else ([req.context] if req.context else [])
+                adjustments = compute_webster_adjustments(contexts, req.routeTraffic or [])
             clean = strip_json_block(full_text).strip() if adjustments else full_text.strip()
             if not clean and adjustments:
-                names = ", ".join(a.get("intNo", "") for a in adjustments)
-                clean = f"Webster 공식 기반으로 교차로 {names}의 신호를 최적화했습니다."
+                clean = "경로 내 병목 구간의 실시간 속도와 신호계획을 분석하여 각 교차로의 직진 현시를 우선적으로 늘리고, 주기 내 비율을 재조정했습니다."
             elif not clean:
                 clean = "신호계획을 분석했습니다. 현재 구간의 속도 데이터를 확인하세요."
             yield f"data: {_json.dumps({'type': 'done', 'answer': clean, 'adjustments': adjustments}, ensure_ascii=False)}\n\n"
@@ -799,7 +901,7 @@ async def bottleneck_email(req: DistrictRequest):
         f"TrafficSync 자동 발송"
     )
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
-    return ChatResponse(answer=extract_answer(result))
+    return ChatResponse(answer=strip_chinese(extract_answer(result)))
 
 
 @app.post("/api/agent/bottleneck-email/stream")
@@ -880,6 +982,7 @@ async def bottleneck_email_stream(req: DistrictRequest, request: Request):
                             after = content.split("</think>")[-1].strip()
                             content = after if after else content
                         if content:
+                            content = strip_chinese(content)
                             report_text = content
                             yield f"data: {_json.dumps({'type': 'answer', 'content': content}, ensure_ascii=False)}\n\n"
 

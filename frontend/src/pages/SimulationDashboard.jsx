@@ -1,17 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import SimulationMapView from "../components/map/SimulationMapView";
-import SignalSimPanel from "../components/map/SignalSimPanel";
 import AppHeader from "../components/common/AppHeader";
+import SimSliderPanel from "../components/simulation/SimSliderPanel";
+import VehicleSignalPanel from "../components/simulation/VehicleSignalPanel";
+import {
+  RoutePointCard, MetricBox, WaypointSlideControl, AnalysisLoadingBlock,
+  cardStyle, tabButtonStyle,
+} from "../components/simulation/SimUIComponents";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
-
-const CHATBOT_ICON = "/icons/chatbot.webp";
-
-const SIM_PRESETS = [
-  { label: "현재 현시", q: "지금 몇 번 현시가 켜져 있어?" },
-  { label: "신호 최적화", q: "이 교차로 신호 조정 권고해줘" },
-  { label: "사이클 분석", q: "현시 구성이랑 사이클 시간 설명해줘" },
-];
 
 function formatSec(sec) {
   if (sec == null) return "-";
@@ -25,505 +22,19 @@ function formatDistance(meters) {
   return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${meters} m`;
 }
 
-const cardStyle = {
-  background: "#1a1710",
-  border: "1px solid #2a2418",
-  borderRadius: 6,
-  padding: 16,
-};
-
-const smallLabel = {
-  fontSize: 11,
-  color: "#64748b",
-  marginBottom: 5,
-};
-
 function resolveSegments(segments) {
   if (!segments?.length) return [];
   return segments
     .map(seg => {
       const speed = seg.selectedTraffic ?? seg.up;
       if (!speed?.speedKph) return null;
-      return {
-        fromIntNo:  seg.fromIntNo,
-        toIntNo:    seg.toIntNo,
-        axisName:   seg.axisName,
-        speedKph:   speed.speedKph,
-        congestion: speed.congestion,
-      };
+      return { fromIntNo: seg.fromIntNo, toIntNo: seg.toIntNo, axisName: seg.axisName, speedKph: speed.speedKph, congestion: speed.congestion };
     })
     .filter(Boolean);
 }
 
-function SimulationChatBot({ intNo, intNm, simulation, routeTraffic, autoTrigger }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState([
-    { role: "ai", text: "교차로를 클릭하면 신호계획 분석을 도와드립니다.\n현재 현시, 최적화 방안 등 자유롭게 질문하세요." },
-  ]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const buildBody = (question, intNoVal, simVal, autoTriggerRouteTraffic) => {
-    const body = {
-      question,
-      intNo: intNoVal ?? null,
-      userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
-    };
-    if (simVal?.length > 0) body.simulation = simVal;
-    // autoTrigger에서 넘어온 routeTraffic 우선, 없으면 prop 사용
-    const rt = autoTriggerRouteTraffic ?? routeTraffic;
-    const resolved = resolveSegments(rt?.segments);
-    if (resolved.length > 0) body.routeTraffic = resolved;
-    return body;
-  };
-
-  useEffect(() => {
-    if (!autoTrigger || !autoTrigger.question) return;
-    setIsOpen(true);
-    const { question, intNo: aIntNo, simulation: aSim, routeTraffic: aRt } = autoTrigger;
-    setMessages(prev => [...prev, { role: "user", text: question }]);
-    setLoading(true);
-
-
-    const body = { question, intNo: aIntNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
-    if (aSim && aSim.length > 0) body.simulation = aSim;
-
-    console.log("AI 요청 body:", buildBody(question, aIntNo, aSim, aRt));
-
-    fetch(`${API_BASE}/api/simulation-chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildBody(question, aIntNo, aSim, aRt)),
-    })
-      .then(r => r.json())
-      .then(data => setMessages(prev => [...prev, { role: "ai", text: data.answer }]))
-      .catch(err => setMessages(prev => [...prev, { role: "ai", text: `오류: ${err.message}` }]))
-      .finally(() => setLoading(false));
-  }, [autoTrigger]);
-
-  const send = useCallback(async (preset) => {
-    const q = (preset ?? input).trim();
-    if (!q || loading) return;
-    setMessages(prev => [...prev, { role: "user", text: q }]);
-    setInput("");
-    setLoading(true);
-    try {
-      const body = { question: q, intNo: intNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
-      if (simulation && simulation.length > 0) body.simulation = simulation;
-
-
-      const res = await fetch(`${API_BASE}/api/simulation-chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildBody(q, intNo, simulation, null)),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setMessages(prev => [...prev, { role: "ai", text: data.answer }]);
-    } catch (err) {
-      setMessages(prev => [...prev, { role: "ai", text: `오류: ${err.message}` }]);
-    } finally {
-      setLoading(false);
-    }
-  }, [input, loading, intNo, simulation, routeTraffic]);
-
-  const btn = (style) => ({
-    borderRadius: 2,
-    border: "none",
-    cursor: loading ? "default" : "pointer",
-    fontFamily: "inherit",
-    ...style,
-  });
-
-  return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column-reverse",
-      alignItems: "flex-end",
-      gap: 8,
-    }}>
-
-      <button onClick={() => setIsOpen(o => !o)} style={btn({
-        width: 54,
-        height: 54,
-        borderRadius: "50%",
-        background: isOpen
-          ? "linear-gradient(135deg, rgba(96,165,250,0.95), rgba(168,85,247,0.95))"
-          : "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(59,130,246,0.9))",
-        border: `2px solid ${isOpen ? "rgba(255,255,255,0.38)" : "rgba(147,197,253,0.55)"}`,
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow: "0 4px 18px rgba(0,0,0,0.62), 0 0 16px rgba(96,165,250,0.28)",
-        transition: "all .2s",
-        padding: 0,
-      })} title={isOpen ? "AI 챗봇 닫기" : "AI 신호 분석 열기"}>
-        {isOpen
-          ? <span style={{ fontSize: 16, color: "rgba(255,255,255,0.55)" }}>✕</span>
-          : (
-            <img
-              src={CHATBOT_ICON}
-              alt="AI 상담사"
-              style={{
-                width: 42,
-                height: 42,
-                objectFit: "contain",
-                display: "block",
-                transform: "translateY(1px)",
-              }}
-            />
-          )
-        }
-      </button>
-
-      {isOpen && (
-        <div style={{
-          width: 340,
-          maxHeight: "calc(100vh - 310px)",
-          minHeight: 360,
-          background: "rgba(18,16,10,0.94)",
-          border: "1px solid rgba(42,36,24,0.8)",
-          borderRadius: 8,
-          padding: "16px 18px",
-          backdropFilter: "blur(8px)",
-          WebkitBackdropFilter: "blur(8px)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          boxShadow: "0 14px 38px rgba(0,0,0,0.45)",
-          overflow: "hidden",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: "#4ea6ff" }}> AI 신호 분석</span>
-            {intNm && (
-              <span style={{ marginLeft: "auto", fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>● {intNm}</span>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            {SIM_PRESETS.map(({ label, q }) => (
-              <button key={label} onClick={() => send(q)} disabled={loading} style={btn({
-                padding: "5px 12px",
-                fontSize: 12,
-                border: "1px solid #2a3a5a",
-                background: loading ? "transparent" : "rgba(78,166,255,0.1)",
-                color: loading ? "#3a3a3a" : "#4ea6ff",
-              })}>{label}</button>
-            ))}
-          </div>
-
-          <div style={{ flex: 1, minHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-            {messages.map((m, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-                <div style={{
-                  maxWidth: "92%",
-                  padding: "9px 13px",
-                  borderRadius: 2,
-                  background: m.role === "user" ? "rgba(78,166,255,0.15)" : "rgba(255,255,255,0.04)",
-                  border: `1px solid ${m.role === "user" ? "#2a3a5a" : "#1a1a1a"}`,
-                  fontSize: 13,
-                  lineHeight: 1.7,
-                  whiteSpace: "pre-line",
-                  color: "#e7ecf5",
-                }}>
-                  {m.role === "ai" && <div style={{ fontSize: 11, color: "#4ea6ff", marginBottom: 3 }}>Qwen3 분석</div>}
-                  {m.text}
-                </div>
-              </div>
-            ))}
-            {loading && (
-              <div style={{ padding: "9px 13px", borderRadius: 2, background: "rgba(255,255,255,0.04)", border: "1px solid #1a1a1a", fontSize: 12, color: "#4ea6ff" }}>
-                신호계획 분석 중...
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 8 }}>
-            <input value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && !loading && send()}
-              placeholder={intNo ? "신호 최적화, 현시 구성 등 질문..." : "교차로를 먼저 선택하세요"}
-              disabled={loading}
-              style={{
-                flex: 1,
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid #1a1a1a",
-                borderRadius: 2,
-                padding: "9px 13px",
-                color: "#e7ecf5",
-                fontSize: 13,
-                outline: "none",
-                fontFamily: "inherit",
-                opacity: loading ? 0.6 : 1,
-              }} />
-            <button onClick={() => send()} disabled={loading} style={btn({
-              padding: "9px 18px",
-              background: loading ? "#1a1a1a" : "#4ea6ff",
-              color: loading ? "#3a3a3a" : "#000",
-              fontSize: 14,
-              fontWeight: 700,
-            })}>전송</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SimSliderPanel({ intNo, intNm, onSave, onAutoAsk, autoAdjustKey = 0, autoAdjustEnabled = false, onAutoApplied, aiSuggestedValues = null, aiAdjustKey = 0 }) {
-  const [phases, setPhases] = useState([]);
-  const [cycleVal, setCycleVal] = useState(null);
-  const [sliders, setSliders] = useState({});
-  const [saved, setSaved] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [autoAnimating, setAutoAnimating] = useState(false);
-  const lastAutoAdjustKeyRef = useRef(0);
-  const lastAiAdjustKeyRef = useRef(0);
-
-  useEffect(() => {
-    if (!intNo) return;
-    setSliders({});
-    setSaved(false);
-    setLoading(true);
-    fetch(`${API_BASE}/api/signal/simulation/context/${intNo}`)
-      .then(r => r.json())
-      .then(d => {
-        setPhases(d.phases || []);
-        setCycleVal(d.cycleVal ?? null);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [intNo]);
-
-
-
-  const buildOptimizedSliderValues = () => {
-    if (!phases.length) return {};
-    const current = Object.fromEntries(phases.map(p => [p.no, Number(sliders[p.no] ?? p.sec ?? 0)]));
-    const target = cycleVal ?? phases.reduce((sum, p) => sum + Number(current[p.no] || 0), 0);
-    if (phases.length === 1) return current;
-
-    // 병목 완화 시연용: 직진/좌회전 현시 중 시간이 가장 긴 현시를 통과 우선 현시로 보고 시간을 늘립니다.
-    const candidates = phases.filter(p => (p.dirs || []).some(d => d.includes("직진") || d.includes("좌회전")));
-    const boostPhase = [...(candidates.length ? candidates : phases)]
-      .sort((a, b) => Number(current[b.no] || 0) - Number(current[a.no] || 0))[0];
-
-    const optimized = { ...current };
-    const boost = Math.min(18, Math.max(8, Math.round(target * 0.08)));
-    optimized[boostPhase.no] = Math.min(120, Number(optimized[boostPhase.no] || 0) + boost);
-
-    let over = phases.reduce((sum, p) => sum + Number(optimized[p.no] || 0), 0) - target;
-    const reducers = phases
-      .filter(p => p.no !== boostPhase.no)
-      .sort((a, b) => Number(optimized[b.no] || 0) - Number(optimized[a.no] || 0));
-
-    for (const phase of reducers) {
-      if (over <= 0) break;
-      const reducible = Math.max(0, Number(optimized[phase.no] || 0) - 5);
-      const cut = Math.min(reducible, over);
-      optimized[phase.no] = Number(optimized[phase.no] || 0) - cut;
-      over -= cut;
-    }
-
-    // 다른 현시에서 줄일 수 없으면 증가한 현시를 다시 줄여 총 사이클을 맞춥니다.
-    if (over > 0) {
-      optimized[boostPhase.no] = Math.max(5, Number(optimized[boostPhase.no] || 0) - over);
-    }
-
-    return optimized;
-  };
-
-  useEffect(() => {
-    if (!autoAdjustEnabled || !autoAdjustKey || !phases.length) return;
-    if (lastAutoAdjustKeyRef.current === autoAdjustKey) return;
-    lastAutoAdjustKeyRef.current = autoAdjustKey;
-
-    const fromValues = Object.fromEntries(phases.map(p => [p.no, Number(sliders[p.no] ?? p.sec ?? 0)]));
-    const toValues = buildOptimizedSliderValues();
-    const steps = 22;
-    let step = 0;
-    setAutoAnimating(true);
-    setSaved(false);
-
-    const timer = setInterval(() => {
-      step += 1;
-      const t = step / steps;
-      const eased = 1 - Math.pow(1 - t, 3);
-      const next = {};
-      phases.forEach(p => {
-        const start = Number(fromValues[p.no] ?? p.sec ?? 0);
-        const end = Number(toValues[p.no] ?? p.sec ?? start);
-        next[p.no] = Math.round(start + (end - start) * eased);
-      });
-      setSliders(next);
-
-      if (step >= steps) {
-        clearInterval(timer);
-        setSliders(toValues);
-        setAutoAnimating(false);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1800);
-        const simulation = phases.map(p => ({
-          no: p.no,
-          sec: toValues[p.no] ?? p.sec,
-          dirs: p.dirs,
-        }));
-        onAutoApplied?.(simulation);
-      }
-    }, 45);
-
-    return () => clearInterval(timer);
-  }, [autoAdjustKey, autoAdjustEnabled, phases]);
-
-  // AI 제안값으로 슬라이더 애니메이션
-  useEffect(() => {
-    if (!aiAdjustKey || !phases.length || !aiSuggestedValues) return;
-    if (lastAiAdjustKeyRef.current === aiAdjustKey) return;
-    lastAiAdjustKeyRef.current = aiAdjustKey;
-
-    const fromValues = Object.fromEntries(phases.map(p => [p.no, Number(sliders[p.no] ?? p.sec ?? 0)]));
-    // AI가 제안한 현시만 override, 나머지는 현재값 유지
-    const toValues = { ...fromValues };
-    Object.entries(aiSuggestedValues).forEach(([no, sec]) => {
-      toValues[Number(no)] = sec;
-    });
-
-    const steps = 22;
-    let step = 0;
-    setAutoAnimating(true);
-    setSaved(false);
-
-    const timer = setInterval(() => {
-      step += 1;
-      const t = step / steps;
-      const eased = 1 - Math.pow(1 - t, 3);
-      const next = {};
-      phases.forEach(p => {
-        const start = Number(fromValues[p.no] ?? p.sec ?? 0);
-        const end = Number(toValues[p.no] ?? p.sec ?? start);
-        next[p.no] = Math.round(start + (end - start) * eased);
-      });
-      setSliders(next);
-
-      if (step >= steps) {
-        clearInterval(timer);
-        setSliders(toValues);
-        setAutoAnimating(false);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1800);
-        const simulation = phases.map(p => ({
-          no: p.no,
-          sec: toValues[p.no] ?? p.sec,
-          dirs: p.dirs,
-        }));
-        onAutoApplied?.(simulation);
-      }
-    }, 45);
-
-    return () => clearInterval(timer);
-  }, [aiAdjustKey, aiSuggestedValues, phases]);
-
-  if (!intNo) return null;
-  if (loading) return <div style={{ padding: "12px 0", fontSize: 12, color: "#64748b", textAlign: "center" }}>슬라이더 데이터 로딩 중...</div>;
-  if (!phases.length) return null;
-
-  const totalSec = phases.reduce((s, p) => s + (sliders[p.no] ?? p.sec), 0);
-  const target = cycleVal ?? phases.reduce((s, p) => s + p.sec, 0);
-  const overTarget = totalSec > target;
-
-  const handleSave = () => {
-    const simulation = phases.map(p => ({
-      no: p.no,
-      sec: sliders[p.no] ?? p.sec,
-      dirs: p.dirs,
-    }));
-    onSave(simulation);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-    onAutoAsk?.({
-      question: `관제사가 ${intNm} 신호를 조정했습니다. 원본과 비교해서 효과를 분석해주세요.`,
-      intNo,
-      simulation,
-      _t: Date.now(),
-    });
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: autoAnimating ? "#22c55e" : "#94a3b8" }}>신호 시뮬레이션 조정</div>
-        {autoAnimating && <div style={{ fontSize: 10, color: "#22c55e", fontWeight: 800 }}>자동 조정 중...</div>}
-      </div>
-      {phases.map(p => {
-        const sec = sliders[p.no] ?? p.sec;
-        const changed = sliders[p.no] != null && sliders[p.no] !== p.sec;
-        return (
-          <div key={p.no} style={{
-            background: "rgba(255,255,255,0.03)",
-            border: `1px solid ${changed ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.07)"}`,
-            borderRadius: 5,
-            padding: "8px 10px",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8" }}>현시 {p.no}</span>
-                {p.dirs?.map((d, i) => (
-                  <span key={i} style={{
-                    fontSize: 10,
-                    padding: "1px 6px",
-                    borderRadius: 3,
-                    background: "rgba(78,166,255,0.1)",
-                    border: "1px solid rgba(78,166,255,0.2)",
-                    color: "#4ea6ff",
-                  }}>{d}</span>
-                ))}
-              </div>
-              <span style={{ fontSize: 11, fontFamily: "monospace", color: changed ? "#f59e0b" : "#64748b" }}>
-                {sec}s{changed ? ` (원래 ${p.sec}s)` : ""}
-              </span>
-            </div>
-            <input
-              type="range"
-              min={5}
-              max={120}
-              step={1}
-              value={sec}
-              onChange={e => setSliders(prev => ({ ...prev, [p.no]: Number(e.target.value) }))}
-              style={{ width: "100%", accentColor: autoAnimating ? "#22c55e" : changed ? "#f59e0b" : "#3b82f6", cursor: "pointer", transition: "all 0.2s" }}
-            />
-          </div>
-        );
-      })}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 11, color: "#64748b" }}>
-          합계: <span style={{ color: overTarget ? "#ef4444" : totalSec < target ? "#f59e0b" : "#22c55e", fontWeight: 600 }}>{totalSec}s</span>
-          <span style={{ color: "#475569" }}> / 목표 {target}s</span>
-        </span>
-        <button onClick={handleSave} style={{
-          marginLeft: "auto",
-          padding: "6px 14px",
-          borderRadius: 4,
-          border: "none",
-          cursor: "pointer",
-          fontFamily: "inherit",
-          background: saved ? "#22c55e" : "#3b82f6",
-          color: "#fff",
-          fontSize: 12,
-          fontWeight: 700,
-          transition: "background 0.3s",
-        }}>
-          {saved ? "✓ 저장됨" : "저장 & AI 분석"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu }) {
   const [selectedList, setSelectedList] = useState([]);
-  const [time, setTime] = useState(new Date());
   const [isOptimized, setIsOptimized] = useState(false);
   const [stats, setStats] = useState(null);
   const [originPhaseIdx, setOriginPhaseIdx] = useState(null);
@@ -537,9 +48,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [autoWaypoints, setAutoWaypoints] = useState([]);
   const [selectedWaypointIndex, setSelectedWaypointIndex] = useState(0);
   const [selectedBottleneckIndex, setSelectedBottleneckIndex] = useState(0);
-  const [autoTrigger, setAutoTrigger] = useState(null);
   const [sliderTarget, setSliderTarget] = useState("end");
-  const [autoAdjustKey, setAutoAdjustKey] = useState(0);
   const [currentVehicleSignal, setCurrentVehicleSignal] = useState(null);
   const [routeTraffic, setRouteTraffic] = useState(null);
   const [routeAnalysis, setRouteAnalysis] = useState(null);
@@ -547,7 +56,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [aiAdjustment, setAiAdjustment] = useState(null);
   const [aiAdjustKey, setAiAdjustKey] = useState(0);
   const [aiAdjustmentsMap, setAiAdjustmentsMap] = useState({});
-  const [carReady, setCarReady] = useState(false);
+  const [appliedIntNos, setAppliedIntNos] = useState(new Set());
   const [speedUnavailable, setSpeedUnavailable] = useState(false);
   const [bottleneckCrossroads, setBottleneckCrossroads] = useState([]);
   const [driveView, setDriveView] = useState(false);
@@ -557,25 +66,15 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const start = selectedList[0] ?? null;
   const end = selectedList.length >= 2 ? selectedList[selectedList.length - 1] : null;
   const waypointList = autoWaypoints || [];
-  const clampedWaypointIndex = waypointList.length
-    ? Math.min(Math.max(selectedWaypointIndex, 0), waypointList.length - 1)
-    : 0;
+  const clampedWaypointIndex = waypointList.length ? Math.min(Math.max(selectedWaypointIndex, 0), waypointList.length - 1) : 0;
   const selectedWaypoint = waypointList[clampedWaypointIndex] ?? null;
-  const bottleneckWaypoint = waypointList.length
-    ? [...waypointList].sort((a, b) => Math.abs((a.routeProgress ?? 0.5) - 0.54) - Math.abs((b.routeProgress ?? 0.5) - 0.54))[0]
-    : null;
-  const clampedBottleneckIndex = bottleneckCrossroads.length
-    ? Math.min(Math.max(selectedBottleneckIndex, 0), bottleneckCrossroads.length - 1)
-    : 0;
+  const clampedBottleneckIndex = bottleneckCrossroads.length ? Math.min(Math.max(selectedBottleneckIndex, 0), bottleneckCrossroads.length - 1) : 0;
   const selectedBottleneck = bottleneckCrossroads[clampedBottleneckIndex] ?? null;
 
-  const sliderCrossroad = sliderTarget === "start"
-    ? start
-    : sliderTarget === "waypoint"
-      ? selectedWaypoint
-      : sliderTarget === "bottleneck"
-        ? selectedBottleneck
-        : end;
+  const sliderCrossroad = sliderTarget === "start" ? start
+    : sliderTarget === "waypoint" ? selectedWaypoint
+    : sliderTarget === "bottleneck" ? selectedBottleneck
+    : end;
 
   const activeSignalKey = sliderTarget === "waypoint" && sliderCrossroad
     ? `waypoint:${sliderCrossroad.intNo}`
@@ -583,73 +82,29 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       ? `bottleneck:${sliderCrossroad.intNo}`
       : sliderTarget;
 
-  const activeChatCrossroad = sliderCrossroad ?? selectedWaypoint ?? bottleneckWaypoint ?? end ?? start ?? null;
   const canOptimize = !!start && !!end && !!stats;
 
   const getVehicleSignalForCrossroad = useCallback((crossroad) => {
     if (!crossroad || !currentVehicleSignal) return null;
-
     const byIntNo = currentVehicleSignal.byIntNo || {};
     const mapped = byIntNo[String(crossroad.intNo)];
     if (mapped) return mapped;
-
-    if (String(currentVehicleSignal.intNo) === String(crossroad.intNo)) {
-      return currentVehicleSignal;
-    }
-
+    if (String(currentVehicleSignal.intNo) === String(crossroad.intNo)) return currentVehicleSignal;
     return null;
   }, [currentVehicleSignal]);
 
   const selectedSignalConfig = {
-    start: {
-      icon: "🟢",
-      label: "출발지",
-      signalTitle: "출발지 신호체계",
-      adjustTitle: "출발지 신호 조정",
-      crossroad: start,
-      emptyText: "출발지를 먼저 선택하세요",
-      onPhaseChange: setOriginPhaseIdx,
-      onContextChange: setOriginContext,
-    },
-    waypoint: {
-      icon: "🟠",
-      label: "병목 경유지",
-      signalTitle: "병목 경유지 신호체계",
-      adjustTitle: "병목 경유지 신호 조정",
-      crossroad: selectedWaypoint,
-      emptyText: "자동 경유지가 잡히면 경유지 신호체계가 표시됩니다",
-      onPhaseChange: setWaypointPhaseIdx,
-      onContextChange: setWaypointContext,
-    },
-
-    bottleneck: {
-      icon: "🟡",
-      label: "병목지",
-      signalTitle: "병목지 신호체계",
-      adjustTitle: "병목지 신호 조정",
-      crossroad: selectedBottleneck,
-      emptyText: "병목지가 탐색되면 신호체계가 표시됩니다",
-      onPhaseChange: setWaypointPhaseIdx,
-      onContextChange: setWaypointContext,
-    },
-
-    end: {
-      icon: "🔴",
-      label: "목적지",
-      signalTitle: "목적지 신호체계",
-      adjustTitle: "목적지 신호 조정",
-      crossroad: end,
-      emptyText: "목적지를 선택하면 신호체계가 표시됩니다",
-      onPhaseChange: setDestPhaseIdx,
-      onContextChange: setDestContext,
-    },
+    start: { icon: "🟢", label: "출발지", signalTitle: "출발지 신호체계", adjustTitle: "출발지 신호 조정", crossroad: start, emptyText: "출발지를 먼저 선택하세요", onPhaseChange: setOriginPhaseIdx, onContextChange: setOriginContext },
+    waypoint: { icon: "🟠", label: "병목 경유지", signalTitle: "병목 경유지 신호체계", adjustTitle: "병목 경유지 신호 조정", crossroad: selectedWaypoint, emptyText: "자동 경유지가 잡히면 경유지 신호체계가 표시됩니다", onPhaseChange: setWaypointPhaseIdx, onContextChange: setWaypointContext },
+    bottleneck: { icon: "🟡", label: "병목지", signalTitle: "병목지 신호체계", adjustTitle: "병목지 신호 조정", crossroad: selectedBottleneck, emptyText: "병목지가 탐색되면 신호체계가 표시됩니다", onPhaseChange: setWaypointPhaseIdx, onContextChange: setWaypointContext },
+    end: { icon: "🔴", label: "목적지", signalTitle: "목적지 신호체계", adjustTitle: "목적지 신호 조정", crossroad: end, emptyText: "목적지를 선택하면 신호체계가 표시됩니다", onPhaseChange: setDestPhaseIdx, onContextChange: setDestContext },
   };
 
   const activeSignal = selectedSignalConfig[sliderTarget] ?? selectedSignalConfig.end;
   const hasActiveSignalCrossroad = !!activeSignal.crossroad;
   const bottleneckSignalKey = selectedBottleneck ? `bottleneck:${selectedBottleneck.intNo}` : "bottleneck";
 
-  // AI 제안 교차로가 현재 슬라이더 교차로와 일치하면 적용값 계산
+  // 현재 슬라이더 교차로에 AI 제안값이 있으면 추출
   const aiSuggestedValues = (() => {
     if (!sliderCrossroad) return null;
     const adj = aiAdjustmentsMap[String(sliderCrossroad.intNo)]
@@ -658,57 +113,37 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     return Object.fromEntries(adj.phases.map(p => [p.no, p.sec]));
   })();
 
-  useEffect(() => {
-    const t = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  // AI 분석 결과는 aiAdjustmentsMap에 저장만 합니다.
-  // 슬라이더 반영은 사용자가 "관제사 병목신호 제어" 버튼을 눌렀을 때만 실행합니다.
-
-  // ── LLM 호출 헬퍼 ─────────────────────────────────────────────────────────
+  // AI 조정 결과를 슬라이더 타겟 교차로에 반영
   const applyAdjustment = useCallback((adj) => {
     if (!adj?.intNo || !adj?.phases?.length) return;
-
     setAiAdjustment(adj);
-
     const adjIntNo = String(adj.intNo);
     const bIdx = bottleneckCrossroads.findIndex(b => String(b.intNo) === adjIntNo);
-
-    if (bIdx !== -1) {
-      setSliderTarget("bottleneck");
-      setSelectedBottleneckIndex(bIdx);
-    } else if (end && String(end.intNo) === adjIntNo) {
-      setSliderTarget("end");
-    } else if (start && String(start.intNo) === adjIntNo) {
-      setSliderTarget("start");
-    } else {
+    if (bIdx !== -1) { setSliderTarget("bottleneck"); setSelectedBottleneckIndex(bIdx); }
+    else if (end && String(end.intNo) === adjIntNo) { setSliderTarget("end"); }
+    else if (start && String(start.intNo) === adjIntNo) { setSliderTarget("start"); }
+    else {
       const wpIdx = waypointList.findIndex(w => String(w.intNo) === adjIntNo);
-      if (wpIdx !== -1) {
-        setSliderTarget("waypoint");
-        setSelectedWaypointIndex(wpIdx);
-      }
+      if (wpIdx !== -1) { setSliderTarget("waypoint"); setSelectedWaypointIndex(wpIdx); }
     }
-
-    // 실제 슬라이더 애니메이션은 제어 버튼 클릭 시점에만 트리거합니다.
     setAiAdjustKey(k => k + 1);
   }, [bottleneckCrossroads, end, start, waypointList]);
 
+  // 경로 병목 구간 AI 분석
   const callLLM = useCallback((resolved) => {
     if (!end?.intNo) return;
-
+    // Spring은 List<String> 기대 → 반드시 문자열로 변환
     const bottleneckIntNos = resolved
       .filter(seg => Number(seg.speedKph) < 40)
-      .map(seg => seg.toIntNo)
+      .map(seg => String(seg.toIntNo))
       .filter((v, i, arr) => arr.indexOf(v) === i);
 
     setAiAdjustment(null);
     setAiAdjustmentsMap({});
+    setAppliedIntNos(new Set());
     setAiAdjustKey(0);
     setSpeedUnavailable(false);
-    setCarReady(false);
 
-    // 병목이 없으면 분석 결과만 표시합니다. 차량 주행은 경로 선택 직후 지도에서 이미 시작됩니다.
     if (bottleneckIntNos.length === 0) {
       setRouteAnalysis("현재 경로에 40km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
       setRouteAnalysisLoading(false);
@@ -718,65 +153,43 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setRouteAnalysis(null);
     setRouteAnalysisLoading(true);
 
-    const body = {
-      question: "각 병목 교차로의 신호계획을 분석해서 40km/h 이하 구간 전체의 신호를 최적화해줘. 분석 결과와 추천 신호 조정값만 반환하고, 실제 적용은 관제사 승인 이후 진행됩니다.",
-      routeTraffic: resolved,
-      bottleneckIntNos,
-      userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
-    };
-
+    // Spring 백엔드 /api/simulation-chat → 내부적으로 Python agent(8001)로 프록시
     fetch(`${API_BASE}/api/simulation-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        question: "각 병목 교차로의 신호계획을 분석해서 40km/h 이하 구간 전체의 신호를 최적화해줘. 분석 결과와 추천 신호 조정값만 반환하고, 실제 적용은 관제사 승인 이후 진행됩니다.",
+        routeTraffic: resolved,
+        bottleneckIntNos,
+        userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
+      }),
     })
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then(data => {
         setRouteAnalysis(data.answer ?? null);
-
-        const adjs = data.adjustments?.length
-          ? data.adjustments
-          : data.adjustment?.intNo
-            ? [data.adjustment]
-            : [];
-
+        const adjs = data.adjustments?.length ? data.adjustments
+          : data.adjustment?.intNo ? [data.adjustment] : [];
         if (adjs.length > 0) {
           const map = {};
-          adjs.forEach(adj => {
-            if (adj?.intNo && adj?.phases?.length) {
-              map[String(adj.intNo)] = adj;
-            }
-          });
+          adjs.forEach(adj => { if (adj?.intNo && adj?.phases?.length) map[String(adj.intNo)] = adj; });
           setAiAdjustmentsMap(map);
-
-          const missing = bottleneckCrossroads
-            .filter(b => !map[String(b.intNo)])
-            .map(b => `${b.intNm}(${b.intNo})`);
-          console.log(
-            `[AI 분석] 병목 ${bottleneckCrossroads.length}개 중 ${adjs.length}개 조정값 수신`,
-            missing.length ? `미포함: ${missing.join(", ")}` : "전체 포함"
-          );
         } else {
           setAiAdjustmentsMap({});
         }
       })
-      .catch(() => {
-        setRouteAnalysis("AI 병목 분석 중 오류가 발생했습니다. 다시 시도해주세요.");
+      .catch((e) => {
+        setRouteAnalysis(`AI 병목 분석 중 오류가 발생했습니다. (${e.message}) 다시 시도해주세요.`);
         setAiAdjustmentsMap({});
       })
-      .finally(() => {
-        setRouteAnalysisLoading(false);
-        // 분석 단계에서는 슬라이더 반영만 하지 않습니다. 차량 주행은 경로 선택 직후 별도로 진행됩니다.
-        setCarReady(false);
-      });
-  }, [end, bottleneckCrossroads]);
+      .finally(() => setRouteAnalysisLoading(false));
+  }, [end]);
 
-  // ── 경로 확정 시 속도 API 대기 ───────────────────────────────────────────
-  // 출발지/도착지 선택 후에는 차량은 즉시 주행하고, 속도 API 기반 병목구간은 도착하는 대로 시각화합니다.
-  // AI 분석과 신호제어 적용은 각각 버튼을 눌렀을 때 실행합니다.
+  // 경로 확정 시 속도 수집 타임아웃
   useEffect(() => {
     if (!end?.intNo || !stats?.distanceMeters) return;
-
     setSpeedUnavailable(false);
     setRouteAnalysis(null);
     setRouteAnalysisLoading(false);
@@ -784,67 +197,41 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setAiAdjustmentsMap({});
     setAiAdjustKey(0);
     setIsOptimized(false);
-    setCarReady(false);
     llmCalledRouteRef.current = null;
 
     if (llmTimerRef.current) clearTimeout(llmTimerRef.current);
-
     llmTimerRef.current = setTimeout(() => {
       llmTimerRef.current = null;
       if (routeTraffic?.segments?.length) return;
       setSpeedUnavailable(true);
       setRouteAnalysisLoading(false);
-      setCarReady(false);
     }, 10000);
 
-    return () => {
-      if (llmTimerRef.current) {
-        clearTimeout(llmTimerRef.current);
-        llmTimerRef.current = null;
-      }
-    };
+    return () => { if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; } };
   }, [start?.intNo, end?.intNo, stats?.distanceMeters]);
 
-  // ── routeTraffic 도착 시 타이머 취소 + 병목 시각화 준비 ─────────────────────
+  // 속도 데이터 도착 시 타임아웃 취소
   useEffect(() => {
     if (!routeTraffic || !end?.intNo) return;
-
-    if (llmTimerRef.current) {
-      clearTimeout(llmTimerRef.current);
-      llmTimerRef.current = null;
-    }
-
+    if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
     const resolved = resolveSegments(routeTraffic.segments);
-    if (!resolved.length) {
-      setSpeedUnavailable(true);
-      setRouteAnalysisLoading(false);
-      setCarReady(false);
-      return;
-    }
-
+    if (!resolved.length) { setSpeedUnavailable(true); setRouteAnalysisLoading(false); return; }
     setSpeedUnavailable(false);
     setRouteAnalysisLoading(false);
-    setCarReady(false);
   }, [routeTraffic, end?.intNo]);
 
-  // routeTraffic 도착 시 실제 TOPIS 속도로 stats 재계산
+  // 실시간 속도 도착 시 stats 재계산
   useEffect(() => {
     if (!routeTraffic?.segments?.length || !stats?.distanceMeters) return;
-
     const resolved = resolveSegments(routeTraffic.segments);
-    const speeds = resolved
-      .map(seg => Number(seg.speedKph))
-      .filter(s => Number.isFinite(s) && s > 0);
-
+    const speeds = resolved.map(seg => Number(seg.speedKph)).filter(s => Number.isFinite(s) && s > 0);
     if (!speeds.length) return;
 
     const distance = stats.distanceMeters;
     const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
     const slowSegs = speeds.filter(s => s < 40);
     const bottleneckCount = slowSegs.length;
-
     const beforeSec = Math.round(distance / (avgSpeed / 3.6));
-
     const improvedSpeeds = speeds.map(s => (s < 40 ? Math.min(s * 1.35, 50) : s));
     const afterAvg = improvedSpeeds.reduce((a, b) => a + b, 0) / improvedSpeeds.length;
     const afterSec = Math.round(distance / (afterAvg / 3.6));
@@ -860,47 +247,32 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     }));
 
     const nodeMap = {};
-    (routeTraffic.requestedRouteNodes || []).forEach(n => {
-      nodeMap[String(n.intNo)] = n;
-    });
+    (routeTraffic.requestedRouteNodes || []).forEach(n => { nodeMap[String(n.intNo)] = n; });
 
     const bCrossroads = resolved
       .filter(seg => Number(seg.speedKph ?? 999) < 40)
-      .map(seg => {
-        const node = nodeMap[String(seg.toIntNo)];
-        return {
-          intNo: seg.toIntNo,
-          intNm: node?.intNm || `교차로 ${seg.toIntNo}`,
-          speedKph: seg.speedKph,
-        };
-      })
+      .map(seg => ({ intNo: seg.toIntNo, intNm: nodeMap[String(seg.toIntNo)]?.intNm || `교차로 ${seg.toIntNo}`, speedKph: seg.speedKph }))
       .filter((v, i, arr) => arr.findIndex(x => String(x.intNo) === String(v.intNo)) === i);
 
     setBottleneckCrossroads(bCrossroads);
   }, [routeTraffic, stats?.distanceMeters, isOptimized]);
 
+  // 출발지/목적지 변경 시 상태 초기화
   useEffect(() => {
     setSimPhases(null);
     setSimPhaseTarget(null);
     setOriginContext(null);
     setWaypointContext(null);
     setDestContext(null);
-
-    if (selectedWaypointIndex >= waypointList.length) {
-      setSelectedWaypointIndex(Math.max(0, waypointList.length - 1));
-    }
-
+    if (selectedWaypointIndex >= waypointList.length) setSelectedWaypointIndex(Math.max(0, waypointList.length - 1));
     if (!waypointList.length && sliderTarget === "waypoint") setSliderTarget(end ? "end" : "start");
-    if (!bottleneckWaypoint && sliderTarget === "bottleneck") setSliderTarget(end ? "end" : start ? "start" : "end");
+    if (!selectedBottleneck && sliderTarget === "bottleneck") setSliderTarget(end ? "end" : start ? "start" : "end");
     if (!end && sliderTarget === "end") setSliderTarget(start ? "start" : "end");
     if (!start) setSliderTarget("end");
   }, [start?.intNo, end?.intNo, waypointList.map(item => item.intNo).join("|")]);
 
   const handleSelect = (cr) => {
-    console.log("교차로 선택됨", cr);
-    
     setSelectedList(prev => {
-      console.log("selectedList 변경 전", prev);
       setIsOptimized(false);
       setStats(null);
       setSimPhases(null);
@@ -910,44 +282,22 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       setAiAdjustment(null);
       setAiAdjustKey(0);
       setAiAdjustmentsMap({});
-      setCarReady(false);
+      setAppliedIntNos(new Set());
       setSpeedUnavailable(false);
       setBottleneckCrossroads([]);
       setCurrentVehicleSignal(null);
       llmCalledRouteRef.current = null;
-      if (llmTimerRef.current) {
-        clearTimeout(llmTimerRef.current);
-        llmTimerRef.current = null;
-      }
+      if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
 
-      // 선택 규칙:
-      // 1번째 노드 클릭 = 출발지
-      // 2번째 노드 클릭 = 목적지
-      // 3번째 이후 노드 클릭 = 기존 목적지는 경유지로 유지하고, 새로 누른 노드가 최종 목적지
-      // 예: A → B → C 선택 시 A=출발지, B=경유지, C=목적지
-      if (prev.length === 0) {
-        setSliderTarget("start");
-        return [cr];
-      }
-
+      if (prev.length === 0) { setSliderTarget("start"); return [cr]; }
       const clickedIndex = prev.findIndex(item => String(item.intNo) === String(cr.intNo));
-
       if (clickedIndex !== -1) {
-        if (clickedIndex === 0) {
-          setSliderTarget("start");
-          return prev;
-        }
-
-        if (clickedIndex === prev.length - 1) {
-          setSliderTarget("end");
-          return prev;
-        }
-
+        if (clickedIndex === 0) { setSliderTarget("start"); return prev; }
+        if (clickedIndex === prev.length - 1) { setSliderTarget("end"); return prev; }
         setSliderTarget("waypoint");
         setSelectedWaypointIndex(Math.max(0, clickedIndex - 1));
         return prev;
       }
-
       setSliderTarget("end");
       return [...prev, cr];
     });
@@ -965,7 +315,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setAutoWaypoints([]);
     setSelectedWaypointIndex(0);
     setSliderTarget("end");
-    setAutoAdjustKey(0);
     setCurrentVehicleSignal(null);
     setRouteTraffic(null);
     setRouteAnalysis(null);
@@ -973,7 +322,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setAiAdjustment(null);
     setAiAdjustKey(0);
     setAiAdjustmentsMap({});
-    setCarReady(false);
+    setAppliedIntNos(new Set());
     setSpeedUnavailable(false);
     setBottleneckCrossroads([]);
     setDriveView(false);
@@ -981,73 +330,74 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
   };
 
+  // 저장 시 AI 분석 내용 포함 이메일 자동 발송
+  const sendAdjustmentEmail = (intNo, intNm, simulation) => {
+    const userEmail = JSON.parse(localStorage.getItem("ts_user") || "{}").email || null;
+    if (!userEmail) return;
+    const lines = simulation.map(p => `  • 현시 ${p.no} [${(p.dirs || []).join(", ")}]: ${p.sec}초`).join("\n");
+    const analysisSection = routeAnalysis ? `\n[AI 병목 분석 결과]\n${routeAnalysis}\n` : "";
+    const body = `[신호 수동 조정 완료]\n\n교차로: ${intNm} (ID: ${intNo})\n조정 내용:\n${lines}\n${analysisSection}\n관제사 직접 제어로 신호 현시 시간이 조정되었습니다.`;
+    fetch(`${API_BASE}/api/email/send`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: userEmail, subject: `[신호 조정] ${intNm} 현시 수동 조정 완료`, body }),
+    }).catch(() => {});
+  };
+
   const handleManualSave = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(activeSignalKey);
     setIsOptimized(true);
+    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
   };
 
   const runAiBottleneckAnalysis = () => {
     if (!canOptimize || routeAnalysisLoading) return;
-
     const resolved = resolveSegments(routeTraffic?.segments);
-    if (!resolved.length) {
-      setRouteAnalysis("속도 API 매핑 결과가 없어 AI 병목 분석을 실행할 수 없습니다.");
-      setSpeedUnavailable(true);
-      return;
-    }
-
+    if (!resolved.length) { setRouteAnalysis("속도 API 매핑 결과가 없어 AI 병목 분석을 실행할 수 없습니다."); setSpeedUnavailable(true); return; }
     const bottleneckSegments = resolved.filter(seg => seg.speedKph < 40);
-    if (!bottleneckSegments.length) {
-      setRouteAnalysis("현재 경로에 40km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
-      setAiAdjustmentsMap({});
-      return;
-    }
-
-    setCarReady(false);
+    if (!bottleneckSegments.length) { setRouteAnalysis("현재 경로에 40km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다."); setAiAdjustmentsMap({}); return; }
     setIsOptimized(false);
     callLLM(resolved);
   };
 
   const applySignalControl = () => {
-    if (!canOptimize || isOptimized) return;
-
+    if (!canOptimize || routeAnalysisLoading) return;
     const adjustments = Object.values(aiAdjustmentsMap || {});
-    if (!adjustments.length) {
-      setRouteAnalysis("먼저 AI 병목 분석 버튼을 눌러 추천 신호 조정값을 받아주세요.");
+    if (!adjustments.length) { setRouteAnalysis("먼저 AI 병목 분석 버튼을 눌러 추천 신호 조정값을 받아주세요."); return; }
+
+    // 아직 미적용된 조정값 중 현재 선택된 병목지 우선, 없으면 첫 번째 미적용
+    const unapplied = adjustments.filter(adj => !appliedIntNos.has(String(adj.intNo)));
+    const target = (selectedBottleneck && aiAdjustmentsMap[String(selectedBottleneck.intNo)] && !appliedIntNos.has(String(selectedBottleneck.intNo)))
+      ? aiAdjustmentsMap[String(selectedBottleneck.intNo)]
+      : unapplied[0];
+
+    if (!target?.intNo || !target?.phases?.length) {
+      // 모두 적용 완료
+      setIsOptimized(true);
       return;
     }
 
-    const targetAdjustment = selectedBottleneck
-      ? aiAdjustmentsMap[String(selectedBottleneck.intNo)] || adjustments[0]
-      : adjustments[0];
+    applyAdjustment(target);
+    setAppliedIntNos(prev => new Set([...prev, String(target.intNo)]));
 
-    if (!targetAdjustment?.intNo || !targetAdjustment?.phases?.length) {
-      setRouteAnalysis("AI 조정값 형식이 올바르지 않습니다. 다시 분석해주세요.");
-      return;
-    }
-
-    applyAdjustment(targetAdjustment);
-    setIsOptimized(true);
-    setCarReady(true);
+    // 모두 적용됐으면 완료 처리
+    if (unapplied.length <= 1) setIsOptimized(true);
   };
 
+  // AI 자동 제어 애니메이션 완료 → 상태 업데이트 + 이메일 자동 발송
   const handleAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(activeSignalKey);
-    // 자동 적용 시 AI 자동 트리거 없음 — 저장 & AI 분석 버튼으로 수동 요청
+    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
   };
-
   const handleBottleneckManualSave = (simulation) => {
-    setSimPhases(simulation);
-    setSimPhaseTarget(bottleneckSignalKey);
-    setIsOptimized(true);
+    setSimPhases(simulation); setSimPhaseTarget(bottleneckSignalKey); setIsOptimized(true);
+    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
   };
-
   const handleBottleneckAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(bottleneckSignalKey);
-    // 자동 적용 시 AI 자동 트리거 없음 — 저장 & AI 분석 버튼으로 수동 요청
+    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
   };
 
   const panelTitle = activeSignal.adjustTitle;
@@ -1060,244 +410,167 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         selectedGu={selectedGu}
         statusText={start && end ? (isOptimized ? "신호제어 적용 중" : "현행 신호 운영") : "경로 선택 대기"}
         statusLive={!!(start && end && isOptimized)}
-        onGoMain={onGoMain}
-        onGoMap={onGoMap}
-        onGoNews={onGoNews}
-        onGoCctv={onGoCctv}
-        onGoSimulation={() => {}}
-        onGoComplaints={onGoComplaints}
-        onGoMyPage={onGoMyPage}
-        onLogout={onLogout}
+        onGoMain={onGoMain} onGoMap={onGoMap} onGoNews={onGoNews} onGoCctv={onGoCctv}
+        onGoSimulation={() => {}} onGoComplaints={onGoComplaints} onGoMyPage={onGoMyPage} onLogout={onLogout}
       />
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: driveView ? "minmax(0, 1fr) 400px" : "minmax(0, 1fr) 330px 400px", minHeight: 0 }}>
+
+        {/* 지도 영역 */}
         <div style={{ padding: "10px 6px 10px 10px", minHeight: 0, position: "relative" }}>
           <div style={{ height: "100%", borderRadius: 11, overflow: "hidden", border: `1px solid ${isOptimized ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.08)"}`, boxShadow: isOptimized ? "0 0 20px rgba(34,197,94,0.1)" : "none" }}>
             <SimulationMapView
-              selectedList={selectedList}
-              selectedGu={selectedGu}
-              onSelect={handleSelect}
-              isOptimized={isOptimized}
-              onStatsChange={setStats}
-              onAutoWaypointsChange={setAutoWaypoints}
-              onRouteTrafficChange={setRouteTraffic}
-              onCurrentSignalChange={setCurrentVehicleSignal}
-              onResetRoute={resetSimulation}
-              carReady={carReady}
-              routeTraffic={routeTraffic}
+              selectedList={selectedList} selectedGu={selectedGu} onSelect={handleSelect}
+              isOptimized={isOptimized} onStatsChange={setStats} onAutoWaypointsChange={setAutoWaypoints}
+              onRouteTrafficChange={setRouteTraffic} onCurrentSignalChange={setCurrentVehicleSignal}
+              onResetRoute={resetSimulation} routeTraffic={routeTraffic}
               onDriveViewChange={setDriveView}
             />
           </div>
-          <div style={{
-            position: "absolute",
-            right: 18,
-            bottom: 78,
-            zIndex: 30,
-            pointerEvents: "auto",
-          }}>
-
-            <SimulationChatBot intNo={activeChatCrossroad?.intNo} intNm={activeChatCrossroad?.intNm} simulation={simPhases} routeTraffic={routeTraffic} autoTrigger={autoTrigger} />
-          </div>
         </div>
 
+        {/* 경로/병목 패널 */}
         {!driveView && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 6px 10px 4px", overflowY: "auto" }}>
-          <div style={cardStyle}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 15 }}>목적지 기반 시뮬레이션</div>
-              <button onClick={resetSimulation} style={{ background: "transparent", border: "1px solid #334155", color: "#94a3b8", borderRadius: 4, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}>초기화</button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 6px 10px 4px", overflowY: "auto" }}>
+            <div style={cardStyle}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 15 }}>목적지 기반 시뮬레이션</div>
+                <button onClick={resetSimulation} style={{ background: "transparent", border: "1px solid #334155", color: "#94a3b8", borderRadius: 4, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}>초기화</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+                <RoutePointCard type="start" title="출발지" crossroad={start} empty="지도에서 첫 번째 마커를 클릭하세요" />
+                {bottleneckCrossroads.length > 0
+                  ? bottleneckCrossroads.map((cr, i) => <RoutePointCard key={cr.intNo} type="waypoint" title={`병목 ${i + 1} (${cr.speedKph}km/h)`} crossroad={cr} empty="" />)
+                  : <RoutePointCard type="waypoint" title="병목 경유지" crossroad={null} empty={end ? "속도 수집 후 표시됩니다" : "목적지를 선택하면 자동 탐색됩니다"} />
+                }
+                <RoutePointCard type="end" title="목적지" crossroad={end} empty="지도에서 두 번째 마커를 클릭하세요" />
+              </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
-              <RoutePointCard type="start" title="출발지" crossroad={start} empty="지도에서 첫 번째 마커를 클릭하세요" />
-              {bottleneckCrossroads.length > 0
-                ? bottleneckCrossroads.map((cr, i) => (
-                    <RoutePointCard
-                      key={cr.intNo}
-                      type="waypoint"
-                      title={`병목 ${i + 1} (${cr.speedKph}km/h)`}
-                      crossroad={cr}
-                      empty=""
-                    />
-                  ))
-                : !carReady && (
-                    <RoutePointCard type="waypoint" title="병목 경유지" crossroad={null} empty={end ? "속도 수집 후 표시됩니다" : "목적지를 선택하면 자동 탐색됩니다"} />
-                  )
-              }
-              <RoutePointCard type="end" title="목적지" crossroad={end} empty="지도에서 두 번째 마커를 클릭하세요" />
+
+            {/* 병목구간 분석 */}
+            <div style={cardStyle}>
+              <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 14, marginBottom: 10 }}>병목구간 분석</div>
+              {stats ? (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                    <MetricBox label="전체 거리" value={formatDistance(stats.distanceMeters)} />
+                    <MetricBox label="병목구간" value={stats.bottleneckCount != null ? `${stats.bottleneckCount}개` : routeAnalysisLoading ? "수집 중..." : "-"} />
+                  </div>
+                  <div style={{ padding: 10, borderRadius: 5, fontSize: 12, lineHeight: 1.6, background: routeAnalysisLoading ? "rgba(96,165,250,0.06)" : isOptimized ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${routeAnalysisLoading ? "rgba(96,165,250,0.2)" : isOptimized ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.25)"}`, color: isOptimized ? "#bbf7d0" : "#fecaca" }}>
+                    {speedUnavailable
+                      ? <span style={{ color: "#64748b" }}>속도 수집 불가 — TOPIS 미수집 구간입니다. 신호계획 기반으로 수동 조정하세요.</span>
+                      : routeAnalysisLoading ? <AnalysisLoadingBlock />
+                      : routeAnalysis ? routeAnalysis
+                      : isOptimized ? "관제사가 병목구간의 직진 신호 시간을 늘려 통과속도가 개선된 상태입니다."
+                      : "경로 중간 구간에서 속도 저하가 발생했습니다. 신호제어를 적용하면 예상 도착시간을 줄일 수 있습니다."}
+                  </div>
+                </>
+              ) : (
+                <div style={{ color: "#64748b", fontSize: 13, lineHeight: 1.7 }}>출발지와 목적지를 모두 선택하면 경로와 병목구간이 표시됩니다.</div>
+              )}
             </div>
-          </div>
 
-          <div style={cardStyle}>
-            <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 14, marginBottom: 10 }}>병목구간 분석</div>
-            {stats ? (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-                  <MetricBox label="전체 거리" value={formatDistance(stats.distanceMeters)} />
-                  <MetricBox label="병목구간" value={
-                    stats.bottleneckCount != null
-                      ? `${stats.bottleneckCount}개`
-                      : routeAnalysisLoading ? "수집 중..." : "-"
-                  } />
+            {/* 도착시간 비교 */}
+            <div style={cardStyle}>
+              <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 14, marginBottom: 10 }}>도착시간 비교</div>
+              {stats?.beforeSec != null ? (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                    <MetricBox label="제어 전" value={formatSec(stats.beforeSec)} color="#ef4444" sub={`${stats.beforeSpeedKph}km/h`} animate />
+                    <MetricBox label="제어 후" value={formatSec(stats.afterSec)} color="#22c55e" sub={`${stats.afterSpeedKph}km/h`} animate />
+                  </div>
+                  <div style={{ padding: "12px 10px", borderRadius: 5, background: "rgba(34,197,94,0.10)", border: "1px solid rgba(34,197,94,0.35)", textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>예상 단축 시간</div>
+                    <div style={{ fontSize: 24, color: "#22c55e", fontWeight: 900 }}>{formatSec(stats.savedSec)}</div>
+                  </div>
+                </>
+              ) : (
+                <div style={{ color: "#64748b", fontSize: 13 }}>{stats ? "속도 데이터 수집 후 표시됩니다." : "경로 선택 후 비교 결과가 표시됩니다."}</div>
+              )}
+            </div>
+
+            {/* AI 분석 / 신호제어 버튼 */}
+            {(() => {
+              const totalAdj = Object.keys(aiAdjustmentsMap || {}).length;
+              const appliedCount = appliedIntNos.size;
+              const remaining = totalAdj - appliedCount;
+              const allApplied = totalAdj > 0 && remaining <= 0;
+              const ctrlDisabled = !canOptimize || routeAnalysisLoading || totalAdj === 0 || (isOptimized && allApplied);
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <button
+                    onClick={runAiBottleneckAnalysis}
+                    disabled={!canOptimize || routeAnalysisLoading || speedUnavailable || !routeTraffic?.segments?.length}
+                    style={{ border: "none", borderRadius: 6, padding: "14px 12px", textAlign: "center", background: routeAnalysisLoading ? "rgba(96,165,250,0.12)" : "#2563eb", color: routeAnalysisLoading ? "#60a5fa" : "#fff", fontSize: 14, fontWeight: 900, cursor: (!canOptimize || routeAnalysisLoading || speedUnavailable || !routeTraffic?.segments?.length) ? "not-allowed" : "pointer", opacity: (!canOptimize || speedUnavailable || !routeTraffic?.segments?.length) ? 0.45 : 1 }}
+                  >
+                    {routeAnalysisLoading ? "AI 분석 중..." : "AI 병목 분석"}
+                  </button>
+                  <button
+                    onClick={applySignalControl}
+                    disabled={ctrlDisabled}
+                    style={{ border: "none", borderRadius: 6, padding: "14px 12px", textAlign: "center", background: allApplied ? "#166534" : "#16a34a", color: "#fff", fontSize: 13, fontWeight: 900, cursor: ctrlDisabled ? "not-allowed" : "pointer", opacity: ctrlDisabled ? 0.45 : 1, lineHeight: 1.3 }}
+                  >
+                    {allApplied
+                      ? `✓ ${totalAdj}개 교차로 완료`
+                      : totalAdj > 0 && appliedCount > 0
+                        ? `병목신호 제어 (${appliedCount}/${totalAdj})`
+                        : "관제사 병목신호 제어"}
+                  </button>
                 </div>
-                <div style={{
-                  padding: 10, borderRadius: 5, fontSize: 12, lineHeight: 1.6,
-                  background: routeAnalysisLoading
-                    ? "rgba(96,165,250,0.06)"
-                    : isOptimized ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
-                  border: `1px solid ${routeAnalysisLoading
-                    ? "rgba(96,165,250,0.2)"
-                    : isOptimized ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.25)"}`,
-                  color: isOptimized ? "#bbf7d0" : "#fecaca",
-                }}>
-                  {speedUnavailable
-                    ? <span style={{ color: "#64748b" }}>속도 수집 불가 — TOPIS 미수집 구간입니다. 신호계획 기반으로 수동 조정하세요.</span>
-                    : routeAnalysisLoading
-                      ? <AnalysisLoadingBlock />
-                      : routeAnalysis
-                        ? routeAnalysis
-                        : isOptimized
-                          ? "관제사가 병목구간의 직진 신호 시간을 늘려 통과속도가 개선된 상태입니다."
-                          : "경로 중간 구간에서 속도 저하가 발생했습니다. 신호제어를 적용하면 예상 도착시간을 줄일 수 있습니다."}
-                </div>
-              </>
-            ) : (
-              <div style={{ color: "#64748b", fontSize: 13, lineHeight: 1.7 }}>출발지와 목적지를 모두 선택하면 경로와 병목구간이 표시됩니다.</div>
-            )}
-          </div>
+              );
+            })()}
 
-          <div style={cardStyle}>
-            <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 14, marginBottom: 10 }}>도착시간 비교</div>
-            {stats?.beforeSec != null ? (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <MetricBox label="제어 전" value={formatSec(stats.beforeSec)} color="#ef4444" sub={`${stats.beforeSpeedKph}km/h`} animate />
-                  <MetricBox label="제어 후" value={formatSec(stats.afterSec)} color="#22c55e" sub={`${stats.afterSpeedKph}km/h`} animate />
-                </div>
-                <div style={{ padding: "12px 10px", borderRadius: 5, background: "rgba(34,197,94,0.10)", border: "1px solid rgba(34,197,94,0.35)", textAlign: "center" }}>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>예상 단축 시간</div>
-                  <div style={{ fontSize: 24, color: "#22c55e", fontWeight: 900 }}>{formatSec(stats.savedSec)}</div>
-                </div>
-              </>
-            ) : (
-              <div style={{ color: "#64748b", fontSize: 13 }}>
-                {stats ? "속도 데이터 수집 후 표시됩니다." : "경로 선택 후 비교 결과가 표시됩니다."}</div>
-            )}
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button
-              onClick={runAiBottleneckAnalysis}
-              disabled={!canOptimize || routeAnalysisLoading || speedUnavailable || !routeTraffic?.segments?.length}
-              style={{
-                border: "none",
-                borderRadius: 6,
-                padding: "14px 12px",
-                textAlign: "center",
-                background: routeAnalysisLoading ? "rgba(96,165,250,0.12)" : "#2563eb",
-                color: routeAnalysisLoading ? "#60a5fa" : "#fff",
-                fontSize: 14,
-                fontWeight: 900,
-                cursor: (!canOptimize || routeAnalysisLoading || speedUnavailable || !routeTraffic?.segments?.length) ? "not-allowed" : "pointer",
-                opacity: (!canOptimize || speedUnavailable || !routeTraffic?.segments?.length) ? 0.45 : 1,
-              }}
-            >
-              {routeAnalysisLoading ? "AI 분석 중..." : "AI 병목 분석"}
-            </button>
-
-            <button
-              onClick={applySignalControl}
-              disabled={!canOptimize || isOptimized || routeAnalysisLoading || Object.keys(aiAdjustmentsMap || {}).length === 0}
-              style={{
-                border: "none",
-                borderRadius: 6,
-                padding: "14px 12px",
-                textAlign: "center",
-                background: isOptimized ? "#166534" : "#16a34a",
-                color: "#fff",
-                fontSize: 14,
-                fontWeight: 900,
-                cursor: (!canOptimize || isOptimized || routeAnalysisLoading || Object.keys(aiAdjustmentsMap || {}).length === 0) ? "not-allowed" : "pointer",
-                opacity: (!canOptimize || routeAnalysisLoading || Object.keys(aiAdjustmentsMap || {}).length === 0) ? 0.45 : 1,
-              }}
-            >
-              {isOptimized ? "✓ 제어 적용 완료" : "관제사 병목신호 제어"}
-            </button>
-          </div>
-
-          {/* 단계 상태 표시 */}
-          <div style={{
-            border: "none",
-            borderRadius: 6,
-            padding: "12px 14px",
-            textAlign: "center",
-            background: isOptimized ? "#166534" : routeAnalysisLoading ? "rgba(96,165,250,0.1)" : "#1f2937",
-            color: isOptimized ? "#fff" : routeAnalysisLoading ? "#60a5fa" : "#94a3b8",
-            fontSize: 13,
-            fontWeight: 900,
-          }}>
-            {isOptimized
-              ? "✓ 관제사 제어 적용 완료 — 차량 주행 중"
-              : routeAnalysisLoading
-                ? "● AI 병목 분석 중..."
-                : Object.keys(aiAdjustmentsMap || {}).length > 0
-                  ? "AI 분석 완료 — 관제사 제어 버튼으로 적용하세요"
-                  : routeTraffic?.segments?.length
-                    ? "병목구간 확인 완료 — AI 병목 분석을 실행하세요"
+            {/* 단계 상태 표시 */}
+            {(() => {
+              const totalAdj = Object.keys(aiAdjustmentsMap || {}).length;
+              const appliedCount = appliedIntNos.size;
+              const allApplied = totalAdj > 0 && appliedCount >= totalAdj;
+              return (
+                <div style={{ border: "none", borderRadius: 6, padding: "12px 14px", textAlign: "center", background: allApplied ? "#166534" : routeAnalysisLoading ? "rgba(96,165,250,0.1)" : "#1f2937", color: allApplied ? "#fff" : routeAnalysisLoading ? "#60a5fa" : "#94a3b8", fontSize: 13, fontWeight: 900 }}>
+                  {allApplied ? `✓ ${totalAdj}개 교차로 제어 완료 — AI 분석 포함 이메일 발송됨`
+                    : routeAnalysisLoading ? "● AI 병목 분석 중..."
+                    : totalAdj > 0 && appliedCount > 0 ? `병목지 ${appliedCount}/${totalAdj} 적용 완료 — 나머지 병목지를 선택 후 제어하세요`
+                    : totalAdj > 0 ? `AI 분석 완료 (${totalAdj}개 교차로) — 병목지 선택 후 관제사 제어 버튼 클릭`
+                    : routeTraffic?.segments?.length ? "병목구간 확인 완료 — AI 병목 분석을 실행하세요"
                     : "출발지와 목적지를 선택하면 속도 API 기반 병목구간을 표시합니다"}
-          </div>
+                </div>
+              );
+            })()}
 
-          <div style={{ ...cardStyle, flexShrink: 0 }}>
-            <div style={{ fontWeight: 800, color: "#cbd5e1", fontSize: 13, marginBottom: 8 }}>사용 방법</div>
-            <ol style={{ margin: 0, paddingLeft: 18, color: "#94a3b8", fontSize: 12, lineHeight: 1.8 }}>
-              <li>지도에서 첫 번째 마커를 클릭해 출발지를 선택합니다.</li>
-              <li>두 번째 마커를 클릭하면 목적지와 경로가 생성됩니다.</li>
-              <li>가운데 패널에서 속도 API 기반 병목구간을 먼저 확인합니다.</li>
-              <li>AI 병목 분석 버튼으로 원인과 추천 신호 조정값을 확인합니다.</li>
-              <li>관제사 병목신호 제어 버튼을 눌러 슬라이더 반영과 차량 주행을 실행합니다.</li>
-            </ol>
+            {/* 사용 방법 */}
+            <div style={{ ...cardStyle, flexShrink: 0 }}>
+              <div style={{ fontWeight: 800, color: "#cbd5e1", fontSize: 13, marginBottom: 8 }}>사용 방법</div>
+              <ol style={{ margin: 0, paddingLeft: 18, color: "#94a3b8", fontSize: 12, lineHeight: 1.8 }}>
+                <li>지도에서 첫 번째 마커를 클릭해 출발지를 선택합니다.</li>
+                <li>두 번째 마커를 클릭하면 목적지와 경로가 생성됩니다.</li>
+                <li>가운데 패널에서 속도 API 기반 병목구간을 먼저 확인합니다.</li>
+                <li>AI 병목 분석 버튼으로 원인과 추천 신호 조정값을 확인합니다.</li>
+                <li>오른쪽 패널에서 신호를 조정하고 저장하면 AI 분석 내용이 이메일로 자동 발송됩니다.</li>
+              </ol>
+            </div>
           </div>
-        </div>
-
         )}
 
+        {/* 신호체계 패널 */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 10px 10px 4px", overflowY: "auto" }}>
           <div style={cardStyle}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ fontWeight: 900, color: "#ffffff", fontSize: 15 }}>출발지/경유지/병목지/목적지 신호체계</div>
-
               <div style={{ fontSize: 11, color: "#64748b" }}>선택 확인</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
-              <button onClick={() => setSliderTarget("start")} disabled={!start} style={tabButtonStyle(sliderTarget === "start", !!start)}>
-                출발지
-              </button>
-              <button onClick={() => setSliderTarget("waypoint")} disabled={!waypointList.length} style={tabButtonStyle(sliderTarget === "waypoint", !!waypointList.length)}>
-                경유지
-              </button>
-              <button onClick={() => setSliderTarget("bottleneck")} disabled={!bottleneckCrossroads.length} style={tabButtonStyle(sliderTarget === "bottleneck", !!bottleneckCrossroads.length)}>
-                병목지
-              </button>
-              <button onClick={() => setSliderTarget("end")} disabled={!end} style={tabButtonStyle(sliderTarget === "end", !!end)}>
-                목적지
-              </button>
+              <button onClick={() => setSliderTarget("start")} disabled={!start} style={tabButtonStyle(sliderTarget === "start", !!start)}>출발지</button>
+              <button onClick={() => setSliderTarget("waypoint")} disabled={!waypointList.length} style={tabButtonStyle(sliderTarget === "waypoint", !!waypointList.length)}>경유지</button>
+              <button onClick={() => setSliderTarget("bottleneck")} disabled={!bottleneckCrossroads.length} style={tabButtonStyle(sliderTarget === "bottleneck", !!bottleneckCrossroads.length)}>병목지</button>
+              <button onClick={() => setSliderTarget("end")} disabled={!end} style={tabButtonStyle(sliderTarget === "end", !!end)}>목적지</button>
             </div>
           </div>
 
           {sliderTarget === "waypoint" && waypointList.length > 1 && (
-            <WaypointSlideControl
-              waypoints={waypointList}
-              currentIndex={clampedWaypointIndex}
-              onChange={setSelectedWaypointIndex}
-              label="경유지"
-            />
+            <WaypointSlideControl waypoints={waypointList} currentIndex={clampedWaypointIndex} onChange={setSelectedWaypointIndex} label="경유지" />
           )}
 
           {sliderTarget === "bottleneck" && bottleneckCrossroads.length > 1 && (
-            <WaypointSlideControl
-              waypoints={bottleneckCrossroads}
-              currentIndex={clampedBottleneckIndex}
-              onChange={setSelectedBottleneckIndex}
-              label="병목지"
-            />
+            <WaypointSlideControl waypoints={bottleneckCrossroads} currentIndex={clampedBottleneckIndex} onChange={setSelectedBottleneckIndex} label="병목지" />
           )}
 
           {hasActiveSignalCrossroad && (
@@ -1306,20 +579,16 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 13 }}>
                   {activeSignal.icon} {sliderTarget === "waypoint" ? `경유지 ${clampedWaypointIndex + 1} 신호체계` : activeSignal.signalTitle}
                 </div>
-                <div style={{ fontSize: 11, color: "#64748b" }}>
-                  {activeSignal.crossroad.intNm}
-                </div>
+                <div style={{ fontSize: 11, color: "#64748b" }}>{activeSignal.crossroad.intNm}</div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, color: "#94a3b8", fontSize: 11 }}>
                 <span>🟢 현재 켜진 현시</span>
                 <span>🚗 차량 추종 예정 현시</span>
               </div>
-              <VehicleAwareSignalSimPanel
+              <VehicleSignalPanel
                 key={`signal-${activeSignalKey}`}
-                intNo={activeSignal.crossroad.intNo}
-                intNm={activeSignal.crossroad.intNm}
-                onPhaseChange={activeSignal.onPhaseChange}
-                phaseOverride={activeSignalPhaseOverride}
+                intNo={activeSignal.crossroad.intNo} intNm={activeSignal.crossroad.intNm}
+                onPhaseChange={activeSignal.onPhaseChange} phaseOverride={activeSignalPhaseOverride}
                 onContextChange={activeSignal.onContextChange}
                 currentVehicleSignal={getVehicleSignalForCrossroad(activeSignal.crossroad)}
               />
@@ -1332,18 +601,12 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 13 }}>
                   {activeSignal.icon} {sliderTarget === "waypoint" ? `경유지 ${clampedWaypointIndex + 1} 신호 조정` : panelTitle}
                 </div>
-                <div style={{ fontSize: 11, color: "#64748b" }}>
-                  {sliderCrossroad.intNm}
-                </div>
+                <div style={{ fontSize: 11, color: "#64748b" }}>{sliderCrossroad.intNm}</div>
               </div>
               <SimSliderPanel
                 key={`slider-${activeSignalKey}`}
-                intNo={sliderCrossroad.intNo}
-                intNm={sliderCrossroad.intNm}
+                intNo={sliderCrossroad.intNo} intNm={sliderCrossroad.intNm}
                 onSave={handleManualSave}
-                onAutoAsk={setAutoTrigger}
-                autoAdjustKey={autoAdjustKey}
-                autoAdjustEnabled={sliderTarget === "bottleneck" && isOptimized}
                 onAutoApplied={handleAutoApplied}
                 aiSuggestedValues={aiSuggestedValues}
                 aiAdjustKey={aiAdjustKey}
@@ -1355,486 +618,3 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     </div>
   );
 }
-
-
-function getCurrentSignalPhaseInfo(context, now = new Date()) {
-  const phases = context?.phases || [];
-  if (!phases.length) return { currentPhaseNo: null, elapsed: 0, cycleVal: 0, remainSec: 0 };
-
-  const cycleVal = Number(context?.cycleVal)
-    || phases.reduce((sum, phase) => sum + Number(phase.sec || 0), 0)
-    || 120;
-  const planStartSec = Number(context?.planStartSec ?? 0);
-  const nowSec = Math.floor(now.getTime() / 1000) % 86400;
-  const elapsed = ((nowSec - planStartSec) % cycleVal + cycleVal) % cycleVal;
-
-  let acc = 0;
-  let currentPhaseNo = phases[0]?.no ?? null;
-  let remainSec = 0;
-
-  for (const phase of phases) {
-    acc += Number(phase.sec || 0);
-    if (elapsed < acc) {
-      currentPhaseNo = phase.no;
-      remainSec = Math.max(0, Math.ceil(acc - elapsed));
-      break;
-    }
-  }
-
-  return { currentPhaseNo, elapsed, cycleVal, remainSec };
-}
-
-function normalizePhaseNo(value) {
-  if (value == null) return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : value;
-}
-
-function VehicleAwareSignalSimPanel({
-  intNo,
-  intNm,
-  onPhaseChange,
-  phaseOverride,
-  onContextChange,
-  currentVehicleSignal,
-}) {
-  const [context, setContext] = useState(null);
-  const [now, setNow] = useState(new Date());
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!intNo) return;
-
-    let alive = true;
-    setLoading(true);
-
-    fetch(`${API_BASE}/api/signal/simulation/context/${intNo}`)
-      .then(r => r.json())
-      .then(data => {
-        if (!alive) return;
-        const next = {
-          ...data,
-          phases: phaseOverride || data.phases || [],
-        };
-        setContext(next);
-        onContextChange?.(next);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setContext({ phases: [] });
-      })
-      .finally(() => alive && setLoading(false));
-
-    return () => {
-      alive = false;
-    };
-  }, [intNo]);
-
-  useEffect(() => {
-    if (!context) return;
-    if (!phaseOverride) return;
-
-    const next = {
-      ...context,
-      phases: phaseOverride,
-    };
-    setContext(next);
-    onContextChange?.(next);
-  }, [phaseOverride]);
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const phases = context?.phases || [];
-  const { currentPhaseNo, elapsed, cycleVal, remainSec } = getCurrentSignalPhaseInfo(context, now);
-
-  useEffect(() => {
-    if (currentPhaseNo != null) onPhaseChange?.(currentPhaseNo);
-  }, [currentPhaseNo, onPhaseChange]);
-
-  if (loading) {
-    return (
-      <div style={{ padding: "12px 0", fontSize: 12, color: "#64748b", textAlign: "center" }}>
-        신호 데이터 로딩 중...
-      </div>
-    );
-  }
-
-  if (!phases.length) {
-    return (
-      <div style={{ padding: "22px 10px", color: "#64748b", fontSize: 13, lineHeight: 1.7, textAlign: "center" }}>
-        신호계획 데이터가 비어 있습니다.
-      </div>
-    );
-  }
-
-  const activeVehicleSignal =
-    currentVehicleSignal?.intNo != null &&
-    String(currentVehicleSignal.intNo) === String(intNo);
-
-  const vehiclePhaseNo = activeVehicleSignal
-    ? normalizePhaseNo(
-        currentVehicleSignal?.phaseNo ??
-        currentVehicleSignal?.phase
-      )
-    : null;
-
-  const isVehicleRed = !!currentVehicleSignal?.isRed;
-  const isVehicleGreen = !!currentVehicleSignal?.isGreen;
-  const progressPercent = cycleVal ? Math.min(100, Math.max(0, (elapsed / cycleVal) * 100)) : 0;
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <div style={{ color: "#60a5fa", fontWeight: 900, fontSize: 15 }}>{intNm}</div>
-        <div style={{ color: "#94a3b8", fontSize: 11 }}>{now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b", fontSize: 11, marginBottom: 4 }}>
-        <span>사이클 진행</span>
-        <span>{Math.floor(elapsed)}s / {cycleVal}s {remainSec ? `(잔여 ${remainSec}s)` : ""}</span>
-      </div>
-
-      <div style={{ height: 4, background: "#1e293b", borderRadius: 999, overflow: "hidden", marginBottom: 9 }}>
-        <div style={{
-          width: `${progressPercent}%`,
-          height: "100%",
-          background: "linear-gradient(90deg,#38bdf8,#22c55e)",
-          borderRadius: 999,
-        }} />
-      </div>
-
-      {activeVehicleSignal && vehiclePhaseNo != null && (
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          marginBottom: 8,
-          padding: "7px 9px",
-          borderRadius: 6,
-          background: isVehicleRed ? "rgba(127,29,29,0.18)" : "rgba(22,101,52,0.16)",
-          border: `1px solid ${isVehicleRed ? "rgba(239,68,68,0.34)" : "rgba(34,197,94,0.30)"}`,
-          color: "#cbd5e1",
-          fontSize: 11,
-        }}>
-          <span>🚗 차량 추종 예정: <b style={{ color: "#fff" }}>현시 {vehiclePhaseNo}</b></span>
-          <span style={{ color: isVehicleRed ? "#fca5a5" : "#86efac", fontWeight: 800 }}>
-            {isVehicleRed ? "정지/대기" : "통과 가능"}
-          </span>
-        </div>
-      )}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {phases.map(phase => {
-          const phaseNo = normalizePhaseNo(phase.no);
-          const isCurrent = String(phaseNo) === String(currentPhaseNo);
-          const isVehicleFollowing = activeVehicleSignal && String(phaseNo) === String(vehiclePhaseNo);
-          const isVehicleStopPhase = isVehicleFollowing && isVehicleRed;
-          const isVehicleGoPhase = isVehicleFollowing && (isVehicleGreen || !isVehicleRed);
-
-          const borderColor = isVehicleFollowing
-            ? isVehicleStopPhase
-              ? "rgba(239,68,68,0.78)"
-              : "rgba(34,197,94,0.78)"
-            : isCurrent
-              ? "rgba(34,197,94,0.45)"
-              : "rgba(255,255,255,0.06)";
-
-          const bgColor = isVehicleFollowing
-            ? isVehicleStopPhase
-              ? "rgba(127,29,29,0.26)"
-              : "rgba(22,101,52,0.25)"
-            : isCurrent
-              ? "rgba(22,101,52,0.18)"
-              : "rgba(255,255,255,0.025)";
-
-          return (
-            <div key={phase.no} style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "8px 10px",
-              borderRadius: 6,
-              background: bgColor,
-              border: `1px solid ${borderColor}`,
-              boxShadow: isVehicleFollowing
-                ? `0 0 14px ${isVehicleStopPhase ? "rgba(239,68,68,0.22)" : "rgba(34,197,94,0.20)"}`
-                : "none",
-            }}>
-              {isVehicleFollowing && (
-                <span title="현재 차량이 추종 중인 현시" style={{ fontSize: 17, lineHeight: 1 }}>
-                  🚗
-                </span>
-              )}
-
-              <span style={{
-                width: 18,
-                height: 18,
-                borderRadius: "50%",
-                background: isCurrent ? "#22c55e" : "#1e293b",
-                border: `1px solid ${isCurrent ? "rgba(34,197,94,0.65)" : "rgba(148,163,184,0.28)"}`,
-                boxShadow: isCurrent ? "0 0 10px rgba(34,197,94,0.55)" : "none",
-                flexShrink: 0,
-              }} />
-
-              <span style={{
-                width: 18,
-                height: 18,
-                borderRadius: "50%",
-                background: isCurrent ? "#1e293b" : "#ef4444",
-                border: `1px solid ${isCurrent ? "rgba(148,163,184,0.28)" : "rgba(239,68,68,0.55)"}`,
-                boxShadow: !isCurrent ? "0 0 10px rgba(239,68,68,0.45)" : "none",
-                flexShrink: 0,
-              }} />
-
-              <span style={{
-                color: isVehicleFollowing ? "#ffffff" : isCurrent ? "#22c55e" : "#94a3b8",
-                fontSize: 12,
-                fontWeight: isVehicleFollowing || isCurrent ? 900 : 700,
-                minWidth: 42,
-              }}>
-                현시 {phase.no}
-              </span>
-
-              {(isCurrent || isVehicleFollowing) && (
-                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                  {isCurrent && (
-                    <span style={{
-                      fontSize: 9,
-                      padding: "2px 5px",
-                      borderRadius: 999,
-                      background: "rgba(34,197,94,0.16)",
-                      border: "1px solid rgba(34,197,94,0.32)",
-                      color: "#86efac",
-                      fontWeight: 800,
-                    }}>현재</span>
-                  )}
-                  {isVehicleFollowing && (
-                    <span style={{
-                      fontSize: 9,
-                      padding: "2px 5px",
-                      borderRadius: 999,
-                      background: isVehicleStopPhase ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.16)",
-                      border: `1px solid ${isVehicleStopPhase ? "rgba(239,68,68,0.32)" : "rgba(59,130,246,0.32)"}`,
-                      color: isVehicleStopPhase ? "#fca5a5" : "#93c5fd",
-                      fontWeight: 800,
-                    }}>추종</span>
-                  )}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", minWidth: 0, flex: 1 }}>
-                {(phase.dirs || []).map((dir, idx) => (
-                  <span key={`${phase.no}-${idx}`} style={{
-                    fontSize: 10,
-                    padding: "2px 6px",
-                    borderRadius: 3,
-                    background: isVehicleFollowing ? "rgba(34,197,94,0.14)" : "rgba(78,166,255,0.1)",
-                    border: `1px solid ${isVehicleFollowing ? "rgba(34,197,94,0.25)" : "rgba(78,166,255,0.2)"}`,
-                    color: isVehicleFollowing ? "#86efac" : "#4ea6ff",
-                    whiteSpace: "nowrap",
-                  }}>
-                    {dir}
-                  </span>
-                ))}
-              </div>
-
-              <span style={{ marginLeft: "auto", color: "#64748b", fontSize: 11, fontFamily: "monospace" }}>
-                {phase.sec}s
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={{ marginTop: 10, color: "#475569", fontSize: 10, fontFamily: "monospace" }}>
-        INT_NO: {intNo} · 현시수: {phases.length}
-      </div>
-    </div>
-  );
-}
-
-
-
-function WaypointSlideControl({ waypoints, currentIndex, onChange, label = "경유지" }) {
-  const current = waypoints[currentIndex] ?? null;
-  const prev = () => onChange(index => Math.max(0, index - 1));
-  const next = () => onChange(index => Math.min(waypoints.length - 1, index + 1));
-
-  return (
-    <div style={{ ...cardStyle, padding: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <button
-          onClick={prev}
-          disabled={currentIndex <= 0}
-          style={slideButtonStyle(currentIndex > 0)}
-          title="이전 경유지"
-        >
-          ‹
-        </button>
-
-        <div style={{ flex: 1, minWidth: 0, textAlign: "center" }}>
-          <div style={{ color: "#f59e0b", fontSize: 13, fontWeight: 900 }}>
-            {label} {currentIndex + 1} / {waypoints.length}
-          </div>
-          <div style={{ marginTop: 4, color: "#e2e8f0", fontSize: 14, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {current?.intNm || "경유지 선택 필요"}
-          </div>
-          {current?.intNo && (
-            <div style={{ marginTop: 3, color: "#475569", fontSize: 10, fontFamily: "monospace" }}>
-              INT_NO: {current.intNo}
-            </div>
-          )}
-        </div>
-
-        <button
-          onClick={next}
-          disabled={currentIndex >= waypoints.length - 1}
-          style={slideButtonStyle(currentIndex < waypoints.length - 1)}
-          title="다음 경유지"
-        >
-          ›
-        </button>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "center", gap: 5, marginTop: 10 }}>
-        {waypoints.map((_, idx) => (
-          <button
-            key={idx}
-            onClick={() => onChange(idx)}
-            style={{
-              width: idx === currentIndex ? 18 : 7,
-              height: 7,
-              borderRadius: 999,
-              border: "none",
-              background: idx === currentIndex ? "#f59e0b" : "rgba(148,163,184,0.35)",
-              cursor: "pointer",
-              padding: 0,
-              transition: "all 0.2s",
-            }}
-            title={`경유지 ${idx + 1}`}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function slideButtonStyle(enabled) {
-  return {
-    width: 34,
-    height: 34,
-    borderRadius: "50%",
-    border: `1px solid ${enabled ? "rgba(245,158,11,0.55)" : "rgba(255,255,255,0.08)"}`,
-    background: enabled ? "rgba(245,158,11,0.12)" : "rgba(255,255,255,0.03)",
-    color: enabled ? "#fbbf24" : "#475569",
-    cursor: enabled ? "pointer" : "default",
-    fontSize: 24,
-    fontWeight: 900,
-    lineHeight: "28px",
-    fontFamily: "inherit",
-  };
-}
-
-function AnalysisLoadingBlock() {
-  return (
-    <span style={{ color: "#94a3b8", display: "flex", alignItems: "center", gap: 6 }}>
-      {[0, 1, 2].map(i => (
-        <span key={i} style={{
-          width: 6, height: 6, borderRadius: "50%",
-          background: "#60a5fa", display: "inline-block",
-          animation: `chatDotBlink 1.2s ease ${i * 0.2}s infinite`,
-        }} />
-      ))}
-      <span style={{ fontSize: 12 }}>AI 분석 중...</span>
-    </span>
-  );
-}
-
-function EmptySignalBox({ text }) {
-  return (
-    <div style={{ minHeight: 120, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#64748b", fontSize: 13, lineHeight: 1.6 }}>
-      {text}
-    </div>
-  );
-}
-
-function tabButtonStyle(active, enabled) {
-  return {
-    padding: "8px 10px",
-    borderRadius: 5,
-    border: `1px solid ${active ? "rgba(96,165,250,0.65)" : "rgba(255,255,255,0.10)"}`,
-    background: active ? "rgba(96,165,250,0.18)" : "rgba(255,255,255,0.04)",
-    color: !enabled ? "#475569" : active ? "#93c5fd" : "#94a3b8",
-    cursor: enabled ? "pointer" : "default",
-    fontSize: 12,
-    fontWeight: 800,
-    fontFamily: "inherit",
-  };
-}
-
-function RoutePointCard({ type, title, crossroad, empty }) {
-  const isStart = type === "start";
-  const isWaypoint = type === "waypoint";
-  const color = isStart ? "#22c55e" : isWaypoint ? "#f59e0b" : "#ef4444";
-  const emoji = isStart ? "🟢" : isWaypoint ? "🟠" : "🔴";
-  return (
-    <div style={{ padding: 10, borderRadius: 5, background: "rgba(255,255,255,0.035)", border: `1px solid ${crossroad ? color + "66" : "rgba(255,255,255,0.08)"}` }}>
-      <div style={smallLabel}>{emoji} {title}</div>
-      <div style={{ fontSize: 14, fontWeight: 800, color: crossroad ? color : "#64748b" }}>
-        {crossroad?.intNm || empty}
-      </div>
-      {crossroad && <div style={{ marginTop: 4, fontSize: 11, color: "#475569", fontFamily: "monospace" }}>INT_NO: {crossroad.intNo}</div>}
-    </div>
-  );
-}
-
-function useCountUp(target, duration = 700) {
-  const [display, setDisplay] = useState(target);
-  const prevRef = useRef(target);
-  const rafRef  = useRef(null);
-
-  useEffect(() => {
-    if (target == null) return;
-    const from = prevRef.current ?? 0;
-    const to   = target;
-    prevRef.current = to;
-    if (from === to) return;
-
-    let start = null;
-    const step = (ts) => {
-      if (!start) start = ts;
-      const p = Math.min((ts - start) / duration, 1);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-      if (p < 1) rafRef.current = requestAnimationFrame(step);
-    };
-    rafRef.current = requestAnimationFrame(step);
-    return () => rafRef.current && cancelAnimationFrame(rafRef.current);
-  }, [target, duration]);
-
-  return display;
-}
-
-function MetricBox({ label, value, color = "#e2e8f0", sub, animate = false }) {
-  const numMatch = typeof value === "string" ? value.match(/^[\d.]+/) : null;
-  const numPart  = numMatch ? parseFloat(numMatch[0]) : null;
-  const suffix   = numMatch ? value.slice(numMatch[0].length) : "";
-  const counted  = useCountUp(animate && numPart != null ? numPart : null);
-
-  const displayValue = animate && numPart != null
-    ? `${counted}${suffix}`
-    : value;
-
-  return (
-    <div style={{ padding: 10, borderRadius: 5, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)" }}>
-      <div style={smallLabel}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 900, color, transition: "color 0.4s" }}>{displayValue}</div>
-      {sub && <div style={{ marginTop: 2, fontSize: 11, color: "#64748b" }}>{sub}</div>}
-    </div>
-  );
-}
-
