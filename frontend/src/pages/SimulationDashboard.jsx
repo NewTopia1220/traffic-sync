@@ -84,7 +84,12 @@ function SimulationChatBot({ intNo, intNm, simulation, routeTraffic, autoTrigger
     setMessages(prev => [...prev, { role: "user", text: question }]);
     setLoading(true);
 
+
+    const body = { question, intNo: aIntNo ?? null, userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null };
+    if (aSim && aSim.length > 0) body.simulation = aSim;
+
     console.log("AI 요청 body:", buildBody(question, aIntNo, aSim, aRt));
+
     fetch(`${API_BASE}/api/simulation-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -892,7 +897,10 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   }, [start?.intNo, end?.intNo, waypointList.map(item => item.intNo).join("|")]);
 
   const handleSelect = (cr) => {
+    console.log("교차로 선택됨", cr);
+    
     setSelectedList(prev => {
+      console.log("selectedList 변경 전", prev);
       setIsOptimized(false);
       setStats(null);
       setSimPhases(null);
@@ -1073,6 +1081,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               onAutoWaypointsChange={setAutoWaypoints}
               onRouteTrafficChange={setRouteTraffic}
               onCurrentSignalChange={setCurrentVehicleSignal}
+              onResetRoute={resetSimulation}
               carReady={carReady}
               routeTraffic={routeTraffic}
               onDriveViewChange={setDriveView}

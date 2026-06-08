@@ -67,6 +67,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
   const trafficOverlays = useRef([]); // 교통량 오버레이 관리용
   const [showTraffic, setShowTraffic] = useState(false); // 교통량 마커 토글 상태
   const [activeStation, setActiveStation] = useState(null); // 클릭된 지점 상세 정보
+  const [forecastDir, setForecastDir] = useState("up"); // "up" | "down"
   const stationDetailOverlay = useRef(null); // 상세정보 오버레이 관리용
 
   const areaCctvList = useMemo(
@@ -82,6 +83,10 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
   useEffect(() => {
     setActiveStation(null);
   }, [selectedGu?.name]);
+
+  useEffect(() => {
+    setForecastDir("up");
+  }, [activeStation]);
 
 
   // ── useEffect 1: 카카오맵 SDK 동적 로드 ────────────────────────────────────
@@ -499,18 +504,12 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
 
         // 1. 단순 숫자 배열(up 또는 down)을 { hour, count } 객체 배열로 변환
         // 백엔드에서 준 up: (24) [347, 235, ...] 구조를 활용합니다.
-        const predictionList = (data.up || []).map((val, idx) => ({
-          hour: idx,      // 배열의 인덱스가 곧 시간(0~23)
-          count: val      // 해당 인덱스의 값이 교통량
+        const selectedValues = forecastDir === "up" ? (data.up || []) : (data.down || []);
+        const predictionList = selectedValues.map((val, idx) => ({
+          hour: idx,
+          count: val,
         }));
-        // 수정 예시: 상/하행 데이터를 구분하여 관리
-        // const predictionData = {
-        //   up: (data.up || []).map((val, idx) => ({ hour: idx, count: val })),
-        //   down: (data.down || []).map((val, idx) => ({ hour: idx, count: val }))
-        // };
-
         
-
         // 2. 현재 시간 이후의 데이터만 필터링
         const futureData = predictionList.filter(item => item.hour >= currentHour);
       
@@ -528,12 +527,22 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
             <span style="font-size:14px; font-weight:bold; color:#ffffff;">${st.stationName}</span>
             <button type="button" class="traffic-close-ov" style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:#fff; cursor:pointer; font-size:18px;line-height:20px;display:flex;align-items:center;justify-content:center;">&times;</button>
           </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px;">
+            <button type="button" class="forecast-dir-btn" data-dir="up"
+              style="padding:5px 0; border-radius:6px; border:1px solid ${forecastDir === "up" ? "rgba(78,166,255,0.85)" : "rgba(255,255,255,0.12)"}; background:${forecastDir === "up" ? "rgba(78,166,255,0.22)" : "rgba(255,255,255,0.04)"}; color:${forecastDir === "up" ? "#93c5fd" : "#aab4c8"}; font-size:12px; font-weight:800; cursor:pointer;">
+              상행
+            </button>
+            <button type="button" class="forecast-dir-btn" data-dir="down"
+              style="padding:5px 0; border-radius:6px; border:1px solid ${forecastDir === "down" ? "rgba(255,142,85,0.85)" : "rgba(255,255,255,0.12)"}; background:${forecastDir === "down" ? "rgba(255,142,85,0.22)" : "rgba(255,255,255,0.04)"}; color:${forecastDir === "down" ? "#ffb084" : "#aab4c8"}; font-size:12px; font-weight:800; cursor:pointer;">
+              하행
+            </button>
+          </div>
           <div style="max-height: 120px; overflow-y: auto;">
             ${futureData.length > 0 
               ? futureData.map(d => `
                   <div style="display:flex; justify-content:space-between; font-size:13px; padding:5px 0;">
                     <span style="color:#aab4c8;">${d.hour}시</span>
-                    <span style="color:#fff; font-weight:700;">${Number(d.value || d.count).toLocaleString()}대</span>
+                    <span style="color:#fff; font-weight:700;">${Number(d.count ?? 0).toLocaleString()}대</span>
                   </div>
                 `).join('')
               : '<div style="font-size:11px; color:#666; text-align:center; padding:10px;">이후 예측 데이터 없음</div>'
@@ -553,6 +562,14 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
           setActiveStation(null);
         });
 
+        content.querySelectorAll(".forecast-dir-btn").forEach(btn => {
+          btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setForecastDir(btn.dataset.dir);
+          });
+        });
+
         const ov = new window.kakao.maps.CustomOverlay({
           position: pos,
           content: content,
@@ -567,7 +584,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
         setActiveStation(null);
       });
 
-  }, [activeStation, ready, areaStations]);
+  }, [activeStation, ready, areaStations, forecastDir]);
 
   // ── useEffect 8: 교차로 마커 클릭 이벤트 ───────────────────────────────────
   // CustomOverlay는 카카오맵 이벤트 시스템 밖의 일반 DOM이라
