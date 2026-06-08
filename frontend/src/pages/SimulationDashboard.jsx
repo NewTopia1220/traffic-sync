@@ -897,7 +897,10 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   }, [start?.intNo, end?.intNo, waypointList.map(item => item.intNo).join("|")]);
 
   const handleSelect = (cr) => {
+    console.log("교차로 선택됨", cr);
+    
     setSelectedList(prev => {
+      console.log("selectedList 변경 전", prev);
       setIsOptimized(false);
       setStats(null);
       setSimPhases(null);

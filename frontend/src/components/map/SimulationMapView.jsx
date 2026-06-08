@@ -263,14 +263,14 @@ function getVehicleFollowingPhaseNo(signalCtx, carBearingDeg = null, movement = 
     )
   );
 
-  console.log("차량 movement 매칭 확인:", {
-    intNo: signalCtx?.intNo,
-    intNm: signalCtx?.intNm,
-    movement,
-    matchedPhaseNo: matched?.no,
-    matchedDirs: matched?.dirs,
-    phases: phases.map(p => ({ no: p.no, dirs: p.dirs })),
-  });
+  // console.log("차량 movement 매칭 확인:", {
+  //   intNo: signalCtx?.intNo,
+  //   intNm: signalCtx?.intNm,
+  //   movement,
+  //   matchedPhaseNo: matched?.no,
+  //   matchedDirs: matched?.dirs,
+  //   phases: phases.map(p => ({ no: p.no, dirs: p.dirs })),
+  // });
 
 
  
@@ -453,19 +453,20 @@ function movementScore(parsed, movement) {
   return compassDiff(parsed.from, movement.from) + compassDiff(parsed.to, movement.to);
 }
 
+function isLeftTurnSignalDir(dir) {
+  return String(dir || "").includes("좌회전");
+}
+
 function hasLeftTurnSignal(signalCtx, movement) {
   if (!signalCtx?.phases?.length || !movement) return true;
-
   if (!isLeftTurnMovement(movement)) return true;
 
-  const exactMatched = signalCtx.phases.some(phase =>
-    (phase.dirs || []).some(dir => isDirMatchingMovement(dir, movement))
+  return signalCtx.phases.some(phase =>
+    // (phase.dirs || []).some(dir =>
+    //   String(dir).includes("좌회전") && isDirMatchingMovement(dir, movement)
+    // )
+    (phase.dirs || []).some(dir => String(dir || "").includes("좌회전"))
   );
-
-  if (exactMatched) return true;
-
-  const fuzzyMatched = findClosestPhaseByMovement(signalCtx.phases, movement);
-  return Boolean(fuzzyMatched);
 }
 
 function findClosestPhaseByMovement(phases, movement) {
@@ -497,15 +498,15 @@ function findClosestPhaseByMovement(phases, movement) {
   const limit = best?.parsed?.arrow === "↔" ? 70 : 60;
 
   if (best && best.score <= limit) {
-    console.log("차량 movement 근접 매칭:", {
-      movement,
-      selectedPhaseNo: best.phase.no,
-      selectedDir: best.dir,
-      score: best.score,
-      bearingScore: best.bearingScore,
-      textScore: best.textScore,
-      limit,
-    });
+    // console.log("차량 movement 근접 매칭:", {
+    //   movement,
+    //   selectedPhaseNo: best.phase.no,
+    //   selectedDir: best.dir,
+    //   score: best.score,
+    //   bearingScore: best.bearingScore,
+    //   textScore: best.textScore,
+    //   limit,
+    // });
     return best.phase;
     
   }
@@ -1082,6 +1083,7 @@ export default function SimulationMapView({
   const trafficStatusRef = useRef({});
   const trafficRenderRef = useRef({ frameId: null, token: 0 });
   const overlayEntitiesRef = useRef([]);
+  const routeClearingRef = useRef(false);
   const carEntityRef = useRef(null);
   const reverseCarEntityRef = useRef(null);
   const signalIndicatorRef = useRef(null);
@@ -1091,6 +1093,8 @@ export default function SimulationMapView({
   const lastTickRef = useRef(null);
 
   const routeVehicleMovementsRef = useRef({});
+  const startCarDirectionRef = useRef(null);
+  
 
   // 신호 기반 정지/출발용 refs
   const signalCacheRef = useRef({});
@@ -1137,6 +1141,14 @@ export default function SimulationMapView({
   const routeSelectedList = selectedList;
   const start = selectedList[0] ?? null;
   const end = selectedList.length >= 2 ? selectedList[selectedList.length - 1] : null;
+  console.log("SimulationMapView selectedList 확인", {
+    selectedList,
+    selectedListLength: selectedList.length,
+    start,
+    end,
+  });
+
+
   const isSimulationActive = !!(start && end);
   const startLL = getCrLonLat(start);
   const endLL = getCrLonLat(end);
@@ -1169,14 +1181,7 @@ export default function SimulationMapView({
       return;
     }
 
-
-    // setRoutePlan(buildRouteFromSelectedList(selectedList));
-//     setRoutePlan(buildRouteFromSelectedList(selectedList, crossroads));  //내거
-
-    // 첫 번째 선택은 출발지, 마지막 선택은 목적지로 사용합니다.
-    // 그 사이에 사용자가 추가로 누른 노드는 수동 경유지로 유지합니다.
-    setRoutePlan(buildRouteFromSelectedList(routeSelectedList, crossroads));  //디벨롭
-
+    setRoutePlan(buildRouteFromSelectedList(routeSelectedList, crossroads));
   }, [
     routeSelectedList.map(item => item.intNo).join("|"),
     crossroads.length,
@@ -1189,6 +1194,7 @@ export default function SimulationMapView({
 
   
   useEffect(() => {
+
     const routeNodes = buildRouteTrafficNodes(start, viaCrossroads, end);
     const travelDir = calculateRouteTravelDir(routeNodes);
     const key = `${travelDir || ""}|${routeNodes
@@ -2005,6 +2011,12 @@ export default function SimulationMapView({
   useEffect(() => {
     if (!mapReady || !viewerRef.current || !window.Cesium) return;
 
+    if (routeClearingRef.current) {
+      clearOverlays();
+      stopAnimation();
+      return;
+    }
+
     clearOverlays();
     stopAnimation();
 
@@ -2141,24 +2153,49 @@ export default function SimulationMapView({
       console.log("백엔드 vehicleMovements 저장됨", routeVehicleMovementsRef.current);
 
       const blockedLeftTurn = await findBlockedLeftTurnNode(routeNodes, data?.vehicleMovements);
+      console.log("좌회전 차단 결과:", {
+      blockedLeftTurn,
+      routeNodes,
+      vehicleMovements: data?.vehicleMovements,
+    });
+
+     
       if (blockedLeftTurn) {
-        alert(`${blockedLeftTurn.node.intNm} 교차로의 해당 방향은 좌회전 신호가 없어 경로를 연결할 수 없습니다.`);
+        routeClearingRef.current = true;
 
         routeVehicleMovementsRef.current = {};
         startCarDirectionRef.current = null;
+        routeTrafficRef.current = null;
+        routePointsRef.current = [];
+        viaCrossroadsRef.current = [];
+        startRef.current = null;
+        endRef.current = null;
+
         routeTrafficRequestRef.current = {
           key: "",
           seq: routeTrafficRequestRef.current.seq + 1,
         };
 
+        stopAnimation();
+        clearOverlays();
+
+        setRoutePlan({ points: [], viaCrossroads: [] });
+        setRouteTraffic(null);
+
         onRouteTrafficChange?.(null);
         onCurrentSignalChange?.(null);
         onStatsChange?.(null);
-
-        clearOverlays();
-        stopAnimation();
+        onAutoWaypointsChange?.([]);
 
         onResetRoute?.();
+
+        setTimeout(() => {
+          clearOverlays();
+          viewerRef.current?.scene?.requestRender?.();
+          
+          alert(`${blockedLeftTurn.node.intNm} 교차로의 해당 방향은 좌회전 신호가 없어 경로를 연결할 수 없습니다.`);
+          routeClearingRef.current = false;
+        }, 50);
 
         return;
       }
@@ -2209,13 +2246,20 @@ export default function SimulationMapView({
 
       
 
-      onRouteTrafficChange?.({
+    
 
       const payload = {
         ...data,
         requestedRouteNodes: routeNodes,
         requestedTravelDir: travelDir,
+        startCarTraffic: matched?.traffic ?? null,
+        startCarDirection: matched?.direction ?? null,
+        startCarTrafficDistanceMeters: matched?.distanceMeters ?? null,
+        startCarUpDistanceMeters: matched?.upDistanceMeters ?? null,
+        startCarDownDistanceMeters: matched?.downDistanceMeters ?? null,
+        updatedAt: Date.now(),
       };
+
       routeTrafficRef.current = payload;
       setRouteTraffic(payload);
       onRouteTrafficChange?.(payload);
@@ -2229,9 +2273,7 @@ export default function SimulationMapView({
         requestedRouteNodes: routeNodes,
         segments: [],
       };
-      routeTrafficRef.current = payload;
-      setRouteTraffic(payload);
-      onRouteTrafficChange?.(payload);
+      
     }
   }
 
@@ -3518,9 +3560,7 @@ export default function SimulationMapView({
       const cached = signalCacheRef.current[forwardNode.intNo];
 
       if (cached?.ctx) {
-        // const carBearing = getCarBearingDeg(points, progressRef.current);
         const carBearing = getApproachBearingAtProgress(forwardNode.progress, false);
-        // const movement = getMovementAtProgress(forwardNode.progress, false);
         const movement =
           getBackendMovementForNode(forwardNode.intNo)
           ?? getTurnAwareMovementNearNode(progressRef.current, forwardNode.progress, false)
@@ -3683,7 +3723,6 @@ export default function SimulationMapView({
       const cached = signalCacheRef.current[reverseStoppedAtRef.current];
 
       if (cached?.ctx) {
-        // const carBearing = getReverseCarBearingDeg(points, reverseProgressRef.current);
         const carBearing =
           getApproachBearingAtProgress(reverseStoppedNodeProgressRef.current, true)
           ?? getReverseCarBearingDeg(points, reverseProgressRef.current);
