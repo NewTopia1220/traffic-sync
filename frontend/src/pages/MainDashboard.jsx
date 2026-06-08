@@ -652,6 +652,7 @@ export default function MainDashboard({
   selectedGu,
   onSelectGu,
   onAreaFetchState,
+  onRegisterSelectGu,
   isMuted = false,
   onToggleMute,
 }) {
@@ -764,6 +765,11 @@ export default function MainDashboard({
       setTimeout(() => setFetchMsg(null), 3000);
     }
   }, [onSelectGu, onAreaFetchState]);
+
+  // 음성 명령 select_gu 핸들러를 App의 ref에 등록
+  useEffect(() => {
+    onRegisterSelectGu?.(handleSelectGu);
+  }, [onRegisterSelectGu, handleSelectGu]);
 
   // ── 활성 데이터 계산 ────────────────────────────────────────────────────────
   // 선택된 구 반경 2.5km 내 교차로만 필터한다. 결과가 없을 때 이전 구역 전체 데이터로 대체하면 화면이 섞여 보인다.

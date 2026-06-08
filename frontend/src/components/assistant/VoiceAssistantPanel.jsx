@@ -17,8 +17,8 @@
  */
 import { VOICE_STATUS_LABEL } from './assistantStyles'
 
-// 마이크 사용이 막히는 상태 (AI가 처리/발화 중일 때)
-const MIC_BLOCKED = ['thinking', 'speaking', 'greeting']
+// 마이크 사용이 막히는 상태 (AI가 처리/발화 중이거나 이메일 확인 대기 중)
+const MIC_BLOCKED = ['thinking', 'speaking', 'greeting', 'email_confirm']
 
 export default function VoiceAssistantPanel({
   voiceUI, voiceSTTActive, msgEndRef,
@@ -122,9 +122,21 @@ export default function VoiceAssistantPanel({
 
       {/* ── 이메일 확인 버튼 ── */}
       {voiceUI.status === 'email_confirm' && (
-        <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button onClick={() => onEmailConfirm(true)} style={{ flex: 1, padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontFamily: 'inherit' }}>네</button>
-          <button onClick={() => onEmailConfirm(false)} style={{ flex: 1, padding: '9px 0', borderRadius: 8, fontSize: 13, background: 'transparent', border: '1px solid rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontFamily: 'inherit' }}>아니요</button>
+        <div style={{ padding: '10px 16px 12px', borderTop: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'center', marginBottom: 8 }}>버튼으로 선택해주세요</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => onEmailConfirm(true)} style={{ flex: 1, padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontFamily: 'inherit' }}>네</button>
+            <button onClick={() => onEmailConfirm(false)} style={{ flex: 1, padding: '9px 0', borderRadius: 8, fontSize: 13, background: 'transparent', border: '1px solid rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontFamily: 'inherit' }}>아니요</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 새 질문하기 버튼 (세션 종료 후) ── */}
+      {voiceUI.status === 'done' && (
+        <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+          <button onClick={onStartSTT} style={{ width: '100%', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.55)', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            🎤 새 질문하기
+          </button>
         </div>
       )}
 

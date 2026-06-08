@@ -75,7 +75,7 @@ export default function AppHeader({
   if (isMobile) {
     const activeLabel = tabs.find(([, t]) => t === activePage)?.[0] ?? "메뉴";
     return (
-      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 12px", height: 52, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 100, fontFamily: V.sans }}>
+      <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 12px", height: 52, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 100, fontFamily: V.sans, flexShrink: 0 }}>
 
         {/* 로고 */}
         <button onClick={onGoMain} style={{ display: "flex", alignItems: "center", gap: 7, background: "transparent", border: 0, padding: 0, cursor: "pointer", flexShrink: 0 }}>
