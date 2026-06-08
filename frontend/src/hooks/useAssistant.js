@@ -82,6 +82,7 @@ export function useAssistant({ page, onNavIntent }) {
   // ── 마이크 STT 시작/중단 토글 ───────────────────────────────────
   const startVoiceSTT = () => {
     if (BUSY_STATUS.includes(voiceUI.status)) return  // AI 처리 중엔 불가
+    if (voiceUI.status === 'email_confirm') return    // 이메일 확인 중엔 버튼으로만
 
     if (voiceSTTActive) {  // 이미 켜져 있으면 중단
       sttRecRef.current?.abort()
@@ -199,14 +200,20 @@ export function useAssistant({ page, onNavIntent }) {
 
   // AI 플로팅 버튼: 패널 열기(누적 대화 표시) / 토글
   const onFloatingClick = () => {
+    const idleOrDone = voiceUI.status === 'idle' || voiceUI.status === 'done'
     if (voiceUI.active && !voiceMinimized) {
-      setVoiceMinimized(true)       // 열려 있으면 최소화
+      if (idleOrDone && !BUSY_STATUS.includes(voiceUI.status)) {
+        // 대기/완료 상태면 새 음성 세션 시작 (두들기면 바로 말할 수 있게)
+        voiceSessionRef.current?.()
+      } else {
+        setVoiceMinimized(true)     // 처리 중이면 최소화
+      }
     } else if (voiceUI.messages.length > 0) {
-      // 이전 대화가 있으면 그대로 펼쳐서 보여줌
+      // 최소화 상태 → 펼치기
       setVoiceUI(prev => ({ ...prev, active: true }))
       setVoiceMinimized(false)
     } else {
-      voiceSessionRef.current?.()   // 대화 이력이 없으면 새 음성 세션 시작
+      voiceSessionRef.current?.()   // 대화 이력 없으면 새 세션 시작
     }
   }
 

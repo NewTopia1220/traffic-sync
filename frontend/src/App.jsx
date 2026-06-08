@@ -360,6 +360,33 @@ export default function App() {
         isMuted={assistant.isMuted}
         onToggleMute={assistant.toggleMute}
       />
+
+      {/* 로그인 브리핑 카드 */}
+      {loginBriefing && (
+        <LoginBriefingCard
+          briefing={loginBriefing}
+          onClose={() => setLoginBriefing(null)}
+          onTTSDone={() => {
+            const { name, gu } = loginBriefing
+            setLoginBriefing(null)
+            assistant.activatePendingBriefing(name, gu)
+          }}
+        />
+      )}
+
+      {/* AI 플로팅 버튼 */}
+      <AIFloatingButton
+        active={assistant.voiceUI.active}
+        minimized={assistant.voiceMinimized}
+        onClick={assistant.onFloatingClick}
+      />
+
+      {/* 구 분석 시작 확인 팝업 */}
+      <PendingBriefingPopup
+        pending={assistant.pendingBriefing}
+        onStart={assistant.acceptPendingBriefing}
+        onDismiss={assistant.dismissPendingBriefing}
+      />
     </>
   )
 }
