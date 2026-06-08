@@ -4,13 +4,14 @@ import { getCrLonLat } from "../utils/geoUtils";
 import { calculateRouteTravelDir } from "../utils/routeUtils";
 import { mapCarToTrafficDirection } from "../utils/canvasUtils";
 import { offsetRoutePoints } from "../utils/geoUtils";
+import { hasLeftTurnSignal, isLeftTurnMovement } from "../utils/signalUtils";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
 /**
  * @param {{ start, end, viaCrossroads, routePoints, routePointsRef, onRouteTrafficChange }}
  */
-export function useRouteTraffic({ start, end, viaCrossroads, routePoints, routePointsRef, onRouteTrafficChange }) {
+export function useRouteTraffic({ start, end, viaCrossroads, routePoints, routePointsRef, onRouteTrafficChange, onBlockedLeftTurn }) {
   const routeTrafficRequestRef = useRef({ key: "", seq: 0 });
   const routeTrafficRef = useRef(null);
   const routeVehicleMovementsRef = useRef({});
@@ -80,6 +81,24 @@ export function useRouteTraffic({ start, end, viaCrossroads, routePoints, routeP
       if (routeTrafficRequestRef.current.seq !== seq) return;
 
       routeVehicleMovementsRef.current = data?.vehicleMovements || {};
+
+      const blockedLeftTurn = await findBlockedLeftTurnNode(routeNodes, data?.vehicleMovements);
+      if (blockedLeftTurn) {
+        routeVehicleMovementsRef.current = {};
+        startCarDirectionRef.current = null;
+        routeTrafficRef.current = null;
+
+        routeTrafficRequestRef.current = {
+          key: "",
+          seq: routeTrafficRequestRef.current.seq + 1,
+        };
+
+        setRouteTraffic(null);
+        onRouteTrafficChange?.(null);
+        onBlockedLeftTurn?.(blockedLeftTurn);
+        return;
+      }
+
       const rightLanePoints = offsetRoutePoints(routePointsRef.current, 10);
       const startCarPos = rightLanePoints[0];
       const firstSegment =
@@ -111,6 +130,29 @@ export function useRouteTraffic({ start, end, viaCrossroads, routePoints, routeP
       if (routeTrafficRequestRef.current.seq !== seq) return;
       console.warn("TOPIS 경로 속도 데이터 로드 실패", err);
     }
+  }
+
+  async function findBlockedLeftTurnNode(routeNodes, vehicleMovements) {
+    for (const node of routeNodes) {
+      const movement = vehicleMovements?.[String(node.intNo)];
+
+      if (!movement || !isLeftTurnMovement(movement)) continue;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/signal/simulation/context/${node.intNo}`);
+        if (!res.ok) continue;
+
+        const ctx = await res.json();
+
+        if (!hasLeftTurnSignal(ctx, movement)) {
+          return { node, movement };
+        }
+      } catch (err) {
+        console.warn("좌회전 신호 확인 실패", node.intNo, err);
+      }
+    }
+
+    return null;
   }
 
   // 경로 노드 변경 시 교통정보 재fetch
