@@ -295,6 +295,7 @@ public class TopisSimulationTrafficService {
         }
 
         response.put("segments", segments);
+        response.put("vehicleMovements", buildVehicleMovements(nodes, segments));
         return response;
     }
 
@@ -378,6 +379,7 @@ public class TopisSimulationTrafficService {
         }
 
         String selectedKey = directionKey(travelDir);
+        log.info("route-traffic selectedKey={}", selectedKey);
         if (selectedKey != null) {
             segment.put("selectedTraffic", segment.get(selectedKey));
         }
@@ -390,12 +392,12 @@ public class TopisSimulationTrafficService {
 
         String v = value.trim();
 
-        if ("up".equalsIgnoreCase(v) || "상행".equals(v)) {
-            return "상행";
+        if ("up".equalsIgnoreCase(v) || "\uC0C1\uD589".equals(v)) {
+            return "\uC0C1\uD589"; // 상행
         }
 
-        if ("down".equalsIgnoreCase(v) || "하행".equals(v)) {
-            return "하행";
+        if ("down".equalsIgnoreCase(v) || "\uD558\uD589".equals(v)) {
+            return "\uD558\uD589"; // 하행
         }
 
         return null;
@@ -949,6 +951,7 @@ public class TopisSimulationTrafficService {
         return "원활";
     }
 
+
     private static String directionKey(String axisDir) {
         String direction = safeDirection(axisDir).trim();
         if ("\uC0C1\uD589".equals(direction)) {
@@ -1047,4 +1050,152 @@ public class TopisSimulationTrafficService {
             long loadedAtMs
     ) {
     }
+
+    private Map<String, Object> buildVehicleMovements(List<RouteNode> nodes, List<Map<String, Object>> segments) {
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        for (int i = 1; i < nodes.size(); i++) {
+            RouteNode node = nodes.get(i);
+
+            Map<String, Object> incomingSegment = i - 1 < segments.size() ? segments.get(i - 1) : null;
+            Map<String, Object> outgoingSegment = i < segments.size() ? segments.get(i) : null;
+
+            Double approachBearing = selectedLinkBearingNearNode(incomingSegment, node.point(), i > 0 ? nodes.get(i - 1).point() : null, node.point());
+            Double exitBearing = selectedLinkBearingNearNode(outgoingSegment, node.point(), node.point(), i + 1 < nodes.size() ? nodes.get(i + 1).point() : null);
+
+            if (approachBearing == null && exitBearing == null) continue;
+
+            Map<String, Object> movement = new LinkedHashMap<>();
+            movement.put("intNo", node.intNo());
+            movement.put("intNm", node.intNm());
+
+            if (approachBearing != null) {
+                movement.put("approachBearing", Math.round(approachBearing));
+                movement.put("from", oppositeCompass(angleToCompass(approachBearing)));
+            }
+
+            if (exitBearing != null) {
+                movement.put("exitBearing", Math.round(exitBearing));
+                movement.put("to", angleToCompass(exitBearing));
+            }
+
+            result.put(String.valueOf(node.intNo()), movement);
+        }
+
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Double selectedLinkBearingNearNode(Map<String, Object> segment, GeoPoint nodePoint, GeoPoint routeFrom, GeoPoint routeTo) {
+        if (segment == null) return null;
+
+        Object selected = segment.get("selectedTraffic");
+        if (!(selected instanceof Map<?, ?> selectedMap)) return null;
+
+        Object rawVertices = selectedMap.get("vertices");
+        if (!(rawVertices instanceof List<?> rawList) || rawList.size() < 2) return null;
+
+        List<GeoPoint> vertices = new ArrayList<>();
+        for (Object item : rawList) {
+            if (!(item instanceof Map<?, ?> map)) continue;
+            Double lat = doubleValue(map, "lat");
+            Double lon = doubleValue(map, "lon");
+            if (lat != null && lon != null) {
+                vertices.add(new GeoPoint(lat, lon));
+            }
+        }
+
+        if (vertices.size() < 2) return null;
+
+        double bestDistance = Double.MAX_VALUE;
+        double bestBearing = bearingDegrees(vertices.get(0), vertices.get(1));
+
+        for (int i = 0; i < vertices.size() - 1; i++) {
+            GeoPoint a = vertices.get(i);
+            GeoPoint b = vertices.get(i + 1);
+//            double distance = GeoDistanceUtils.distanceToSegmentMeters(nodePoint, a, b);
+            double distance = distanceToSegmentMeters(nodePoint, a, b);
+
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestBearing = bearingDegrees(a, b);
+            }
+        }
+
+        if (routeFrom != null && routeTo != null) {
+            double routeBearing = bearingDegrees(routeFrom, routeTo);
+            if (angleDiffDegrees(bestBearing, routeBearing) > 90.0) {
+                bestBearing = (bestBearing + 180.0) % 360.0;
+            }
+        }
+
+        return bestBearing;
+    }
+
+    private static String angleToCompass(double angle) {
+        double a = ((angle % 360.0) + 360.0) % 360.0;
+
+        if (a < 15 || a >= 345) return "\uBD81";       // 북
+        if (a < 75) return "\uBD81\uB3D9";             // 북동
+        if (a < 105) return "\uB3D9";                  // 동
+        if (a < 165) return "\uB0A8\uB3D9";            // 남동
+        if (a < 195) return "\uB0A8";                  // 남
+        if (a < 255) return "\uB0A8\uC11C";            // 남서
+        if (a < 285) return "\uC11C";                  // 서
+        if (a < 345) return "\uBD81\uC11C";            // 북서
+        return "\uBD81";
+    }
+
+    private static String oppositeCompass(String compass) {
+        return switch (compass) {
+//            case "북" -> "남";
+//            case "북동" -> "남서";
+//            case "동" -> "서";
+//            case "남동" -> "북서";
+//            case "남" -> "북";
+//            case "남서" -> "북동";
+//            case "서" -> "동";
+//            case "북서" -> "남동";
+//            default -> null;
+            case "\uBD81" -> "\uB0A8";                 // 북 -> 남
+            case "\uBD81\uB3D9" -> "\uB0A8\uC11C";     // 북동 -> 남서
+            case "\uB3D9" -> "\uC11C";                 // 동 -> 서
+            case "\uB0A8\uB3D9" -> "\uBD81\uC11C";     // 남동 -> 북서
+            case "\uB0A8" -> "\uBD81";                 // 남 -> 북
+            case "\uB0A8\uC11C" -> "\uBD81\uB3D9";     // 남서 -> 북동
+            case "\uC11C" -> "\uB3D9";                 // 서 -> 동
+            case "\uBD81\uC11C" -> "\uB0A8\uB3D9";     // 북서 -> 남동
+            default -> null;
+        };
+    }
+
+    private static double distanceToSegmentMeters(GeoPoint point, GeoPoint start, GeoPoint end) {
+        double metersPerDegLat = 111320.0;
+        double metersPerDegLon = metersPerDegLat * Math.cos(Math.toRadians(point.getLat()));
+
+        double px = point.getLon() * metersPerDegLon;
+        double py = point.getLat() * metersPerDegLat;
+        double ax = start.getLon() * metersPerDegLon;
+        double ay = start.getLat() * metersPerDegLat;
+        double bx = end.getLon() * metersPerDegLon;
+        double by = end.getLat() * metersPerDegLat;
+
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lenSq = dx * dx + dy * dy;
+
+        if (lenSq == 0.0) {
+            return Math.hypot(px - ax, py - ay);
+        }
+
+        double t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+        t = Math.max(0.0, Math.min(1.0, t));
+
+        double closestX = ax + dx * t;
+        double closestY = ay + dy * t;
+
+        return Math.hypot(px - closestX, py - closestY);
+    }
+
+
 }
