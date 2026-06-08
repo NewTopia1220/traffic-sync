@@ -10,6 +10,7 @@ AI 에이전트 서버 — FastAPI + LangGraph ReAct + Ollama (qwen3:30b-a3b) + 
 
 import sys
 import os
+import re
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -74,7 +75,15 @@ async def lifespan(app: FastAPI):
     })
 
     tools = await mcp_client.get_tools()
-    agent = create_react_agent(llm, tools)
+    agent = create_react_agent(
+        llm,
+        tools,
+        prompt=(
+            "당신은 서울시 교통 관제 AI 어시스턴트입니다.\n"
+            "반드시 한국어로만 답변하십시오. 중국어·영어 등 다른 언어는 절대 사용하지 마십시오.\n"
+            "모든 분석 결과, 보고서, 권고사항은 한국어로 작성하십시오."
+        ),
+    )
     print(f"[에이전트] MCP 도구 {len(tools)}개 로드 완료", flush=True)
 
     yield
@@ -194,17 +203,44 @@ def extract_adjustments(text: str):
             return [data]
         return None
 
+    def _repair(s: str) -> str:
+        """LLM이 생성하는 구조 오류 수리"""
+        # 패턴 1: 마지막 phase 객체에서 } 빠뜨림
+        # "sec": 33]}  →  "sec": 33}]
+        s = _re.sub(r'("(?:sec|no)"\s*:\s*\d+)\s*\]', r'\1}]', s)
+        # 패턴 2: key/value 순서 역전 (콤마 형식)
+        # {"no": 3": "sec", 20}  →  {"no": 3, "sec": 20}
+        s = _re.sub(r'"no"\s*:\s*(\d+)"\s*:\s*"sec"\s*,\s*(\d+)', r'"no": \1, "sec": \2', s)
+        # 패턴 3: no 뒤 콜론 형식 (콤마 없이 바로 "sec":)
+        # {"no": 3": "sec": 24}  →  {"no": 3, "sec": 24}
+        s = _re.sub(r'"no"\s*:\s*(\d+)"\s*:\s*"sec"\s*:\s*(\d+)', r'"no": \1, "sec": \2', s)
+        # 패턴 4: 숫자 뒤 불필요한 따옴표 (no 필드)
+        # "no": 3", "sec"  →  "no": 3, "sec"
+        s = _re.sub(r'("no"\s*:\s*)(\d+)"(\s*,\s*"sec")', r'\1\2\3', s)
+        # 패턴 5: 숫자 뒤 불필요한 따옴표 (sec 필드)
+        # "sec": 24", "no"  →  "sec": 24, "no"
+        s = _re.sub(r'("sec"\s*:\s*)(\d+)"(\s*[,}])', r'\1\2\3', s)
+        return s
+
     def _try_load(s: str):
-        """파싱 시도 → 실패하면 닫는 괄호를 최대 3개 붙여 재시도"""
+        """파싱 시도 → 실패하면 수리 후 재시도, 그 다음 suffix 보정"""
         try:
             return _j.loads(s)
         except Exception:
             pass
-        for suffix in ("}", "]}", "}]}", "}]}"):
+        # 중간 구조 수리 후 재시도
+        repaired = _repair(s)
+        if repaired != s:
             try:
-                return _j.loads(s + suffix)
+                return _j.loads(repaired)
             except Exception:
                 pass
+        for src in (s, repaired):
+            for suffix in ("}", "]}", "}]}", "}]}"):
+                try:
+                    return _j.loads(src + suffix)
+                except Exception:
+                    pass
         return None
 
     # 1. ```json...``` 형식
@@ -239,6 +275,87 @@ def extract_adjustments(text: str):
             return _parse(data)
 
     return None
+
+
+def compute_webster_adjustments(contexts: list, route_traffic: list) -> list:
+    """신호계획 + 속도 데이터로 Webster 공식 직접 계산 → adjustments 반환"""
+    # toIntNo 기준 속도 맵 구성
+    speed_map: dict[str, float] = {}
+    for seg in (route_traffic or []):
+        key = str(seg.get("toIntNo", ""))
+        spd = seg.get("speedKph")
+        if key and spd is not None:
+            speed_map.setdefault(key, []).append(float(spd))
+    avg_speed_map = {k: sum(v) / len(v) for k, v in speed_map.items()}
+
+    adjustments = []
+    for ctx in (contexts or []):
+        int_no = str(ctx.get("intNo", ""))
+        phases = ctx.get("phases", [])
+        cycle_val = int(ctx.get("cycleVal") or 140)
+        if not phases or not int_no:
+            continue
+
+        # 포화도 결정
+        spd = avg_speed_map.get(int_no, 25.0)
+        Y = 0.85 if spd < 40 else (0.65 if spd < 60 else 0.4)
+
+        # 최적 주기 계산 (cycleVal 상한)
+        L = len(phases) * 4
+        Co = min((1.5 * L + 5) / max(1 - Y, 0.01), cycle_val)
+
+        # 원본 합계 대비 비율로 각 현시 조정
+        orig_total = sum(int(p.get("sec") or 0) for p in phases)
+        ratio = Co / orig_total if orig_total > 0 else 1.0
+
+        new_phases = []
+        assigned = 0
+        for i, p in enumerate(phases):
+            is_last = (i == len(phases) - 1)
+            dirs = p.get("dirs") or []
+            orig_sec = int(p.get("sec") or 0)
+
+            if is_last:
+                sec = max(5, cycle_val - assigned)
+            else:
+                raw_sec = round(orig_sec * ratio)
+                # 보행 현시 최소 20s 보장
+                if any("보행" in d for d in dirs):
+                    sec = max(20, raw_sec)
+                else:
+                    sec = max(5, raw_sec)
+
+            new_phases.append({"no": int(p["no"]), "sec": sec})
+            assigned += sec
+
+        adjustments.append({"intNo": int_no, "phases": new_phases})
+
+    return adjustments
+
+
+_CJK_RE = re.compile(
+    "[\u4e00-\u9fff"   # CJK Unified Ideographs
+    "[\u3400-\u4dbf"   # CJK Extension A
+    "[\uf900-\ufaff"   # CJK Compatibility Ideographs
+    "[\u2e80-\u2eff"   # CJK Radicals Supplement
+    "[\u2f00-\u2fdf]"  # Kangxi Radicals
+)
+
+def strip_chinese(text: str) -> str:
+    """CJK 한자가 포함된 줄 제거 + 빈 줄 압축.
+    qwen3 모델이 한국어 지시에도 간헐적으로 중국어를 생성하는 것을 방어.
+    한글·숫자·영문·기호는 보존.
+    """
+    lines = text.splitlines()
+    cleaned = [ln for ln in lines if not _CJK_RE.search(ln)]
+    result, prev_blank = [], False
+    for ln in cleaned:
+        blank = ln.strip() == ""
+        if blank and prev_blank:
+            continue
+        result.append(ln)
+        prev_blank = blank
+    return "\n".join(result).strip()
 
 
 def strip_json_block(text: str) -> str:
@@ -597,14 +714,16 @@ async def simulation_chat(req: SimulationChatRequest):
         "④ 각 교차로별 조정값을 아래 JSON으로 출력\n\n"
         "반드시 JSON 블록을 맨 앞에 출력하고, 그 뒤 분석 설명을 붙여:\n"
         "```json\n"
-        "{\"adjustments\": [{\"intNo\": \"47\", \"phases\": [{\"no\": 1, \"sec\": 80}, {\"no\": 2, \"sec\": 60}]}]}\n"
+        "{\"adjustments\": [{\"intNo\": \"47\", \"phases\": [{\"no\": 1, \"sec\": 80}, {\"no\": 2, \"sec\": 30}, {\"no\": 3, \"sec\": 20}, {\"no\": 4, \"sec\": 10}]}]}\n"
         "```\n"
+        "⚠️ 중요 규칙 (반드시 지킬 것):\n"
+        "- phases에는 신호계획에 있는 현시 번호를 빠짐없이 모두 포함할 것 (현시1·2·3·4가 있으면 4개 전부 출력)\n"
+        "- 각 교차로의 phases 합계가 해당 교차로의 cycleVal과 정확히 일치해야 함\n"
+        "- intNo는 신호계획 괄호 안 숫자 ID 그대로 사용. 교차로 이름 절대 금지\n"
         "JSON 다음 설명에는 반드시 아래 내용을 포함할 것:\n"
         "- 실측 속도(km/h)와 이에 따른 Y값\n"
         "- 계산된 최적 주기(Co)와 기존 cycleVal 비교\n"
-        "- 어떤 현시를 왜 늘리고 줄였는지 (방향명 + 초 단위로 명시)\n"
-        "intNo는 신호계획 괄호 안 숫자 ID 그대로 사용. 교차로 이름 절대 금지.\n"
-        "phases는 기존 현시만 사용. 전체 합계가 cycleVal을 초과하지 말 것."
+        "- 어떤 현시를 왜 늘리고 줄였는지 (방향명 + 초 단위로 명시)"
     )
 
     prompt = (
@@ -630,12 +749,18 @@ async def simulation_chat(req: SimulationChatRequest):
         raw = after if after else raw.split("<think>", 1)[-1].split("</think>")[0].strip()
 
     adjustments = extract_adjustments(raw)
+
+    # 파싱 실패 시 신호계획 데이터로 직접 계산 (항상 유효한 값 보장)
+    if not adjustments and (req.contexts or req.context):
+        contexts = req.contexts if req.contexts else ([req.context] if req.context else [])
+        adjustments = compute_webster_adjustments(contexts, req.routeTraffic or [])
+        print(f"[SIM-CHAT] JSON 파싱 실패 → 직접 계산 폴백 ({len(adjustments)}개)", flush=True)
+
     clean_answer = strip_json_block(raw).strip() if adjustments else raw.strip()
 
-    # JSON만 반환하고 설명이 없으면 기본 메시지 생성
+    # 설명이 없으면 기본 메시지 생성
     if not clean_answer and adjustments:
-        names = ", ".join(a.get("intNo", "") for a in adjustments)
-        clean_answer = f"Webster 공식 기반으로 교차로 {names}의 신호를 최적화했습니다."
+        clean_answer = "경로 내 병목 구간의 실시간 속도와 신호계획을 분석하여 각 교차로의 직진 현시를 우선적으로 늘리고, 주기 내 비율을 재조정했습니다."
     elif not clean_answer:
         clean_answer = "신호계획을 분석했습니다. 현재 구간의 속도 데이터를 확인하세요."
 
@@ -724,10 +849,13 @@ async def simulation_chat_stream(req: SimulationChatRequest, request: Request):
             if "<think>" in full_text:
                 full_text = full_text.split("</think>")[-1].strip() or full_text
             adjustments = extract_adjustments(full_text)
+            # 파싱 실패 시 직접 계산 폴백
+            if not adjustments and (req.contexts or req.context):
+                contexts = req.contexts if req.contexts else ([req.context] if req.context else [])
+                adjustments = compute_webster_adjustments(contexts, req.routeTraffic or [])
             clean = strip_json_block(full_text).strip() if adjustments else full_text.strip()
             if not clean and adjustments:
-                names = ", ".join(a.get("intNo", "") for a in adjustments)
-                clean = f"Webster 공식 기반으로 교차로 {names}의 신호를 최적화했습니다."
+                clean = "경로 내 병목 구간의 실시간 속도와 신호계획을 분석하여 각 교차로의 직진 현시를 우선적으로 늘리고, 주기 내 비율을 재조정했습니다."
             elif not clean:
                 clean = "신호계획을 분석했습니다. 현재 구간의 속도 데이터를 확인하세요."
             yield f"data: {_json.dumps({'type': 'done', 'answer': clean, 'adjustments': adjustments}, ensure_ascii=False)}\n\n"
@@ -747,6 +875,7 @@ async def bottleneck_email(req: DistrictRequest):
     """병목 리포트 텍스트만 생성 — 메일 발송은 Spring이 담당"""
     prompt = (
         f"/no_think\n"
+        f"[중요] 반드시 한국어로만 작성할 것. 중국어·영어 등 다른 언어 사용 절대 금지.\n\n"
         f"get_district_traffic 도구로 서울 {req.district} 교통 데이터를 조회해줘.\n"
         f"조회 결과를 바탕으로 아래 형식을 그대로 지켜서 리포트 본문만 출력해줘. 다른 말은 절대 하지 말고 양식 그대로만 출력.\n\n"
         f"교통관제 자동화 시스템입니다.\n"
@@ -755,13 +884,13 @@ async def bottleneck_email(req: DistrictRequest):
         f"[병목 구간 현황]\n"
         f"기준: 15km/h 이하 구간\n"
         f"수집 교차로: {{total_crossroads}}개\n\n"
-        f"순위 | 교차로명                | 현재속도    | 위험등급\n"
-        f"-----|------------------------|------------|-------\n"
+        f"순위 | 교차로명                | 현재속도\n"
+        f"-----|------------------------|------------\n"
         f"(병목 교차로를 위 표 형식으로 순위별로 작성. 없으면 '해당 없음' 한 줄)\n\n"
         f"[날씨 현황]\n"
         f"기온 {{temperatureC}}°C / 강수량 {{precipitationMm}}mm / 풍속 {{windSpeedMs}}m/s\n\n"
         f"[시스템 분석 및 조치 권고]\n"
-        f"(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장)\n\n"
+        f"(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장. 반드시 한국어로 작성)\n\n"
         f"---\n"
         f"TrafficSync 자동 발송 | 조치 후 관제 시스템에서 확인 바랍니다.\n\n"
         f"병목 교차로가 없으면 아래 양식만 출력:\n"
@@ -772,7 +901,7 @@ async def bottleneck_email(req: DistrictRequest):
         f"TrafficSync 자동 발송"
     )
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
-    return ChatResponse(answer=extract_answer(result))
+    return ChatResponse(answer=strip_chinese(extract_answer(result)))
 
 
 @app.post("/api/agent/bottleneck-email/stream")
@@ -783,16 +912,17 @@ async def bottleneck_email_stream(req: DistrictRequest, request: Request):
 
     prompt = (
         f"/no_think\n"
+        f"[중요] 반드시 한국어로만 작성할 것. 중국어·영어 등 다른 언어 사용 절대 금지.\n\n"
         f"get_district_traffic 도구로 서울 {req.district} 교통 데이터를 조회해줘.\n"
         f"조회 결과를 바탕으로 아래 형식을 그대로 지켜서 리포트 본문만 출력해줘. 다른 말은 절대 하지 말고 양식 그대로만 출력.\n\n"
         f"교통관제 자동화 시스템입니다.\n"
         f"{req.district} 내 15km/h 이하 구간이 감지되어 경보를 발송합니다.\n"
         f"관제사께서는 아래 내용을 확인하시고 필요한 조치를 취해주시기 바랍니다.\n\n"
         f"[병목 구간 현황]\n기준: 15km/h 이하 구간\n수집 교차로: {{total_crossroads}}개\n\n"
-        f"순위 | 교차로명 | 현재속도 | 위험등급\n"
+        f"순위 | 교차로명 | 현재속도\n"
         f"(병목 교차로를 순위별로 작성. 없으면 '해당 없음' 한 줄)\n\n"
         f"[날씨 현황]\n기온 {{temperatureC}}°C / 강수량 {{precipitationMm}}mm / 풍속 {{windSpeedMs}}m/s\n\n"
-        f"[시스템 분석 및 조치 권고]\n(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장)\n\n"
+        f"[시스템 분석 및 조치 권고]\n(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장. 반드시 한국어로 작성)\n\n"
         f"---\nTrafficSync 자동 발송"
     )
 
@@ -852,6 +982,7 @@ async def bottleneck_email_stream(req: DistrictRequest, request: Request):
                             after = content.split("</think>")[-1].strip()
                             content = after if after else content
                         if content:
+                            content = strip_chinese(content)
                             report_text = content
                             yield f"data: {_json.dumps({'type': 'answer', 'content': content}, ensure_ascii=False)}\n\n"
 

@@ -72,6 +72,7 @@ export function useAssistant({ page, onNavIntent }) {
     setIsMuted(next)
   }
 
+
   // ── 페이지 이동 차단 ────────────────────────────────────────────
   const blockNav = () => {
     setNavBlockMsg('분석 중에는 다른 페이지로 이동할 수 없습니다.')
@@ -157,7 +158,7 @@ export function useAssistant({ page, onNavIntent }) {
 
   // ── 전역 박수 감지 → 음성 세션 시작/중단 ────────────────────────
   useClapDetection({
-    enabled: page === 'main' && !(voiceUI.active && !voiceMinimized),
+    enabled: false,
     onDoubleClap: useCallback(() => {
       if (window.__chatbotSpeaking) return
       if (page === 'map') return  // 지도 페이지는 지도 챗봇 훅이 처리
