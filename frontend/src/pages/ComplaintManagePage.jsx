@@ -159,7 +159,7 @@ export default function ComplaintManagePage({
       {/* ── 공통 헤더 ── */}
       <AppHeader
         activePage="complaints"
-        selectedGu={headerSelectedGu}
+        selectedGu={null}
         statusText={`민원 ${counts.전체}건`}
         statusLive={counts.전체 > 0}
         onGoMain={onGoMain}
