@@ -180,6 +180,7 @@ def extract_adjustments(text: str):
       ```json { "adjustments": [...] } ```  ← 백틱 형식
       {"adjustments": [...]} 텍스트         ← 백틱 없는 raw JSON
       { "intNo": "...", "phases": [...] }   ← 단일 (하위 호환)
+    LLM이 마지막 } 를 빠뜨리는 경우 자동 수리 시도
     """
     import re as _re
     import json as _j
@@ -193,25 +194,49 @@ def extract_adjustments(text: str):
             return [data]
         return None
 
-    # 1. ```json...``` 형식
-    match = _re.search(r"```json\s*(.*?)\s*```", text, _re.DOTALL)
-    if match:
+    def _try_load(s: str):
+        """파싱 시도 → 실패하면 닫는 괄호를 최대 3개 붙여 재시도"""
         try:
-            return _parse(_j.loads(match.group(1)))
+            return _j.loads(s)
         except Exception:
             pass
+        for suffix in ("}", "]}", "}]}", "}]}"):
+            try:
+                return _j.loads(s + suffix)
+            except Exception:
+                pass
+        return None
+
+    # 1. ```json...``` 형식
+    match = _re.search(r"```json\s*(.*?)\s*(?:```|$)", text, _re.DOTALL)
+    if match:
+        data = _try_load(match.group(1).strip())
+        if data is not None:
+            result = _parse(data)
+            if result:
+                return result
 
     # 2. 백틱 없이 { 로 시작하는 raw JSON
     start = text.find('{"adjustments"')
     if start == -1:
         start = text.find('{"intNo"')
     if start != -1:
+        fragment = text[start:]
+        # 닫는 ``` 이전까지만 자르기
+        end = fragment.find("```")
+        if end != -1:
+            fragment = fragment[:end].strip()
         try:
             decoder = _j.JSONDecoder()
-            data, _ = decoder.raw_decode(text[start:])
-            return _parse(data)
+            data, _ = decoder.raw_decode(fragment)
+            result = _parse(data)
+            if result:
+                return result
         except Exception:
             pass
+        data = _try_load(fragment)
+        if data is not None:
+            return _parse(data)
 
     return None
 

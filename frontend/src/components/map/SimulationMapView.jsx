@@ -1450,6 +1450,25 @@ export default function SimulationMapView({
     };
   }, [trafficLinkIds, trafficAreaKey]);
 
+  // VWorld SDK 내부 RangeError("Invalid array length") 가 브라우저 에러 다이얼로그로
+  // 표시되는 것을 억제합니다. WSViewerStartup.js 의 PVS 계산 버그로 발생하며
+  // 렌더링 루프는 자동 복구되므로 무시해도 안전합니다.
+  useEffect(() => {
+    const handler = (event) => {
+      if (
+        event.error instanceof RangeError &&
+        (event.error.message?.includes("Invalid array length") ||
+          event.error.message?.includes("length"))
+      ) {
+        event.preventDefault();
+        console.warn("[VWorld] RangeError 억제:", event.error.message);
+        return true;
+      }
+    };
+    window.addEventListener("error", handler);
+    return () => window.removeEventListener("error", handler);
+  }, []);
+
   useEffect(() => {
     if (!cesiumReady || !containerRef.current || viewerRef.current) return;
     if (!window.vw) return;
@@ -3257,24 +3276,30 @@ export default function SimulationMapView({
         const speed = getDirectionalSpeedKph(segment, lane.key);
         const congestion = getDirectionalCongestion(segment, lane.key);
         const color = getCongestionColor(congestion);
-        const lanePoints = offsetRoutePoints([from, to], lane.offset);
-        const labelPoints = offsetRoutePoints([from, to], lane.labelOffset);
+        const lanePoints = offsetRoutePoints([from, to], lane.offset)
+          .filter(p => Number.isFinite(p.lon) && Number.isFinite(p.lat));
+        const labelPoints = offsetRoutePoints([from, to], lane.labelOffset)
+          .filter(p => Number.isFinite(p.lon) && Number.isFinite(p.lat));
 
         if (lanePoints.length < 2) return;
 
-        overlayEntitiesRef.current.push(viewer.entities.add({
-          polyline: {
-            positions: Cesium.Cartesian3.fromDegreesArray(lanePoints.flatMap(p => [p.lon, p.lat])),
-            width: normalizeCongestion(congestion) === "정체" ? 10 : 8,
-            clampToGround: true,
-            material: new Cesium.PolylineGlowMaterialProperty({
-              glowPower: normalizeCongestion(congestion) === "정체" ? 0.42 : 0.28,
-              taperPower: 0.65,
-              color: Cesium.Color.fromCssColorString(color).withAlpha(1),
-            }),
-            zIndex: 42,
-          },
-        }));
+        try {
+          overlayEntitiesRef.current.push(viewer.entities.add({
+            polyline: {
+              positions: Cesium.Cartesian3.fromDegreesArray(lanePoints.flatMap(p => [p.lon, p.lat])),
+              width: normalizeCongestion(congestion) === "정체" ? 10 : 8,
+              clampToGround: true,
+              material: new Cesium.PolylineGlowMaterialProperty({
+                glowPower: normalizeCongestion(congestion) === "정체" ? 0.42 : 0.28,
+                taperPower: 0.65,
+                color: Cesium.Color.fromCssColorString(color).withAlpha(1),
+              }),
+              zIndex: 42,
+            },
+          }));
+        } catch (e) {
+          console.warn("[SimMap] 속도선 엔티티 추가 실패:", e.message);
+        }
 
         if (lane.key !== selectedLabelDirectionKey) return;
 
@@ -3288,19 +3313,25 @@ export default function SimulationMapView({
               lat: (from.lat + to.lat) / 2,
             };
 
+        if (!Number.isFinite(mid.lon) || !Number.isFinite(mid.lat)) return;
+
         const isBottleneckLabel = normalizeCongestion(congestion) === "정체";
 
-        overlayEntitiesRef.current.push(viewer.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(mid.lon, mid.lat, isBottleneckLabel ? 38 : 30),
-          billboard: {
-            image: createDirectionalSpeedLabelCanvas(lane.label, speed, congestion, segment?.axisName),
-            width: isBottleneckLabel ? 138 : 124,
-            height: isBottleneckLabel ? 66 : 46,
-            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            heightReference: Cesium.HeightReference.NONE,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-        }));
+        try {
+          overlayEntitiesRef.current.push(viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(mid.lon, mid.lat, isBottleneckLabel ? 38 : 30),
+            billboard: {
+              image: createDirectionalSpeedLabelCanvas(lane.label, speed, congestion, segment?.axisName),
+              width: isBottleneckLabel ? 138 : 124,
+              height: isBottleneckLabel ? 66 : 46,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+              heightReference: Cesium.HeightReference.NONE,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+          }));
+        } catch (e) {
+          console.warn("[SimMap] 속도 라벨 엔티티 추가 실패:", e.message);
+        }
       });
     }
   }

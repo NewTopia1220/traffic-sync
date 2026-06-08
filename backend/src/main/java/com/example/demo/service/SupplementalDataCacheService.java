@@ -239,10 +239,10 @@ public class SupplementalDataCacheService {
 
     private String calculateCongestion(Double speedKph, Map<String, SignalDirection> signals) {
         if (speedKph != null) {
-            if (speedKph < 20) {
-                return "혼잡";
+            if (speedKph < 15) {
+                return "정체";
             }
-            if (speedKph < 40) {
+            if (speedKph < 25) {
                 return "서행";
             }
             return "원활";

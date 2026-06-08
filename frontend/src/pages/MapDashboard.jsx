@@ -1,4 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+
+function useIsMobile(bp = 768) {
+  const [m, setM] = useState(() => window.innerWidth < bp);
+  useEffect(() => {
+    const h = () => setM(window.innerWidth < bp);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, [bp]);
+  return m;
+}
 import KakaoMapView from "../components/map/KakaoMapView";
 import SignalPanel from "../components/map/SignalPanel";
 import RoadViewModal from "../components/map/RoadViewModal";
@@ -29,6 +39,9 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
   const [showRoadView, setShowRoadView] = useState(false);
   const [selectedCctv, setSelectedCctv] = useState(null);
   const [chatOpen,     setChatOpen]     = useState(false);
+  const isMobile = useIsMobile();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetTouchY = useRef(null);
   const [signalPanelOpen, setSignalPanelOpen] = useState(true);
   const [complaints,       setComplaints]     = useState([]);
   const [selectedComplaint, setSelectedComplaint] = useState(null);
@@ -135,7 +148,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
 {/* 메인 — chatOpen 시 그리드에 챗봇 컬럼 추가 */}
       <div style={{
         flex: 1, display: "grid",
-        gridTemplateColumns: chatOpen ? `1fr 360px ${CHAT_W}px` : "1fr 360px",
+        gridTemplateColumns: isMobile ? "1fr" : (chatOpen ? `1fr 360px ${CHAT_W}px` : "1fr 360px"),
         gridTemplateRows: "1fr",
         minHeight: 0,
         overflow: "hidden",
@@ -143,10 +156,10 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
       }}>
 
         {/* 좌측 — 지도 */}
-        <div style={{ display: "flex", flexDirection: "column", padding: "10px 6px 10px 10px", minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", padding: isMobile ? 0 : "10px 6px 10px 10px", minHeight: 0 }}>
 
           {activeTab === "map" && (
-            <div style={{ flex: 1, position: "relative", minHeight: 0, borderRadius: 11, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <div style={{ flex: 1, position: "relative", minHeight: 0, borderRadius: isMobile ? 0 : 11, overflow: "hidden", border: isMobile ? "none" : "1px solid rgba(255,255,255,0.08)" }}>
               <KakaoMapView crossroads={wsData} selected={selected} onSelect={selectCr} initialCenter={initialCenter} selectedGu={selectedGu} onCctvClick={setSelectedCctv} stations={stations} onStationSelect={(id) => { console.log("지도에서 선택된 지점 ID:", id); }} complaints={complaints.filter(c => c.status !== "완료")} onComplaintClick={setSelectedComplaint} complaintCenter={complaintMapCenter} />
 
               {/* ── 구별 민원 현황 배지 — 활성 민원 1건 이상일 때만 표시 ── */}
@@ -224,9 +237,65 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
                 </button>
               </div>
 
+              {/* 모바일 바텀 시트 */}
+              {isMobile && (
+                <div
+                  style={{
+                    position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 60,
+                    background: "rgba(10,10,10,0.97)",
+                    borderTop: "1px solid #2a2418",
+                    borderRadius: "14px 14px 0 0",
+                    backdropFilter: "blur(14px)",
+                    WebkitBackdropFilter: "blur(14px)",
+                    transform: sheetOpen ? "translateY(0)" : "translateY(calc(100% - 68px))",
+                    transition: "transform 0.32s cubic-bezier(0.32,0.72,0,1)",
+                    maxHeight: "62vh",
+                    display: "flex", flexDirection: "column",
+                  }}
+                >
+                  {/* 핸들 — 스와이프/탭으로 열고 닫기 */}
+                  <div
+                    onTouchStart={e => { sheetTouchY.current = e.touches[0].clientY; }}
+                    onTouchEnd={e => {
+                      if (sheetTouchY.current == null) return;
+                      const dy = sheetTouchY.current - e.changedTouches[0].clientY;
+                      if (dy > 30) setSheetOpen(true);
+                      else if (dy < -30) setSheetOpen(false);
+                      else setSheetOpen(o => !o);
+                      sheetTouchY.current = null;
+                    }}
+                    onClick={() => setSheetOpen(o => !o)}
+                    style={{ padding: "12px 16px 10px", cursor: "pointer", flexShrink: 0, userSelect: "none" }}
+                  >
+                    <div style={{ width: 38, height: 4, borderRadius: 999, background: "#3a3a3a", margin: "0 auto 10px" }} />
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={{ fontSize: 12, color: "#4ea6ff", fontFamily: "monospace", fontWeight: 600 }}>교차로 {wsData.length}개</span>
+                      <span style={{ fontSize: 12, color: "#ff5566", fontFamily: "monospace", fontWeight: 600 }}>위험 {wsData.filter(isHighRisk).length}개</span>
+                      <span style={{ fontSize: 12, color: "#2ee07a", fontFamily: "monospace", fontWeight: 600 }}>평균 {avgSpeed}km/h</span>
+                      <span style={{ marginLeft: "auto", color: "#7a7a7a", fontSize: 14 }}>{sheetOpen ? "▼" : "▲"}</span>
+                    </div>
+                  </div>
+                  {/* 스크롤 콘텐츠 */}
+                  <div style={{ overflowY: "auto", flex: 1, minHeight: 0, padding: "0 12px 24px" }}>
+                    <ComplaintList
+                      complaints={complaints}
+                      selected={selectedComplaint}
+                      onSelect={c => { setSelectedComplaint(c); setComplaintMapCenter({ ...c, _t: Date.now() }); setSheetOpen(false); }}
+                      onStatusChange={fetchComplaints}
+                    />
+                    <div style={{ marginTop: 8 }}>
+                      <BottleneckList bottlenecks={bottlenecks} selected={selected} onSelect={cr => { selectCr(cr); setSheetOpen(false); }} crossroadsCount={wsData.length} />
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <RiskList risks={risks} onSelect={cr => { selectCr(cr); setSheetOpen(false); }} crossroadsCount={wsData.length} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 좌측 하단: 신호 현황 오버레이 */}
               {selected && signalPanelOpen && (
-                <div style={{ position: "absolute", bottom: 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 460, maxWidth: "calc(100% - 28px)", pointerEvents: "auto" }}>
+                <div style={{ position: "absolute", bottom: isMobile ? 76 : 14, left: 14, display: "flex", flexDirection: "column", gap: 8, zIndex: 20, width: 460, maxWidth: "calc(100% - 28px)", pointerEvents: "auto" }}>
                   <div style={{ background: "rgba(18,16,10,0.75)", border: "1px solid rgba(42,36,24,0.8)", borderRadius: 10, padding: 16, backdropFilter: "blur(8px)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
                       <div style={{ fontSize: 17, color: "#4ea6ff", fontWeight: 800, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.crsrdNm}</div>
@@ -254,8 +323,8 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
           )}
         </div>
 
-        {/* 우측 사이드바 — 항상 표시 */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 10px 10px 4px", overflowY: "auto", background: "#12100a" }}>
+        {/* 우측 사이드바 — 모바일에서 숨김 */}
+        {!isMobile && <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 10px 10px 4px", overflowY: "auto", background: "#12100a" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
             {[
               { label: "교차로 수",   value: wsData.length,                    suffix: "개",   color: "#4ea6ff" },
@@ -276,7 +345,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
           />
           <BottleneckList bottlenecks={bottlenecks} selected={selected} onSelect={selectCr} crossroadsCount={wsData.length} />
           <RiskList risks={risks} onSelect={selectCr} crossroadsCount={wsData.length} />
-        </div>
+        </div>}
 
         {/* 챗봇 패널 — chatOpen일 때만 그리드 컬럼에 렌더링 */}
         {chatOpen && (
