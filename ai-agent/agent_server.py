@@ -431,8 +431,10 @@ async def nav_intent(req: NavIntentRequest):
    - 시뮬레이션/신호/신호등 → simulation
    - CCTV/씨씨티비/카메라 → cctv
    - 뉴스/감성 → news
-2. 구 선택 명령 → {{"action":"select_gu","gu":"구이름"}}
-   - 서울 25개 구 중 하나가 포함되면: {', '.join(SEOUL_GU)}
+2. 구 선택/이동 명령 → {{"action":"select_gu","gu":"구이름"}}
+   - 반드시 "~로 가줘", "~으로 이동", "~구 선택", "~구 보여줘" 같은 명시적 이동/선택 표현이 있어야 함
+   - 단순히 구 이름만 언급하거나 질문("~구 날씨 어때", "~구 교통 어때")이면 unknown
+   - 해당 구: {', '.join(SEOUL_GU)}
 3. 마이페이지 → {{"action":"mypage"}}
    - 마이페이지/내 정보/프로필/설정
 4. 로그아웃 → {{"action":"logout"}}

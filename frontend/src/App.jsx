@@ -362,8 +362,8 @@ export default function App() {
         onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
         isMuted={assistant.isMuted}
         onToggleMute={assistant.toggleMute}
-        isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
-        onToggleMic={assistant.onFloatingClick}
+        isMicActive={assistant.voiceUI.active}
+        onToggleMic={assistant.toggleMicSession}
       />
 
       {/* 로그인 브리핑 카드 */}
@@ -394,6 +394,7 @@ export default function App() {
           pending={assistant.pendingBriefing}
           onStart={assistant.acceptPendingBriefing}
           onDismiss={assistant.dismissPendingBriefing}
+          shifted={assistant.voiceUI.active && !assistant.voiceMinimized}
         />
       )}
     </>

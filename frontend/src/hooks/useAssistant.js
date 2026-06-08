@@ -199,6 +199,15 @@ export function useAssistant({ page, onNavIntent }) {
   }
   const minimizeVoiceUI = () => setVoiceMinimized(true)
 
+  // 헤더 마이크 버튼: 한 번 → 세션 시작, 한 번 더 → 완전 종료
+  const toggleMicSession = () => {
+    if (voiceUI.active) {
+      closeVoiceUI()
+    } else {
+      voiceSessionRef.current?.()
+    }
+  }
+
   // AI 플로팅 버튼: 패널 열기(누적 대화 표시) / 토글
   const onFloatingClick = () => {
     const idleOrDone = voiceUI.status === 'idle' || voiceUI.status === 'done'
@@ -234,6 +243,11 @@ export function useAssistant({ page, onNavIntent }) {
     )
     // 매 세션마다 항상 인사 TTS 재생 — TTS 키 없으면 즉시 resolve됨
     await speakAsync(greeting)
+    // X가 눌렸으면 STT 자동 시작 전에 즉시 종료
+    if (sessionAbortedRef.current) {
+      setVoiceUI(prev => ({ ...prev, status: 'idle' }))
+      return
+    }
     // 인사 완료 후 idle로 전환해야 STT 자동 시작 가능
     setVoiceUI(prev => prev.status === 'greeting' ? { ...prev, status: 'idle' } : prev)
 
@@ -501,7 +515,7 @@ export function useAssistant({ page, onNavIntent }) {
     // 렌더 상태
     navBlockMsg, pendingBriefing, voiceUI, voiceMinimized, voiceSTTActive, msgEndRef,
     // 핸들러
-    startVoiceSTT, stopAllTTS, minimizeVoiceUI, closeVoiceUI, onFloatingClick,
+    startVoiceSTT, stopAllTTS, minimizeVoiceUI, closeVoiceUI, onFloatingClick, toggleMicSession,
     handleEmailConfirmClick, acceptPendingBriefing, dismissPendingBriefing,
   }
 }
