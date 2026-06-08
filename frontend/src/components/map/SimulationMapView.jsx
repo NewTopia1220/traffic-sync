@@ -28,9 +28,11 @@ export default function SimulationMapView({
   const markerEntitiesRef = useRef({});
   const routePointsRef = useRef([]);
   const viaCrossroadsRef = useRef([]);
+  const routeClearingRef = useRef(false);
   const startRef = useRef(null);
   const endRef = useRef(null);
   const destroyCallbackRef = useRef(null);
+  
 
   const [crossroads, setCrossroads] = useState([]);
   const [driveView, setDriveView] = useState(false);
@@ -69,13 +71,26 @@ export default function SimulationMapView({
     viewerRef, trafficAreaQuery, trafficAreaKey, mapReady, driveView, isSimulationActive,
   });
 
+  // const {
+  //   routeTraffic, routeTrafficRef,
+  //   fetchSignalCtx, prefetchSignals,
+  //   getBackendMovementForNode, getReverseBackendMovementForNode,
+  // } = useRouteTraffic({
+  //   start, end, viaCrossroads, routePoints, routePointsRef,
+  //   onRouteTrafficChange,
+  // });
   const {
     routeTraffic, routeTrafficRef,
     fetchSignalCtx, prefetchSignals,
     getBackendMovementForNode, getReverseBackendMovementForNode,
   } = useRouteTraffic({
-    start, end, viaCrossroads, routePoints, routePointsRef,
+    start,
+    end,
+    viaCrossroads,
+    routePoints,
+    routePointsRef,
     onRouteTrafficChange,
+    onBlockedLeftTurn: handleBlockedLeftTurn,
   });
 
   const {
@@ -91,6 +106,35 @@ export default function SimulationMapView({
     getBackendMovementForNode, getReverseBackendMovementForNode,
     isOptimized, driveView, onCurrentSignalChange,
   });
+
+  function handleBlockedLeftTurn(blockedLeftTurn) {
+    routeClearingRef.current = true;
+
+    routePointsRef.current = [];
+    viaCrossroadsRef.current = [];
+    startRef.current = null;
+    endRef.current = null;
+
+    stopAnimation();
+    clearOverlays();
+
+    setRoutePlan({ points: [], viaCrossroads: [] });
+
+    onRouteTrafficChange?.(null);
+    onCurrentSignalChange?.(null);
+    onStatsChange?.(null);
+    onAutoWaypointsChange?.([]);
+
+    onResetRoute?.();
+
+    setTimeout(() => {
+      clearOverlays();
+      viewerRef.current?.scene?.requestRender?.();
+
+      alert(`${blockedLeftTurn.node.intNm} 교차로의 해당 방향은 좌회전 신호가 없어 경로를 연결할 수 없습니다.`);
+      routeClearingRef.current = false;
+    }, 50);
+  }
 
   // destroyCallbackRef: useVWorldViewer 언마운트 전 다른 훅 정리
   destroyCallbackRef.current = () => {
@@ -111,9 +155,16 @@ export default function SimulationMapView({
       .catch(() => console.warn("교차로 데이터 로드 실패"));
   }, []);
 
+  
   // 경로 계획 재계산
   useEffect(() => {
-    if (selectedList.length < 2) { setRoutePlan({ points: [], viaCrossroads: [] }); return; }
+    if (routeClearingRef.current) return;
+
+    if (selectedList.length < 2) {
+      setRoutePlan({ points: [], viaCrossroads: [] });
+      return;
+    }
+
     setRoutePlan(buildRouteFromSelectedList(selectedList, crossroads));
   }, [
     selectedList.map(i => i.intNo).join("|"),
