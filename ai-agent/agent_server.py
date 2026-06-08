@@ -509,8 +509,9 @@ async def free_chat(req: ChatRequest):
         prompt = (
             f"/no_think\n"
             f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
-            f"구 단위 분석 요청이면 get_district_traffic 도구를 한 번만 호출하고, "
-            f"반환된 속도·위험도·날씨 데이터만으로 분석을 완성해줘. 추가 도구 호출 불필요.\n"
+            f"질문에 자치구 이름(예: 강남구, 서초구 등)이 있으면 반드시 get_district_traffic 도구를 호출해서 "
+            f"속도·위험도·날씨 데이터를 가져올 것. 날씨·교통·혼잡 관련 질문도 모두 이 도구로 처리할 것. "
+            f"추가 위치 질문 없이 즉시 도구를 호출할 것.\n"
             f"질문: {req.question}"
             f"{analysis_rule}"
             f"{email_ctx}"
@@ -567,8 +568,9 @@ async def free_chat_stream(req: ChatRequest, request: Request):
         prompt = (
             f"/no_think\n"
             f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
-            f"구 단위 분석 요청이면 get_district_traffic 도구를 한 번만 호출하고, "
-            f"반환된 속도·위험도·날씨 데이터만으로 분석을 완성해줘. 추가 도구 호출 불필요.\n"
+            f"질문에 자치구 이름(예: 강남구, 서초구 등)이 있으면 반드시 get_district_traffic 도구를 호출해서 "
+            f"속도·위험도·날씨 데이터를 가져올 것. 날씨·교통·혼잡 관련 질문도 모두 이 도구로 처리할 것. "
+            f"추가 위치 질문 없이 즉시 도구를 호출할 것.\n"
             f"질문: {req.question}"
             f"{analysis_rule}{email_ctx}"
         )

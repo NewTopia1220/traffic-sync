@@ -309,11 +309,11 @@ export function useAssistant({ page, onNavIntent }) {
       return
     }
 
-    // AI 스트리밍 (이미 이메일 확인했으면 스트리밍 후 재확인 생략)
+    // AI 스트리밍 — 이메일은 위에서 이미 물어봤으므로 두 번째 확인은 항상 스킵
     await streamAgent({
       endpoint: '/api/agent/chat/stream',
       body: { question: finalQuestion, userEmail: email },
-      skipEmailConfirm: emailPreConfirmed,
+      skipEmailConfirm: !!email,
       onError: async () => { await speakAsync('처리 중 오류가 발생했습니다.') },
     })
   }
