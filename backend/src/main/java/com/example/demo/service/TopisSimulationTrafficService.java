@@ -943,7 +943,7 @@ public class TopisSimulationTrafficService {
         if (speedKph <= 15.0) {
             return "정체";
         }
-        if (speedKph <= 25.0) {
+        if (speedKph < 25.0) {
             return "서행";
         }
         return "원활";
