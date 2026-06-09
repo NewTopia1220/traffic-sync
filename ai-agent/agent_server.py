@@ -57,6 +57,164 @@ sim_llm = ChatOllama(
     num_ctx=16384,
 )
 
+# ── 멀티에이전트 워커 LLM (exaone3.5:2.4b × 4, 포트별 독립 인스턴스) ────────────────
+WORKER_MODEL  = "exaone3.5:2.4b"
+WORKER_PORTS  = [11435, 11436, 11437, 11438]
+SPRING_BASE   = "http://localhost:8080"
+
+worker_llms = [
+    ChatOllama(
+        model=WORKER_MODEL,
+        base_url=f"http://localhost:{port}",
+        temperature=0.1,   # 낮출수록 일관성↑, 할루시네이션↓
+        num_predict=6000,  # think 토큰 충분히 확보 (느리지만 정확)
+        num_ctx=8192,
+    )
+    for port in WORKER_PORTS
+]
+
+# 방위각 계산
+def _calc_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    import math
+    dlon = math.radians(lon2 - lon1)
+    r1, r2 = math.radians(lat1), math.radians(lat2)
+    x = math.sin(dlon) * math.cos(r2)
+    y = math.cos(r1) * math.sin(r2) - math.sin(r1) * math.cos(r2) * math.cos(dlon)
+    return (math.degrees(math.atan2(x, y)) + 360) % 360
+
+def _bearing_dir(b: float) -> str:
+    if b < 45 or b >= 315: return 'N'
+    if b < 135: return 'E'
+    if b < 225: return 'S'
+    return 'W'
+
+def _haversine_km(lat1, lon1, lat2, lon2) -> float:
+    import math
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+DIR_KO = {'N': '북', 'S': '남', 'E': '동', 'W': '서'}
+
+def calc_signal_delta(spd_f: float) -> tuple[str, int]:
+    """속도 → (상태명, 권고 초 변화량) — 범위 아닌 중간 고정값으로 LLM 계산 제거"""
+    if spd_f < 10:
+        return "심한정체", +18   # 15~20 중간
+    elif spd_f < 20:
+        return "서행",   +10   # 8~12 중간
+    elif spd_f < 30:
+        return "약한정체", +4    # 3~5 중간
+    else:
+        return "원활",   -5
+
+def select_directional(center_lat, center_lon, crossroads):
+    """방향별(N/S/E/W) 가장 가까운 교차로 최대 4개 선택, 중심 교차로 제외"""
+    best: dict[str, tuple] = {}
+    for cr in crossroads:
+        b = _calc_bearing(center_lat, center_lon, cr['lat'], cr['lon'])
+        d = _bearing_dir(b)
+        dist = _haversine_km(center_lat, center_lon, cr['lat'], cr['lon'])
+        if dist < 0.05:          # 50m 이내 = 중심 교차로 자신
+            continue
+        if d not in best or dist < best[d][1]:
+            best[d] = (cr, dist)
+    order = ['N', 'E', 'S', 'W']
+    return [(cr, d) for d in order if d in best for (cr, _) in [best[d]]]
+
+async def _worker_discuss_turn(worker_llm, worker_idx, dir_ko, my_nm, my_analysis,
+                               analysis_results, discussion_so_far, queue):
+    """순차 토론 한 턴: 지금까지 나온 토론을 보고 이어서 대화"""
+    analyses = "\n".join(
+        f"[{r['direction']}쪽 {r['crossroad_name']}] {r['content']}"
+        for r in analysis_results
+    )
+    chat_so_far = "\n".join(
+        f"[{d['direction']}쪽 {d['crossroad_name']}]: {d['content']}"
+        for d in discussion_so_far
+    ) if discussion_so_far else "아직 없음"
+
+    prompt = (
+        f"/no_think 반드시 한국어로 짧게 답변하십시오.\n\n"
+        f"서울 교통 관제 AI 에이전트들이 실시간 대화 중이야.\n\n"
+        f"[1차 분석 결과]\n{analyses}\n\n"
+        f"[지금까지 대화]\n{chat_so_far}\n\n"
+        f"이제 네 차례야. 너는 {dir_ko}쪽 {my_nm} 담당.\n"
+        f"앞 에이전트들 말에 반응하거나 새로운 관점 추가. 2문장 이내로.\n"
+        f"수치(초) 언급하면 좋아. 운전자 안내 말투 금지. 관제 에이전트끼리 대화하듯."
+    )
+    await queue.put({'type': 'discuss_start', 'worker_id': worker_idx,
+                     'direction': dir_ko, 'crossroad_name': my_nm})
+    try:
+        result  = await worker_llm.ainvoke([{"role": "user", "content": prompt}])
+        content = strip_chinese((result.content if hasattr(result, 'content') else str(result)).strip())
+    except Exception as e:
+        content = f'토론 오류: {e}'
+    await queue.put({'type': 'discuss_done', 'worker_id': worker_idx,
+                     'direction': dir_ko, 'crossroad_name': my_nm, 'content': content})
+    return content
+
+
+async def _worker_analyze(worker_llm, cr, traffic_data, worker_idx, direction, queue):
+    """워커: 교차로 데이터 분석 후 결과를 queue에 push"""
+    dir_ko   = DIR_KO.get(direction, direction)
+    nm       = cr['crsrdNm']
+
+    await queue.put({'type': 'worker_start', 'worker_id': worker_idx,
+                     'direction': dir_ko, 'crossroad_name': nm,
+                     'lat': cr.get('lat'), 'lon': cr.get('lon')})
+    try:
+        if not traffic_data:
+            content   = f"{nm}: 실시간 데이터 없음 (캐시 미포함)"
+            spd       = 'N/A'
+            state, delta, delta_str = "데이터없음", None, "데이터없음"
+        else:
+            spd        = traffic_data.get('speedKph', 'N/A')
+            congestion = traffic_data.get('congestion', 'N/A')
+            risk       = traffic_data.get('riskGrade', 'N/A')
+
+            # Python 코드로 직접 계산 — LLM이 수치 선택 안 하도록
+            try:
+                spd_f   = float(spd)
+                state, delta = calc_signal_delta(spd_f)
+                sign      = "+" if delta >= 0 else ""
+                delta_str = f"{sign}{delta}초"
+                pressure  = f"{state}({spd}km/h) → 중심 교차로 {dir_ko}방향 유입 압력: {delta_str}"
+            except Exception:
+                state, delta, delta_str = "알수없음", None, "데이터없음"
+                pressure  = f"속도 데이터 없음, 혼잡={congestion}"
+
+            pressure_level = "높음" if (delta is not None and delta > 5) else "낮음"
+            prompt = (
+                f"/think 반드시 한국어로만 답변하십시오.\n\n"
+                f"[역할] 너는 데이터 보고 에이전트야. 신호 조정 결정은 오케스트레이터가 담당.\n"
+                f"[담당 교차로] {nm} ({dir_ko}쪽)\n\n"
+                f"[보유 데이터]\n"
+                f"  속도: {spd}km/h ({state})\n"
+                f"  혼잡: {congestion} / 위험도: {risk}\n"
+                f"  유입 압력 분석: {pressure}\n\n"
+                f"다른 에이전트들에게 2문장으로 보고:\n"
+                f"  문장1: {dir_ko}쪽 {nm}의 현재 속도/혼잡 상황\n"
+                f"  문장2: 중심 교차로 {dir_ko}방향 유입 압력 수준 ({pressure_level})\n\n"
+                f"✓ 예: '{dir_ko}쪽 {nm} {spd}km/h {state}. {dir_ko}방향 유입 압력 {pressure_level}, {pressure}'\n"
+                f"✗ 금지: 차량 대수('약 N대'), 교통량 수치, '운전자', '+N초 해달라' (신호 결정 금지)"
+            )
+            result  = await worker_llm.ainvoke([{"role": "user", "content": prompt}])
+            content = strip_chinese((result.content if hasattr(result, 'content') else str(result)).strip())
+
+        has_data = traffic_data is not None
+        await queue.put({'type': 'worker_done', 'worker_id': worker_idx,
+                         'direction': dir_ko, 'crossroad_name': nm,
+                         'content': content, 'has_data': has_data,
+                         'speed': spd, 'state': state,
+                         'delta': delta, 'delta_str': delta_str})
+    except Exception as e:
+        await queue.put({'type': 'worker_done', 'worker_id': worker_idx,
+                         'direction': dir_ko, 'crossroad_name': nm,
+                         'content': f'분석 오류: {e}', 'has_data': False,
+                         'speed': 'N/A', 'state': '오류', 'delta': None, 'delta_str': '데이터없음'})
+
 # 에이전트는 앱 시작 시 한 번만 생성 (MCP 클라이언트 포함)
 agent = None
 mcp_client = None
@@ -182,6 +340,13 @@ class ChatResponse(BaseModel):
 class ReportResponse(BaseModel):
     report: str
     district: str
+
+class MultiAnalyzeRequest(BaseModel):
+    lat: float
+    lon: float
+    crsrdId: str | None = None
+    crsrdNm: str | None = None
+    userEmail: str | None = None
 
 # ── 헬퍼 ────────────────────────────────────────────────────────────────────────
 
@@ -1191,6 +1356,227 @@ async def district_report(req: DistrictRequest):
 
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
     return ReportResponse(report=extract_answer(result), district=req.district)
+
+
+# ── 멀티에이전트: 방향별 주변 교차로 분석 ──────────────────────────────────────────
+
+@app.post("/api/agent/multi-analyze/stream")
+async def multi_analyze_stream(req: MultiAnalyzeRequest, request: Request):
+    """방향별(N/S/E/W) 워커 에이전트 병렬 분석 + 오케스트레이터 종합 SSE"""
+    import json as _json
+
+    async def generate():
+        try:
+            # 1. 인근 교차로 조회 — 100m 고정, 없으면 없는 대로 진행
+            async with httpx.AsyncClient(timeout=10.0) as cl:
+                nearby_r = await cl.get(
+                    f"{SPRING_BASE}/api/crossroads/nearby",
+                    params={"lat": req.lat, "lon": req.lon, "radius": 0.3},
+                )
+                nearby = nearby_r.json() if nearby_r.status_code == 200 else []
+            directional = select_directional(req.lat, req.lon, nearby) if nearby else []
+
+            if not directional:
+                yield f"data: {_json.dumps({'type':'error','content':'인근 교차로가 없습니다.'}, ensure_ascii=False)}\n\n"
+                return
+
+            # 3. 전체 신호 캐시 → crsrdId 기준 맵
+            async with httpx.AsyncClient(timeout=10.0) as cl:
+                sig_r = await cl.get(f"{SPRING_BASE}/api/signals")
+                raw   = sig_r.json() if sig_r.status_code == 200 else []
+            signals_map = {s['crsrdId']: s for s in (raw if isinstance(raw, list) else raw.values()) if 'crsrdId' in s}
+
+            # 4. 분석 시작 이벤트 (중심+방향 교차로 좌표 전송)
+            yield f"data: {_json.dumps({'type':'analyze_init','center':{'lat':req.lat,'lon':req.lon},'workers':[{'worker_id':i+1,'direction':DIR_KO.get(d,d),'crossroad_name':cr['crsrdNm'],'lat':cr['lat'],'lon':cr['lon']} for i,(cr,d) in enumerate(directional)]}, ensure_ascii=False)}\n\n"
+
+            # 5. 워커 병렬 실행
+            queue: asyncio.Queue = asyncio.Queue()
+            tasks = [
+                asyncio.create_task(
+                    _worker_analyze(
+                        worker_llms[i % len(worker_llms)],
+                        cr, signals_map.get(cr['crsrdId']),
+                        i + 1, direction, queue
+                    )
+                )
+                for i, (cr, direction) in enumerate(directional)
+            ]
+
+            # 5. 워커 이벤트 스트리밍
+            worker_results = []
+            done_count = 0
+            while done_count < len(tasks):
+                if await request.is_disconnected():
+                    for t in tasks: t.cancel()
+                    return
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=0.3)
+                except asyncio.TimeoutError:
+                    continue
+                yield f"data: {_json.dumps(msg, ensure_ascii=False)}\n\n"
+                if msg['type'] == 'worker_done':
+                    worker_results.append(msg)
+                    done_count += 1
+
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+            # 6. 라운드 2/3/4 — 워커 3라운드 순차 토론
+            yield f"data: {_json.dumps({'type':'discussion_start'}, ensure_ascii=False)}\n\n"
+
+            center_nm = req.crsrdNm or f"({req.lat:.4f},{req.lon:.4f})"
+            discuss_results = []
+            # 데이터 없는 워커는 토론에서 제외 (없는 숫자 지어내는 것 방지)
+            ordered_workers = sorted(
+                [r for r in worker_results if r.get('has_data', True)],
+                key=lambda x: x['worker_id']
+            )
+            num_workers     = len(ordered_workers)
+
+            STRICT_RULE = (
+                "\n\n[엄격 규칙]\n"
+                "✓ 언급 가능: 속도(km/h), 혼잡, 위험도, 유입 압력 수준(높음/낮음)\n"
+                "✗ 금지: 차량 대수('약 N대', '많은 차량'), 교통량 수치\n"
+                "✗ 금지: '+N초', '신호 연장', 신호 조정 수치 ← 수치 결정은 오케스트레이터만\n"
+                "✗ 금지: '운전자', '권장드립니다', '안전하게'"
+            )
+
+            ROUND_INSTRUCTIONS = [
+                # 1라운드: 자기 교차로 속도 데이터 + 유입 압력 공유 (신호 초 금지)
+                lambda dk, nm, last, cnm=center_nm: (
+                    f"너는 {dk}쪽 {nm} 담당 에이전트야. [1라운드: 유입 압력 공유]\n"
+                    f"자기 교차로 속도/혼잡 상황과 중심 교차로({cnm})로의 유입 압력 수준만 2문장으로 공유.\n"
+                    f"✓ 예: '{dk}쪽 {nm} 18km/h 서행. {cnm} {dk}방향 유입 압력 높음.'\n"
+                    f"✗ 금지: '+N초', '신호 연장' ← 신호 수치는 오케스트레이터 담당"
+                    + STRICT_RULE
+                ),
+                # 2라운드: 방향별 우선순위 논의 (신호 초 금지)
+                lambda dk, nm, last, cnm=center_nm: (
+                    f"너는 {dk}쪽 {nm} 담당 에이전트야. [2라운드: 우선순위 논의]\n"
+                    f"다른 방향들과 비교해서 {dk}방향 압력의 우선순위를 2문장으로 말해.\n"
+                    f"✓ 예: '{dk}쪽 압력이 북쪽보다 낮아, 우선순위 낮음. 북쪽 먼저 해결이 맞겠어.'\n"
+                    f"✗ 금지: '+N초', 신호 조정 수치 ← 오케스트레이터 담당"
+                    + STRICT_RULE
+                ),
+                # 3라운드: 압력 우선순위 합의 (마지막 워커는 종합 합의안)
+                lambda dk, nm, last, cnm=center_nm: (
+                    (
+                        f"너는 {dk}쪽 {nm} 담당 에이전트야. [3라운드: 우선순위 최종 합의]\n"
+                        f"방향별 유입 압력 순위를 정리해서 오케스트레이터에게 넘길 합의안 2문장.\n"
+                        f"✓ 예: '합의: 북>{dk}>남 순으로 압력 높음. 오케스트레이터가 이 순서로 신호 조정 바람.'\n"
+                        f"✗ 금지: '+N초', 신호 조정 수치"
+                    ) if last else (
+                        f"너는 {dk}쪽 {nm} 담당 에이전트야. [3라운드: 합의]\n"
+                        f"{dk}방향 압력 우선순위에 동의/수정 1문장.\n"
+                        f"✓ 예: '{dk}쪽 압력 중간 수준 동의. 북쪽 우선 해결 맞겠어.'"
+                    ) + STRICT_RULE
+                ),
+            ]
+
+            for round_num in range(1, 4):
+                yield f"data: {_json.dumps({'type':'round_start','round':round_num}, ensure_ascii=False)}\n\n"
+
+                for i, r in enumerate(ordered_workers):
+                    if await request.is_disconnected():
+                        return
+                    dir_ko  = r['direction']
+                    nm      = r['crossroad_name']
+                    is_last = (round_num == 3 and i == num_workers - 1)
+
+                    yield f"data: {_json.dumps({'type':'discuss_start','round':round_num,'worker_id':r['worker_id'],'direction':dir_ko,'crossroad_name':nm}, ensure_ascii=False)}\n\n"
+
+                    analyses = "\n".join(
+                        f"[{a['direction']}쪽 {a['crossroad_name']}] {a['content']}"
+                        for a in worker_results
+                    )
+                    chat_so_far = "\n".join(
+                        f"[R{d['round']} {d['direction']}쪽 {d['crossroad_name']}]: {d['content']}"
+                        for d in discuss_results
+                    ) if discuss_results else "없음"
+
+                    instruction = ROUND_INSTRUCTIONS[round_num - 1](dir_ko, nm, is_last)
+                    prompt = (
+                        f"/think 반드시 한국어로만 답변하십시오.\n\n"
+                        f"[상황] 서울 교통 관제 센터 AI 에이전트 내부 회의.\n\n"
+                        f"[1차 분석 — 이 수치만 사용할 것]\n{analyses}\n\n"
+                        f"[지금까지 토론]\n{chat_so_far}\n\n"
+                        f"{instruction}"
+                    )
+                    try:
+                        result  = await worker_llms[i % len(worker_llms)].ainvoke(
+                            [{"role": "user", "content": prompt}]
+                        )
+                        content = strip_chinese((result.content if hasattr(result, 'content') else str(result)).strip())
+                    except Exception as e:
+                        content = f"오류: {e}"
+
+                    yield f"data: {_json.dumps({'type':'discuss_done','round':round_num,'worker_id':r['worker_id'],'direction':dir_ko,'crossroad_name':nm,'content':content}, ensure_ascii=False)}\n\n"
+
+                    discuss_results.append({
+                        'round': round_num, 'worker_id': r['worker_id'],
+                        'direction': dir_ko, 'crossroad_name': nm, 'content': content
+                    })
+
+            # 7. 오케스트레이터 종합
+            analysis_block = "\n\n".join(
+                f"[워커{r['worker_id']} {r['direction']}쪽 {r['crossroad_name']}]\n{r['content']}"
+                for r in worker_results
+            )
+            discuss_block = ""
+            for rn in range(1, 4):
+                rnd_items = [d for d in discuss_results if d['round'] == rn]
+                if rnd_items:
+                    discuss_block += f"[토론 {rn}라운드]\n"
+                    discuss_block += "\n".join(
+                        f"W{d['worker_id']}({d['direction']}): {d['content']}" for d in rnd_items
+                    ) + "\n\n"
+            # 오케스트레이터용 Python 계산 결과 블록 (LLM이 계산 안 하도록)
+            calc_lines = []
+            for r in worker_results:
+                if r.get('has_data') and r.get('delta') is not None:
+                    sign = "+" if r['delta'] >= 0 else ""
+                    calc_lines.append(
+                        f"  {r['direction']}방향 ({r['crossroad_name']}): "
+                        f"속도 {r.get('speed', 'N/A')}km/h {r.get('state', '')} "
+                        f"→ 권고 {sign}{r['delta']}초"
+                    )
+                else:
+                    calc_lines.append(
+                        f"  {r['direction']}방향 ({r['crossroad_name']}): 데이터 없음 → 현장 확인 필요"
+                    )
+            calc_block = "\n".join(calc_lines)
+
+            orch_prompt = (
+                f"/think 반드시 한국어로만 답변하십시오.\n\n"
+                f"=== {center_nm} 신호 조정 권고 ===\n\n"
+                f"[코드 계산 결과 — 이 수치를 그대로 사용, 임의 변경 금지]\n"
+                f"{calc_block}\n\n"
+                f"[에이전트 토론 요약 (우선순위 참고용)]\n{discuss_block}\n"
+                f"위 코드 계산 결과를 바탕으로 관제사용 권고문을 작성하세요:\n\n"
+                f"① 현황 요약 (데이터 있는 방향만, 방향별 속도/상태 한 줄씩)\n"
+                f"② {center_nm} 신호 조정 권고안\n"
+                f"   코드 계산값 그대로 사용 (숫자 임의 변경 금지):\n"
+                f"   예: 북방향 +10초, 남방향 -5초, 서방향 +4초, 동방향 데이터없음\n"
+                f"③ 예상 효과 1~2문장\n\n"
+                f"마무리 인사말 없이 권고문만 작성."
+            )
+
+            yield f"data: {_json.dumps({'type':'orchestrator_start'}, ensure_ascii=False)}\n\n"
+
+            orch_result = await agent.ainvoke({"messages": [{"role": "user", "content": orch_prompt}]})
+            orch_text   = strip_chinese(extract_answer(orch_result))
+
+            yield f"data: {_json.dumps({'type':'orchestrator_done','content':orch_text}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            yield f"data: {_json.dumps({'type':'error','content':str(e)}, ensure_ascii=False)}\n\n"
+
+        yield 'data: {"type":"done"}\n\n'
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── 실행 ────────────────────────────────────────────────────────────────────────
