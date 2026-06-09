@@ -42,7 +42,14 @@ export default function App() {
   const [simulationMounted, setSimulationMounted] = useState(false)
 
   useEffect(() => {
-    if (page === 'simulation') setSimulationMounted(true)
+    if (page === 'simulation') {
+      setSimulationMounted(true)
+      // visibility:hidden → visible 전환 후 Cesium이 캔버스 크기를 갱신하도록 직접 resize 호출
+      requestAnimationFrame(() => {
+        try { window.ws3d?.viewer?.resize?.() } catch (_) {}
+        try { window.ws3d?.viewer?.scene?.requestRender?.() } catch (_) {}
+      })
+    }
   }, [page])
 
   // 여러 화면이 공유하는 데이터 상태
@@ -194,79 +201,19 @@ export default function App() {
   // 민원 관리 페이지에서는 전역 AI 챗봇 플로팅 버튼/패널을 숨긴다.
   const showAssistantOverlay = page !== 'complaints'
 
-  if (page === 'news') return (
-    <NewsDashboard
-      onGoMain={() => setPage('main')}
-      onGoMap={goMap}
-      onGoCctv={() => setPage('cctv')}
-      onGoSimulation={goSimulation}
-      onGoComplaints={() => setPage('complaints')}
-      onGoMyPage={() => setPage('mypage')}
-      onLogout={() => setPage('login')}
-      selectedGu={selectedGu}
-    />
-  )
-
-  if (page === 'simulation') return (
-    <SimulationDashboard
-      onGoMain={() => setPage('main')}
-      onGoMap={goMap}
-      onGoNews={() => setPage('news')}
-      onGoCctv={() => setPage('cctv')}
-      onGoComplaints={() => setPage('complaints')}
-      onGoMyPage={() => setPage('mypage')}
-      onLogout={() => setPage('login')}
-      selectedGu={selectedGu}
-      isMuted={assistant.isMuted}
-      onToggleMute={assistant.toggleMute}
-      isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
-      onToggleMic={assistant.onFloatingClick}
-    />
-  )
-
-  if (page === 'cctv') return (
-    <CctvDashboard
-      onGoMain={() => setPage('main')}
-      onGoMap={goMap}
-      onGoNews={() => setPage('news')}
-      onGoSimulation={goSimulation}
-      onGoComplaints={() => setPage('complaints')}
-      onGoMyPage={() => setPage('mypage')}
-      onLogout={() => setPage('login')}
-      selectedGu={selectedGu}
-    />
-  )
-
-  if (page === 'map') return (
-    <MapDashboard
-      onGoMain={() => setPage('main')}
-      onGoCctv={() => setPage('cctv')}
-      onGoNews={() => setPage('news')}
-      onGoSimulation={goSimulation}
-      onGoComplaints={() => setPage('complaints')}
-      onGoMyPage={() => setPage('mypage')}
-      onLogout={() => setPage('login')}
-      selectedGu={selectedGu}
-      wsData={wsData}
-      setWsData={setWsData}
-      initialCenter={mapCenter}
-      wsStatus={wsStatus}
-      lastUpdate={lastUpdate}
-      stations={stations}
-      isMuted={assistant.isMuted}
-      onToggleMute={assistant.toggleMute}
-    />
-  )
-
   // ── 메인 대시보드 + AI 어시스턴트 팝업들 ────────────────────────
+  // early return을 제거하고 단일 return으로 통합 → SimulationDashboard가 항상 트리에 유지됨
   return (
     <>
       {simulationMounted && (
         <div
           style={{
-            display: page === 'simulation' ? 'block' : 'none',
-            height: '100vh',
-            width: '100vw',
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            // 시뮬레이션 비활성 시 viewport 밖으로 밀어냄: z-index 충돌 없이 canvas WebGL 유지
+            transform: page === 'simulation' ? 'none' : 'translateX(200vw)',
+            pointerEvents: page === 'simulation' ? 'auto' : 'none',
             overflow: 'hidden',
           }}
         >
@@ -285,6 +232,19 @@ export default function App() {
             onToggleMic={assistant.onFloatingClick}
           />
         </div>
+      )}
+
+      {page === 'news' && (
+        <NewsDashboard
+          onGoMain={() => setPage('main')}
+          onGoMap={goMap}
+          onGoCctv={() => setPage('cctv')}
+          onGoSimulation={goSimulation}
+          onGoComplaints={() => setPage('complaints')}
+          onGoMyPage={() => setPage('mypage')}
+          onLogout={() => setPage('login')}
+          selectedGu={selectedGu}
+        />
       )}
 
       {page === 'mypage' && (
