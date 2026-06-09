@@ -289,38 +289,17 @@ export function useAssistant({ page, onNavIntent }) {
       steps: [], status: 'thinking',
     }))
 
-    // 이메일 미리 확인 (분석 전)
-    let finalQuestion = question
-    let emailPreConfirmed = false
-    if (email) {
-      const emailAskMsg = '분석 결과를 이메일로도 받아보시겠어요?'
-      await speakAsync(emailAskMsg)
-      setVoiceUI(prev => ({ ...prev, messages: [...prev.messages, { role: 'ai', text: emailAskMsg }], status: 'email_confirm' }))
-      // 이메일 확인은 버튼(네/아니요)만 사용 — 음성 인식 제거
-      const wantsEmail = await new Promise(res => {
-        emailConfirmRef.current = res
-        if (sessionAbortedRef.current) { res(false); emailConfirmRef.current = null }
-      })
-      emailConfirmRef.current = null
-      setVoiceUI(prev => ({ ...prev, status: 'thinking' }))
-      if (wantsEmail) {
-        emailPreConfirmed = true
-        finalQuestion = `${question}\n\n분석 완료 후 반드시 send_email_report 도구를 사용해서 ${email}로 이메일을 발송해줘.`
-        setVoiceUI(prev => ({ ...prev, messages: [...prev.messages, { role: 'user', text: '네, 이메일로 보내주세요' }] }))
-      }
-    }
-
     // X가 눌렸으면 스트리밍 시작하지 않음
     if (sessionAbortedRef.current) {
       setVoiceUI(prev => ({ ...prev, status: 'idle' }))
       return
     }
 
-    // AI 스트리밍 — 이메일은 위에서 이미 물어봤으므로 두 번째 확인은 항상 스킵
+    // AI 스트리밍 — 분석 후 이메일 확인은 streamAgent 내부에서 처리
     await streamAgent({
       endpoint: '/api/agent/chat/stream',
-      body: { question: finalQuestion, userEmail: email },
-      skipEmailConfirm: !!email,
+      body: { question, userEmail: email },
+      skipEmailConfirm: false,
       onError: async () => { await speakAsync('처리 중 오류가 발생했습니다.') },
     })
   }
@@ -410,8 +389,8 @@ export function useAssistant({ page, onNavIntent }) {
     }
     abortRef.current = null
 
-    // AI가 이미 이메일을 보냈거나 사전에 확인했으면 추가 확인 생략
-    if (emailSentByAI || skipEmailConfirm) {
+    // AI가 이미 이메일을 보냈거나, 이메일 계정이 없거나, 스킵 플래그면 확인 생략
+    if (emailSentByAI || skipEmailConfirm || !email) {
       setVoiceUI(prev => ({ ...prev, status: 'done' }))
       return
     }

@@ -158,6 +158,7 @@ class NavIntentRequest(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     crsrdId: str | None = None       # 선택된 교차로 ID (없으면 에이전트가 검색)
+    crsrdNm: str | None = None       # 선택된 교차로 이름 (답변에 이름 사용)
     userEmail: str | None = None     # 요청한 유저 이메일 (메일 발송 시 사용)
 
 class SimulationChatRequest(BaseModel):
@@ -486,23 +487,36 @@ async def free_chat(req: ChatRequest):
         "① 현재 상태: 속도·위험등급·혼잡도 요약\n"
         "② 혼잡 원인: 어느 방향 신호가 왜 막히는지 (rmndCs 높은 적색 방향 기준)\n"
         "③ 조정 권고: 구체적으로 어떤 현시를 몇 초 조정할지\n"
-        "반드시 전체 분석 내용을 답변에 먼저 출력하고, 이메일은 그 다음에 발송할 것.\n"
-        "이메일 전송 완료 메시지로 답변을 끝내지 말 것. 분석 본문이 답변의 핵심."
+        "답변은 분석 내용으로 끝낼 것.\n"
+        "'추가 분석', '이메일로 보낼 필요', '알려주세요', '도움이 필요하시면', '다른 요청이 있으시면' 등 "
+        "서비스 안내·권유·마무리 문구를 답변 마지막에 절대 붙이지 말 것."
     )
 
     email_ctx = (
         f"\n[요청 유저 이메일: {req.userEmail}]"
-        f"\n메일 발송 요청이 있으면 분석 완료 후 send_email_report 도구로 동일한 분석 내용을 발송할 것."
+        f"\n사용자가 현재 질문에서 '이메일', '메일로' 등을 직접 언급한 경우에만 "
+        f"분석 완료 후 send_email_report 도구를 호출할 것.\n"
+        "이메일 발송 여부를 묻거나 '이메일로 보내드릴까요?' 같은 문구를 답변에 절대 포함하지 말 것."
     ) if req.userEmail else ""
+
+    cr_ctx = (
+        f"현재 선택된 교차로는 '{req.crsrdNm}' (ID: {req.crsrdId})야.\n"
+        if req.crsrdId and req.crsrdNm else
+        f"현재 선택된 교차로 ID는 {req.crsrdId}야.\n"
+        if req.crsrdId else ""
+    )
 
     if req.crsrdId:
         prompt = (
             f"/no_think\n"
             f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
-            f"현재 선택된 교차로 ID는 {req.crsrdId}야.\n"
+            f"{cr_ctx}"
+            f"답변에서 교차로를 지칭할 때 반드시 교차로 이름을 사용하고 숫자 ID는 절대 노출하지 말 것.\n"
+            f"질문에 현재 선택된 교차로와 다른 교차로명·장소명(학교, 건물, 역 등)이 언급되면 "
+            f"get_traffic_data 대신 반드시 search_crossroad_by_name으로 먼저 검색할 것.\n"
+            f"질문이 현재 선택된 교차로에 관한 것이면 get_traffic_data({req.crsrdId})를 사용할 것.\n"
             f"질문이 병목·TOP에 관한 거면 get_bottleneck_list를 먼저 호출해서 병목 순위를 구하고 "
             f"각 교차로를 get_traffic_data로 조회해서 분석해줘. 선택된 교차로는 무시해도 됨.\n"
-            f"특정 교차로에 대한 질문이면 get_traffic_data({req.crsrdId})를 사용해줘.\n"
             f"질문: {req.question}"
             f"{analysis_rule}"
             f"{email_ctx}"
@@ -552,17 +566,29 @@ async def free_chat_stream(req: ChatRequest, request: Request):
 
     email_ctx = (
         f"\n[요청 유저 이메일: {req.userEmail}]"
-        f"\n메일 발송 요청이 있으면 분석 완료 후 send_email_report 도구로 동일한 분석 내용을 발송할 것."
+        f"\n사용자가 현재 질문에서 '이메일', '메일로' 등을 직접 언급한 경우에만 "
+        f"분석 완료 후 send_email_report 도구를 호출할 것.\n"
+        "이메일 발송 여부를 묻거나 '이메일로 보내드릴까요?' 같은 문구를 답변에 절대 포함하지 말 것."
     ) if req.userEmail else ""
+
+    cr_ctx = (
+        f"현재 선택된 교차로는 '{req.crsrdNm}' (ID: {req.crsrdId})야.\n"
+        if req.crsrdId and req.crsrdNm else
+        f"현재 선택된 교차로 ID는 {req.crsrdId}야.\n"
+        if req.crsrdId else ""
+    )
 
     if req.crsrdId:
         prompt = (
             f"/no_think\n"
             f"서울 교통 관제 시스템이야. 반드시 한국어로 답해줘.\n"
-            f"현재 선택된 교차로 ID는 {req.crsrdId}야.\n"
+            f"{cr_ctx}"
+            f"답변에서 교차로를 지칭할 때 반드시 교차로 이름을 사용하고 숫자 ID는 절대 노출하지 말 것.\n"
+            f"질문에 현재 선택된 교차로와 다른 교차로명·장소명(학교, 건물, 역 등)이 언급되면 "
+            f"get_traffic_data 대신 반드시 search_crossroad_by_name으로 먼저 검색할 것.\n"
+            f"질문이 현재 선택된 교차로에 관한 것이면 get_traffic_data({req.crsrdId})를 사용할 것.\n"
             f"질문이 병목·TOP에 관한 거면 get_bottleneck_list를 먼저 호출해서 병목 순위를 구하고 "
             f"각 교차로를 get_traffic_data로 조회해서 분석해줘. 선택된 교차로는 무시해도 됨.\n"
-            f"특정 교차로에 대한 질문이면 get_traffic_data({req.crsrdId})를 사용해줘.\n"
             f"질문: {req.question}"
             f"{analysis_rule}{email_ctx}"
         )
@@ -700,34 +726,35 @@ async def simulation_chat(req: SimulationChatRequest):
             spd = seg.get("speedKph")
             cng = seg.get("congestion", "")
             spd_str = f"{spd}km/h" if spd is not None else "미수집"
-            bottleneck_mark = " ★병목" if spd is not None and spd < 40 else ""
+            bottleneck_mark = " ★병목" if spd is not None and spd < 15 else ""
             lines.append(
                 f"  {seg.get('fromIntNo','?')}→{seg.get('toIntNo','?')}"
                 f" ({seg.get('axisName','')}) | {spd_str} | {cng}{bottleneck_mark}"
             )
         traffic_block = (
-            "\n\n[경로 구간별 실시간 속도 — 40km/h 이하가 병목]\n" + "\n".join(lines)
+            "\n\n[경로 구간별 실시간 속도 — 15km/h 이하가 병목]\n" + "\n".join(lines)
         )
 
     # Webster 공식 기반 JSON 출력 지시
     json_instruction = (
-        "\n\n[신호 최적화 — Webster 공식 적용 절차]\n"
-        "① 실측 속도로 포화도(Y) 결정: 40km/h 미만=0.85, 40~60=0.65, 60초과=0.4\n"
-        "② Co = (1.5 × L + 5) / (1 - ΣY),  L = 현시수 × 4s\n"
-        "③ Co를 직진/좌회전/보행 중요도 비율로 배분 (보행 최소 20s)\n"
-        "④ 각 교차로별 조정값을 아래 JSON으로 출력\n\n"
-        "반드시 JSON 블록을 맨 앞에 출력하고, 그 뒤 분석 설명을 붙여:\n"
+        "\n\n[신호 최적화 출력 형식]\n"
+        "Webster 공식으로 조정값을 계산한 뒤, 아래 순서로 출력:\n"
+        "1. JSON 블록을 맨 앞에 출력 (조정값)\n"
         "```json\n"
         "{\"adjustments\": [{\"intNo\": \"47\", \"phases\": [{\"no\": 1, \"sec\": 80}, {\"no\": 2, \"sec\": 30}, {\"no\": 3, \"sec\": 20}, {\"no\": 4, \"sec\": 10}]}]}\n"
         "```\n"
-        "⚠️ 중요 규칙 (반드시 지킬 것):\n"
-        "- phases에는 신호계획에 있는 현시 번호를 빠짐없이 모두 포함할 것 (현시1·2·3·4가 있으면 4개 전부 출력)\n"
-        "- 각 교차로의 phases 합계가 해당 교차로의 cycleVal과 정확히 일치해야 함\n"
-        "- intNo는 신호계획 괄호 안 숫자 ID 그대로 사용. 교차로 이름 절대 금지\n"
-        "JSON 다음 설명에는 반드시 아래 내용을 포함할 것:\n"
-        "- 실측 속도(km/h)와 이에 따른 Y값\n"
-        "- 계산된 최적 주기(Co)와 기존 cycleVal 비교\n"
-        "- 어떤 현시를 왜 늘리고 줄였는지 (방향명 + 초 단위로 명시)"
+        "⚠️ JSON 블록 규칙 (반드시 지킬 것):\n"
+        "- JSON 안의 intNo는 반드시 신호계획 괄호 안 숫자 ID를 그대로 사용할 것 (필수 필드, 절대 생략 금지)\n"
+        "- phases에는 신호계획에 있는 현시 번호를 빠짐없이 모두 포함할 것\n"
+        "- 각 교차로의 phases 합계가 해당 교차로의 cycleVal과 정확히 일치해야 함\n\n"
+        "2. JSON 다음에는 교차로별 변경사항을 아래 형식으로 출력 (텍스트 설명 부분):\n"
+        "- 마크다운 헤더(###, ####, ## 등) 절대 사용 금지\n"
+        "- 텍스트 설명에서는 intNo 숫자 대신 교차로 이름만 사용할 것\n"
+        "- 각 교차로는 반드시 빈 줄로 구분하고 아래 형식 그대로 출력:\n\n"
+        "교차로명\n"
+        "  현시1 (방향): Xs → Ys\n"
+        "  현시2 (방향): As → Bs\n\n"
+        "- 수식(Y값, Co 계산식 등)·이유 설명 절대 포함 금지. 변경 결과만 나열할 것"
     )
 
     prompt = (
@@ -812,12 +839,13 @@ async def simulation_chat_stream(req: SimulationChatRequest, request: Request):
             spd = seg.get("speedKph")
             mark = " ★병목" if spd is not None and spd < 15 else ""
             lines.append(f"  {seg.get('fromIntNo')}→{seg.get('toIntNo')} | {spd}km/h{mark}")
-        traffic_block = "\n\n[경로 속도 — 40km/h↓ 병목]\n" + "\n".join(lines)
+        traffic_block = "\n\n[경로 속도 — 15km/h↓ 병목]\n" + "\n".join(lines)
 
     json_instruction = (
         "\n\n신호 조정이 필요하면 답변 맨 앞에 먼저 출력:\n"
-        "```json\n{\"adjustments\":[{\"intNo\":\"번호\",\"phases\":[{\"no\":현시번호,\"sec\":초}]}]}\n```\n"
-        "그 다음 1~2문장 설명. phases는 위 신호계획의 기존 현시만 사용."
+        "```json\n{\"adjustments\":[{\"intNo\":\"신호계획의 intNo 숫자\",\"phases\":[{\"no\":현시번호,\"sec\":초}]}]}\n```\n"
+        "⚠️ intNo는 신호계획 괄호 안 숫자 ID 그대로 사용 — 필수 필드, 절대 생략 금지.\n"
+        "그 다음 교차로명(이름만, intNo 숫자 제외)으로 현시별 변경 결과 나열."
     )
 
     prompt = (

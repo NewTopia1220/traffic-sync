@@ -62,13 +62,17 @@ public class ChatService {
     // 시뮬레이션 페이지 챗봇 — 병목 교차로 다중 신호계획 조립 후 AI 분석
     public Map<String, Object> simulationChat(String intNo, String question, List<Map<String, Object>> simulation,
                                                List<Map<String, Object>> routeTraffic,
-                                               List<String> bottleneckIntNos, String userEmail) {
+                                               List<String> bottleneckIntNos,
+                                               List<Map<String, Object>> frontendContexts, String userEmail) {
         try {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("question", question);
 
-            // 병목 교차로 다중 신호계획 (우선) vs 단일 (fallback)
-            if (bottleneckIntNos != null && !bottleneckIntNos.isEmpty()) {
+            // 프론트에서 미리 fetch한 contexts가 있으면 그대로 사용 (시점 불일치 방지)
+            // 없으면 DB에서 직접 조회 (fallback)
+            if (frontendContexts != null && !frontendContexts.isEmpty()) {
+                body.set("contexts", objectMapper.valueToTree(frontendContexts));
+            } else if (bottleneckIntNos != null && !bottleneckIntNos.isEmpty()) {
                 List<Map<String, Object>> contexts = new java.util.ArrayList<>();
                 for (String id : bottleneckIntNos) {
                     if (id != null && !id.isBlank()) {

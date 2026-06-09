@@ -59,6 +59,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [appliedIntNos, setAppliedIntNos] = useState(new Set());
   const [speedUnavailable, setSpeedUnavailable] = useState(false);
   const [bottleneckCrossroads, setBottleneckCrossroads] = useState([]);
+  const [bottleneckContextMap, setBottleneckContextMap] = useState({});
   const [driveView, setDriveView] = useState(false);
   const llmCalledRouteRef = useRef(null);
   const llmTimerRef = useRef(null);
@@ -96,13 +97,18 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const selectedSignalConfig = {
     start: { icon: "🟢", label: "출발지", signalTitle: "출발지 신호체계", adjustTitle: "출발지 신호 조정", crossroad: start, emptyText: "출발지를 먼저 선택하세요", onPhaseChange: setOriginPhaseIdx, onContextChange: setOriginContext },
     waypoint: { icon: "🟠", label: "병목 경유지", signalTitle: "병목 경유지 신호체계", adjustTitle: "병목 경유지 신호 조정", crossroad: selectedWaypoint, emptyText: "자동 경유지가 잡히면 경유지 신호체계가 표시됩니다", onPhaseChange: setWaypointPhaseIdx, onContextChange: setWaypointContext },
-    bottleneck: { icon: "🟡", label: "병목지", signalTitle: "병목지 신호체계", adjustTitle: "병목지 신호 조정", crossroad: selectedBottleneck, emptyText: "병목지가 탐색되면 신호체계가 표시됩니다", onPhaseChange: setWaypointPhaseIdx, onContextChange: setWaypointContext },
+    bottleneck: { icon: "🟡", label: "병목지", signalTitle: "병목지 신호체계", adjustTitle: "병목지 신호 조정", crossroad: selectedBottleneck, emptyText: "병목지가 탐색되면 신호체계가 표시됩니다", onPhaseChange: setWaypointPhaseIdx, onContextChange: (ctx) => { setWaypointContext(ctx); if (selectedBottleneck?.intNo && ctx?.phases?.length) setBottleneckContextMap(prev => ({ ...prev, [String(selectedBottleneck.intNo)]: ctx })); } },
     end: { icon: "🔴", label: "목적지", signalTitle: "목적지 신호체계", adjustTitle: "목적지 신호 조정", crossroad: end, emptyText: "목적지를 선택하면 신호체계가 표시됩니다", onPhaseChange: setDestPhaseIdx, onContextChange: setDestContext },
   };
 
   const activeSignal = selectedSignalConfig[sliderTarget] ?? selectedSignalConfig.end;
   const hasActiveSignalCrossroad = !!activeSignal.crossroad;
   const bottleneckSignalKey = selectedBottleneck ? `bottleneck:${selectedBottleneck.intNo}` : "bottleneck";
+
+  // VehicleSignalPanel이 이미 가져온 context → 슬라이더 기준값으로 사용 (DB 중복 fetch 제거)
+  const activeContext = sliderTarget === "start" ? originContext
+    : sliderTarget === "end" ? destContext
+    : waypointContext;
 
   // 현재 슬라이더 교차로에 AI 제안값이 있으면 추출
   const aiSuggestedValues = (() => {
@@ -132,9 +138,10 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   // 경로 병목 구간 AI 분석
   const callLLM = useCallback((resolved) => {
     if (!end?.intNo) return;
+    const _bottleneckContextMap = bottleneckContextMap;
     // Spring은 List<String> 기대 → 반드시 문자열로 변환
     const bottleneckIntNos = resolved
-      .filter(seg => Number(seg.speedKph) < 40)
+      .filter(seg => Number(seg.speedKph) < 15)
       .map(seg => String(seg.toIntNo))
       .filter((v, i, arr) => arr.indexOf(v) === i);
 
@@ -145,7 +152,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setSpeedUnavailable(false);
 
     if (bottleneckIntNos.length === 0) {
-      setRouteAnalysis("현재 경로에 40km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
+      setRouteAnalysis("현재 경로에 15km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
       setRouteAnalysisLoading(false);
       return;
     }
@@ -158,9 +165,10 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        question: "각 병목 교차로의 신호계획을 분석해서 40km/h 이하 구간 전체의 신호를 최적화해줘. 분석 결과와 추천 신호 조정값만 반환하고, 실제 적용은 관제사 승인 이후 진행됩니다.",
+        question: "각 병목 교차로의 신호계획을 분석해서 15km/h 이하 구간 전체의 신호를 최적화해줘. 분석 결과와 추천 신호 조정값만 반환하고, 실제 적용은 관제사 승인 이후 진행됩니다.",
         routeTraffic: resolved,
         bottleneckIntNos,
+        contexts: bottleneckIntNos.map(id => _bottleneckContextMap[String(id)]).filter(Boolean),
         userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
       }),
     })
@@ -169,7 +177,11 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         return r.json();
       })
       .then(data => {
-        setRouteAnalysis(data.answer ?? null);
+        const rawAnswer = data.answer ?? null;
+        const cleanAnswer = rawAnswer
+          ? rawAnswer.replace(/^###\s*/gm, "• ").replace(/^##\s*/gm, "• ").replace(/^#\s*/gm, "• ")
+          : null;
+        setRouteAnalysis(cleanAnswer);
         const adjs = data.adjustments?.length ? data.adjustments
           : data.adjustment?.intNo ? [data.adjustment] : [];
         if (adjs.length > 0) {
@@ -185,7 +197,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         setAiAdjustmentsMap({});
       })
       .finally(() => setRouteAnalysisLoading(false));
-  }, [end]);
+  }, [end, bottleneckContextMap]);
 
   // 경로 확정 시 속도 수집 타임아웃
   useEffect(() => {
@@ -229,10 +241,10 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
     const distance = stats.distanceMeters;
     const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
-    const slowSegs = speeds.filter(s => s < 40);
+    const slowSegs = speeds.filter(s => s < 15);
     const bottleneckCount = slowSegs.length;
     const beforeSec = Math.round(distance / (avgSpeed / 3.6));
-    const improvedSpeeds = speeds.map(s => (s < 40 ? Math.min(s * 1.35, 50) : s));
+    const improvedSpeeds = speeds.map(s => (s < 15 ? Math.min(s * 1.35, 50) : s));
     const afterAvg = improvedSpeeds.reduce((a, b) => a + b, 0) / improvedSpeeds.length;
     const afterSec = Math.round(distance / (afterAvg / 3.6));
 
@@ -250,11 +262,23 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     (routeTraffic.requestedRouteNodes || []).forEach(n => { nodeMap[String(n.intNo)] = n; });
 
     const bCrossroads = resolved
-      .filter(seg => Number(seg.speedKph ?? 999) < 40)
+      .filter(seg => Number(seg.speedKph ?? 999) < 15)
       .map(seg => ({ intNo: seg.toIntNo, intNm: nodeMap[String(seg.toIntNo)]?.intNm || `교차로 ${seg.toIntNo}`, speedKph: seg.speedKph }))
       .filter((v, i, arr) => arr.findIndex(x => String(x.intNo) === String(v.intNo)) === i);
 
     setBottleneckCrossroads(bCrossroads);
+    // 병목 교차로 context 미리 fetch (DB fallback) — VehicleSignalPanel이 본 교차로는 덮어쓰지 않음
+    setBottleneckContextMap({});
+    bCrossroads.forEach(cr => {
+      fetch(`${API_BASE}/api/signal/simulation/context/${cr.intNo}`)
+        .then(r => r.json())
+        .then(ctx => {
+          if (!ctx.error) setBottleneckContextMap(prev =>
+            prev[String(cr.intNo)] ? prev : { ...prev, [String(cr.intNo)]: ctx }
+          );
+        })
+        .catch(() => {});
+    });
   }, [routeTraffic, stats?.distanceMeters, isOptimized]);
 
   // 출발지/목적지 변경 시 상태 초기화
@@ -334,9 +358,9 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const sendAdjustmentEmail = (intNo, intNm, simulation) => {
     const userEmail = JSON.parse(localStorage.getItem("ts_user") || "{}").email || null;
     if (!userEmail) return;
-    const lines = simulation.map(p => `  • 현시 ${p.no} [${(p.dirs || []).join(", ")}]: ${p.sec}초`).join("\n");
-    const analysisSection = routeAnalysis ? `\n[AI 병목 분석 결과]\n${routeAnalysis}\n` : "";
-    const body = `[신호 수동 조정 완료]\n\n교차로: ${intNm} (ID: ${intNo})\n조정 내용:\n${lines}\n${analysisSection}\n관제사 직접 제어로 신호 현시 시간이 조정되었습니다.`;
+    const body = routeAnalysis
+      ? `[AI 병목 분석 결과]\n\n${routeAnalysis}`
+      : `[신호 조정 완료]\n\n교차로: ${intNm} (ID: ${intNo})\n관제사 직접 제어로 신호가 조정되었습니다.`;
     fetch(`${API_BASE}/api/email/send`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ to: userEmail, subject: `[신호 조정] ${intNm} 현시 수동 조정 완료`, body }),
@@ -354,8 +378,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     if (!canOptimize || routeAnalysisLoading) return;
     const resolved = resolveSegments(routeTraffic?.segments);
     if (!resolved.length) { setRouteAnalysis("속도 API 매핑 결과가 없어 AI 병목 분석을 실행할 수 없습니다."); setSpeedUnavailable(true); return; }
-    const bottleneckSegments = resolved.filter(seg => seg.speedKph < 40);
-    if (!bottleneckSegments.length) { setRouteAnalysis("현재 경로에 40km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다."); setAiAdjustmentsMap({}); return; }
+    const bottleneckSegments = resolved.filter(seg => seg.speedKph < 15);
+    if (!bottleneckSegments.length) { setRouteAnalysis("현재 경로에 15km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다."); setAiAdjustmentsMap({}); return; }
     setIsOptimized(false);
     callLLM(resolved);
   };
@@ -455,7 +479,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                     <MetricBox label="전체 거리" value={formatDistance(stats.distanceMeters)} />
                     <MetricBox label="병목구간" value={stats.bottleneckCount != null ? `${stats.bottleneckCount}개` : routeAnalysisLoading ? "수집 중..." : "-"} />
                   </div>
-                  <div style={{ padding: 10, borderRadius: 5, fontSize: 12, lineHeight: 1.6, background: routeAnalysisLoading ? "rgba(96,165,250,0.06)" : isOptimized ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${routeAnalysisLoading ? "rgba(96,165,250,0.2)" : isOptimized ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.25)"}`, color: isOptimized ? "#bbf7d0" : "#fecaca" }}>
+                  <div style={{ padding: 10, borderRadius: 5, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", background: routeAnalysisLoading ? "rgba(96,165,250,0.06)" : isOptimized ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${routeAnalysisLoading ? "rgba(96,165,250,0.2)" : isOptimized ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.25)"}`, color: isOptimized ? "#bbf7d0" : "#fecaca" }}>
                     {speedUnavailable
                       ? <span style={{ color: "#64748b" }}>속도 수집 불가 — TOPIS 미수집 구간입니다. 신호계획 기반으로 수동 조정하세요.</span>
                       : routeAnalysisLoading ? <AnalysisLoadingBlock />
@@ -610,6 +634,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 onAutoApplied={handleAutoApplied}
                 aiSuggestedValues={aiSuggestedValues}
                 aiAdjustKey={aiAdjustKey}
+                initialPhases={activeContext?.phases ?? null}
+                initialCycleVal={activeContext?.cycleVal ?? null}
               />
             </div>
           )}
