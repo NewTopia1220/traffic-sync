@@ -116,6 +116,41 @@ public class ChatService {
             if (!adj.isMissingNode() && !adj.isNull()) {
                 result.put("adjustment", objectMapper.convertValue(adj, Object.class));
             }
+            JsonNode rep = root.path("report");
+            String reportText = null;
+            if (!rep.isMissingNode() && !rep.isNull() && !rep.asText("").isBlank()) {
+                reportText = rep.asText();
+                result.put("report", reportText);
+            }
+
+            // report 또는 answer 있고 userEmail 있으면 Spring이 직접 이메일 발송
+            if (userEmail != null && !userEmail.isBlank() && (reportText != null || !root.path("answer").asText("").isBlank())) {
+                String answer = root.path("answer").asText("");
+                String now = java.time.LocalDateTime.now()
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy년 M월 d일 HH:mm"));
+                StringBuilder sb = new StringBuilder();
+                sb.append("[AI 신호 자동조정 분석 보고서]\n발행일시: ").append(now).append("\n\n");
+                sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                sb.append("■ 조정 요약\n");
+                sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                sb.append(answer).append("\n");
+                if (reportText != null) {
+                    sb.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                    sb.append("■ 상세 분석 (Webster 공식 기반)\n");
+                    sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                    sb.append(reportText).append("\n");
+                }
+                sb.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                sb.append("본 보고서는 TrafficSync AI 관제 시스템에서 자동 생성되었습니다.");
+                String emailBody = sb.toString();
+                try {
+                    emailService.send(userEmail, "[AI 신호 자동조정] 신호 최적화 완료", emailBody);
+                    log.info("[SIM-EMAIL] 발송 완료 → {}", userEmail);
+                } catch (Exception emailEx) {
+                    log.error("[SIM-EMAIL] 발송 실패 → {}: {}", userEmail, emailEx.getMessage());
+                }
+            }
+
             return result;
 
         } catch (WebClientResponseException e) {

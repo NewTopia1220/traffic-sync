@@ -52,6 +52,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [currentVehicleSignal, setCurrentVehicleSignal] = useState(null);
   const [routeTraffic, setRouteTraffic] = useState(null);
   const [routeAnalysis, setRouteAnalysis] = useState(null);
+  const [routeReport, setRouteReport] = useState(null);
   const [routeAnalysisLoading, setRouteAnalysisLoading] = useState(false);
   const [aiAdjustment, setAiAdjustment] = useState(null);
   const [aiAdjustKey, setAiAdjustKey] = useState(0);
@@ -158,6 +159,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     }
 
     setRouteAnalysis(null);
+    setRouteReport(null);
     setRouteAnalysisLoading(true);
 
     // Spring 백엔드 /api/simulation-chat → 내부적으로 Python agent(8001)로 프록시
@@ -182,6 +184,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           ? rawAnswer.replace(/^###\s*/gm, "• ").replace(/^##\s*/gm, "• ").replace(/^#\s*/gm, "• ")
           : null;
         setRouteAnalysis(cleanAnswer);
+        setRouteReport(data.report ?? null);
         const adjs = data.adjustments?.length ? data.adjustments
           : data.adjustment?.intNo ? [data.adjustment] : [];
         if (adjs.length > 0) {
@@ -204,6 +207,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     if (!end?.intNo || !stats?.distanceMeters) return;
     setSpeedUnavailable(false);
     setRouteAnalysis(null);
+    setRouteReport(null);
     setRouteAnalysisLoading(false);
     setAiAdjustment(null);
     setAiAdjustmentsMap({});
@@ -302,6 +306,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       setSimPhases(null);
       setSimPhaseTarget(null);
       setRouteAnalysis(null);
+    setRouteReport(null);
       setRouteAnalysisLoading(false);
       setAiAdjustment(null);
       setAiAdjustKey(0);
@@ -342,6 +347,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setCurrentVehicleSignal(null);
     setRouteTraffic(null);
     setRouteAnalysis(null);
+    setRouteReport(null);
     setRouteAnalysisLoading(false);
     setAiAdjustment(null);
     setAiAdjustKey(0);
@@ -354,24 +360,10 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
   };
 
-  // 저장 시 AI 분석 내용 포함 이메일 자동 발송
-  const sendAdjustmentEmail = (intNo, intNm, simulation) => {
-    const userEmail = JSON.parse(localStorage.getItem("ts_user") || "{}").email || null;
-    if (!userEmail) return;
-    const body = routeAnalysis
-      ? `[AI 병목 분석 결과]\n\n${routeAnalysis}`
-      : `[신호 조정 완료]\n\n교차로: ${intNm} (ID: ${intNo})\n관제사 직접 제어로 신호가 조정되었습니다.`;
-    fetch(`${API_BASE}/api/email/send`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: userEmail, subject: `[신호 조정] ${intNm} 현시 수동 조정 완료`, body }),
-    }).catch(() => {});
-  };
-
   const handleManualSave = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(activeSignalKey);
     setIsOptimized(true);
-    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
   };
 
   const runAiBottleneckAnalysis = () => {
@@ -408,20 +400,16 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     if (unapplied.length <= 1) setIsOptimized(true);
   };
 
-  // AI 자동 제어 애니메이션 완료 → 상태 업데이트 + 이메일 자동 발송
   const handleAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(activeSignalKey);
-    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
   };
   const handleBottleneckManualSave = (simulation) => {
     setSimPhases(simulation); setSimPhaseTarget(bottleneckSignalKey); setIsOptimized(true);
-    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
   };
   const handleBottleneckAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(bottleneckSignalKey);
-    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
   };
 
   const panelTitle = activeSignal.adjustTitle;

@@ -177,6 +177,7 @@ class ChatResponse(BaseModel):
     answer: str
     adjustment: dict | None = None       # 단일 (하위 호환)
     adjustments: list | None = None      # 다중 병목 조정값
+    report: str | None = None            # 이메일용 상세 분석 보고서
 
 class ReportResponse(BaseModel):
     report: str
@@ -747,14 +748,25 @@ async def simulation_chat(req: SimulationChatRequest):
         "- JSON 안의 intNo는 반드시 신호계획 괄호 안 숫자 ID를 그대로 사용할 것 (필수 필드, 절대 생략 금지)\n"
         "- phases에는 신호계획에 있는 현시 번호를 빠짐없이 모두 포함할 것\n"
         "- 각 교차로의 phases 합계가 해당 교차로의 cycleVal과 정확히 일치해야 함\n\n"
-        "2. JSON 다음에는 교차로별 변경사항을 아래 형식으로 출력 (텍스트 설명 부분):\n"
+        "2. JSON 다음에는 교차로별 변경사항을 아래 형식으로 출력 (UI 표시용 요약):\n"
         "- 마크다운 헤더(###, ####, ## 등) 절대 사용 금지\n"
         "- 텍스트 설명에서는 intNo 숫자 대신 교차로 이름만 사용할 것\n"
         "- 각 교차로는 반드시 빈 줄로 구분하고 아래 형식 그대로 출력:\n\n"
-        "교차로명\n"
+        "• 교차로명\n"
         "  현시1 (방향): Xs → Ys\n"
         "  현시2 (방향): As → Bs\n\n"
-        "- 수식(Y값, Co 계산식 등)·이유 설명 절대 포함 금지. 변경 결과만 나열할 것"
+        "- 수식·이유 설명 포함 금지. 변경 결과만 나열할 것\n\n"
+        "3. 마지막에 [REPORT] 태그로 시작하는 이메일용 상세 분석 보고서를 작성할 것:\n"
+        "- 형식: 분석관 보고서 (한국어, 전문적 어조)\n"
+        "- 각 교차로별로 아래 항목 포함:\n"
+        "  ① 현황: 해당 구간 실시간 속도 및 병목 판단 (15km/h 기준)\n"
+        "  ② Webster 최적 주기 계산: Co = (1.5L + 5) / (1 - ΣY)\n"
+        "     - L = 손실시간 (현시 수 × 4s 추정)\n"
+        "     - Y = 각 현시 포화도비 (현재 초 / cycleVal로 추정)\n"
+        "     - 계산식과 도출값 명시\n"
+        "  ③ 현시별 조정 근거 (직진 확보·좌회전 억제·보행자 최소화 등 이유)\n"
+        "  ④ 예상 효과 (통과 시간 단축 추정 %)\n"
+        "- [REPORT] 이후 내용만 보고서로 파싱하므로 태그 위치 정확히 지킬 것"
     )
 
     prompt = (
@@ -789,16 +801,30 @@ async def simulation_chat(req: SimulationChatRequest):
 
     clean_answer = strip_json_block(raw).strip() if adjustments else raw.strip()
 
+    # [REPORT] 섹션 분리 (이메일용 상세 보고서)
+    report = None
+    if "[REPORT]" in clean_answer:
+        parts = clean_answer.split("[REPORT]", 1)
+        clean_answer = parts[0].strip()
+        report = parts[1].strip() if len(parts) > 1 else None
+
     # 설명이 없으면 기본 메시지 생성
     if not clean_answer and adjustments:
         clean_answer = "경로 내 병목 구간의 실시간 속도와 신호계획을 분석하여 각 교차로의 직진 현시를 우선적으로 늘리고, 주기 내 비율을 재조정했습니다."
     elif not clean_answer:
         clean_answer = "신호계획을 분석했습니다. 현재 구간의 속도 데이터를 확인하세요."
 
+    print(f"\n[SIM-CHAT ANSWER (UI용 요약)]\n{clean_answer}\n", flush=True)
+    if report:
+        print(f"[SIM-CHAT REPORT (이메일용 보고서 — {len(report)}자)]\n{report[:600]}\n", flush=True)
+    else:
+        print("[SIM-CHAT REPORT] 없음 (AI가 [REPORT] 섹션 미생성)\n", flush=True)
+
     return ChatResponse(
         answer=clean_answer,
         adjustment=adjustments[0] if adjustments and len(adjustments) == 1 else None,
         adjustments=adjustments,
+        report=report,
     )
 
 
