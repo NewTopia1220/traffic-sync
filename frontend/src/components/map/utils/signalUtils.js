@@ -211,8 +211,32 @@ export function isCurrentPhaseGreenForVehicle(signalCtx, nowMs, carBearingDeg = 
   return dirs.some(d => d !== "전적색" && d !== "보행");
 }
 
+// export function hasLeftTurnSignal(signalCtx, movement) {
+//   if (!signalCtx?.phases?.length || !movement) return true;
+//   if (!isLeftTurnMovement(movement)) return true;
+//   return signalCtx.phases.some(p => (p.dirs || []).some(d => String(d || "").includes("좌회전")));
+// }
 export function hasLeftTurnSignal(signalCtx, movement) {
   if (!signalCtx?.phases?.length || !movement) return true;
   if (!isLeftTurnMovement(movement)) return true;
-  return signalCtx.phases.some(p => (p.dirs || []).some(d => String(d || "").includes("좌회전")));
+
+  const leftTurnPhases = signalCtx.phases.filter(phase =>
+    (phase.dirs || []).some(dir => String(dir || "").includes("좌회전"))
+  );
+
+  if (!leftTurnPhases.length) return false;
+
+  const exactMatched = leftTurnPhases.some(phase =>
+    (phase.dirs || []).some(dir => {
+      const text = String(dir || "");
+      return text.includes("좌회전") && isDirMatchingMovement(text, movement);
+    })
+  );
+
+  if (exactMatched) return true;
+
+  const vehiclePhaseNo = getVehicleFollowingPhaseNo(signalCtx, null, movement);
+  if (vehiclePhaseNo == null) return false;
+
+  return leftTurnPhases.some(phase => String(phase.no) === String(vehiclePhaseNo));
 }
