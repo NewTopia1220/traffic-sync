@@ -217,6 +217,10 @@ export default function App() {
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
+      isMuted={assistant.isMuted}
+      onToggleMute={assistant.toggleMute}
+      isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+      onToggleMic={assistant.onFloatingClick}
     />
   )
 
@@ -249,6 +253,10 @@ export default function App() {
       wsStatus={wsStatus}
       lastUpdate={lastUpdate}
       stations={stations}
+      isMuted={assistant.isMuted}
+      onToggleMute={assistant.toggleMute}
+      isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+      onToggleMic={assistant.onFloatingClick}
     />
   )
 
@@ -273,6 +281,10 @@ export default function App() {
             onGoMyPage={() => setPage('mypage')}
             onLogout={() => setPage('login')}
             selectedGu={selectedGu}
+            isMuted={assistant.isMuted}
+            onToggleMute={assistant.toggleMute}
+            isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+            onToggleMic={assistant.onFloatingClick}
           />
         </div>
       )}
@@ -341,30 +353,36 @@ export default function App() {
           wsStatus={wsStatus}
           lastUpdate={lastUpdate}
           stations={stations}
+          isMuted={assistant.isMuted}
+          onToggleMute={assistant.toggleMute}
+          isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+          onToggleMic={assistant.onFloatingClick}
         />
       )}
 
-      <MainDashboard
-        onGoMap={goMap}
-        onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
-        onGoNews={() => assistant.tryNav(() => setPage('news'))}
-        onGoSimulation={goSimulation}
-        onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
-        onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
-        onLogout={() => assistant.tryNav(() => setPage('login'))}
-        wsData={wsData}
-        setWsData={setWsData}
-        stations={stations}
-        setStations={setStations}
-        selectedGu={selectedGu}
-        onSelectGu={handleSelectGu}
-        onAreaFetchState={handleAreaFetchState}
-        onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
-        isMuted={assistant.isMuted}
-        onToggleMute={assistant.toggleMute}
-        isMicActive={assistant.voiceUI.active}
-        onToggleMic={assistant.toggleMicSession}
-      />
+      {showMain && (
+        <MainDashboard
+          onGoMap={goMap}
+          onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
+          onGoNews={() => assistant.tryNav(() => setPage('news'))}
+          onGoSimulation={goSimulation}
+          onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
+          onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
+          onLogout={() => assistant.tryNav(() => setPage('login'))}
+          wsData={wsData}
+          setWsData={setWsData}
+          stations={stations}
+          setStations={setStations}
+          selectedGu={selectedGu}
+          onSelectGu={handleSelectGu}
+          onAreaFetchState={handleAreaFetchState}
+          onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
+          isMuted={assistant.isMuted}
+          onToggleMute={assistant.toggleMute}
+          isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+          onToggleMic={assistant.onFloatingClick}
+        />
+      )}
 
       {/* 로그인 브리핑 카드 */}
       {loginBriefing && (

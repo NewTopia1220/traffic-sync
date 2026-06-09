@@ -33,7 +33,7 @@ function resolveSegments(segments) {
     .filter(Boolean);
 }
 
-export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu }) {
+export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu, isMuted, onToggleMute, isMicActive, onToggleMic, }) {
   const [selectedList, setSelectedList] = useState([]);
   const [isOptimized, setIsOptimized] = useState(false);
   const [stats, setStats] = useState(null);
@@ -424,6 +424,50 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         statusLive={!!(start && end && isOptimized)}
         onGoMain={onGoMain} onGoMap={onGoMap} onGoNews={onGoNews} onGoCctv={onGoCctv}
         onGoSimulation={() => {}} onGoComplaints={onGoComplaints} onGoMyPage={onGoMyPage} onLogout={onLogout}
+        rightExtra={(
+          <>
+            {onToggleMic && (
+              <button
+                onClick={onToggleMic}
+                title={isMicActive ? "AI 음성 끄기" : "AI 음성 켜기"}
+                style={{
+                  background: isMicActive ? "rgba(255,60,60,0.15)" : "transparent",
+                  border: 0, borderRadius: 999, width: 32, height: 32, display: "flex", alignItems: "center",
+                  justifyContent: "center", cursor: "pointer", flexShrink: 0,
+                }}
+              >
+                <img
+                  src={isMicActive ? "/icons/microphone.png" : "/icons/microphone_off.png"}
+                  alt=""
+                  style={{
+                    width: 18, height: 18, objectFit: "contain", filter: "invert(1)", opacity: isMicActive ? 1 : 0.75,
+                  }}
+                />
+              </button>
+            )}
+
+            {onToggleMute && (
+              <button
+                onClick={onToggleMute}
+                title={isMuted ? "음소거 해제" : "음소거"}
+                style={{
+                  background: isMuted ? "#1a0a0a" : "transparent",
+                  border: 0, borderRadius: 999, width: 32, height: 32, display: "flex",
+                  alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
+                }}
+              >
+                <img
+                  src={isMuted ? "/icons/mute.png" : "/icons/speaker.png"}
+                  alt=""
+                  style={{
+                    width: 18, height: 18, objectFit: "contain", filter: "invert(1)", opacity: isMuted ? 1 : 0.9,
+                  }}
+                />
+              </button>
+            )}
+          </>
+  )}
+
       />
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: driveView ? "minmax(0, 1fr) 400px" : "minmax(0, 1fr) 330px 400px", minHeight: 0 }}>
 
