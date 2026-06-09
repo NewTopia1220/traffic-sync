@@ -344,27 +344,29 @@ export default function App() {
         />
       )}
 
-      <MainDashboard
-        onGoMap={goMap}
-        onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
-        onGoNews={() => assistant.tryNav(() => setPage('news'))}
-        onGoSimulation={goSimulation}
-        onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
-        onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
-        onLogout={() => assistant.tryNav(() => setPage('login'))}
-        wsData={wsData}
-        setWsData={setWsData}
-        stations={stations}
-        setStations={setStations}
-        selectedGu={selectedGu}
-        onSelectGu={handleSelectGu}
-        onAreaFetchState={handleAreaFetchState}
-        onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
-        isMuted={assistant.isMuted}
-        onToggleMute={assistant.toggleMute}
-        isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
-        onToggleMic={assistant.onFloatingClick}
-      />
+      {showMain && (
+        <MainDashboard
+          onGoMap={goMap}
+          onGoCctv={() => assistant.tryNav(() => setPage('cctv'))}
+          onGoNews={() => assistant.tryNav(() => setPage('news'))}
+          onGoSimulation={goSimulation}
+          onGoComplaints={() => assistant.tryNav(() => setPage('complaints'))}
+          onGoMyPage={() => assistant.tryNav(() => setPage('mypage'))}
+          onLogout={() => assistant.tryNav(() => setPage('login'))}
+          wsData={wsData}
+          setWsData={setWsData}
+          stations={stations}
+          setStations={setStations}
+          selectedGu={selectedGu}
+          onSelectGu={handleSelectGu}
+          onAreaFetchState={handleAreaFetchState}
+          onRegisterSelectGu={(fn) => { selectGuRef.current = fn }}
+          isMuted={assistant.isMuted}
+          onToggleMute={assistant.toggleMute}
+          isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+          onToggleMic={assistant.onFloatingClick}
+        />
+      )}
 
       {/* 로그인 브리핑 카드 */}
       {loginBriefing && (
