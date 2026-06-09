@@ -141,10 +141,12 @@ public class ChatService {
                     sb.append(reportText).append("\n");
                 }
                 sb.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-                sb.append("본 보고서는 TrafficSync AI 관제 시스템에서 자동 생성되었습니다.");
+                sb.append("본 메일은 Syncro 교통 관제 시스템에서 자동 발송되었습니다.\n");
+                sb.append("감사합니다.\n\n");
+                sb.append("Syncro 교통 관제 시스템 드림");
                 String emailBody = sb.toString();
                 try {
-                    emailService.send(userEmail, "[AI 신호 자동조정] 신호 최적화 완료", emailBody);
+                    emailService.send(userEmail, "[Syncro] 분석결과를 알려드립니다", emailBody);
                     log.info("[SIM-EMAIL] 발송 완료 → {}", userEmail);
                 } catch (Exception emailEx) {
                     log.error("[SIM-EMAIL] 발송 실패 → {}: {}", userEmail, emailEx.getMessage());

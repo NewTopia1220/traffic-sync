@@ -184,7 +184,7 @@ export default function SimChatBot({ intNo, intNm, simulation, routeTraffic, aut
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
                               to: userEmail,
-                              subject: `[TrafficSync] ${intNm || "교차로"} 신호 최적화 상세 리포트`,
+                              subject: `[Syncro] ${intNm || "교차로"} 분석결과를 알려드립니다`,
                               body: detailText,
                             }),
                           });

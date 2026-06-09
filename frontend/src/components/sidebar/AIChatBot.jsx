@@ -35,7 +35,7 @@ const MSG_STORAGE_KEY       = 'ts_chatbot_messages';
 const COLLAPSED_STORAGE_KEY = 'ts_chatbot_collapsed';
 const LIVE_STORAGE_KEY      = 'ts_chatbot_live';
 
-export default function AIChatBot({ selected, onClose }) {
+export default function AIChatBot({ selected, onClose, isMuted = false }) {
   const [messages, setMessages] = useState(() => {
     try {
       const saved = sessionStorage.getItem(MSG_STORAGE_KEY);
@@ -73,6 +73,15 @@ export default function AIChatBot({ selected, onClose }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, liveSteps]);
+
+  const isMutedRef = useRef(isMuted)
+  useEffect(() => {
+    isMutedRef.current = isMuted
+    if (isMuted) {
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; setSpeaking(false); window.__chatbotSpeaking = false; }
+      if (actionAudioRef.current) { actionAudioRef.current.pause(); actionAudioRef.current = null; }
+    }
+  }, [isMuted]);
 
   // 세션 유지 — 닫았다 열어도 메시지·추론·접힘 상태 모두 보존
   useEffect(() => {
@@ -116,7 +125,7 @@ export default function AIChatBot({ selected, onClose }) {
 
   // 전체 답변 TTS (자동재생)
   const speakText = useCallback(async (text) => {
-    if (!GOOGLE_TTS_KEY || !text) return;
+    if (!GOOGLE_TTS_KEY || !text || isMutedRef.current) return;
     stopSpeaking();
     setSpeaking(true);
     window.__chatbotSpeaking = true;
@@ -133,7 +142,7 @@ export default function AIChatBot({ selected, onClose }) {
 
   // 도구 호출 알림 TTS — 이전 도구 알림 즉시 교체 (큐 없음)
   const speakAction = useCallback(async (label) => {
-    if (!GOOGLE_TTS_KEY || !label) return;
+    if (!GOOGLE_TTS_KEY || !label || isMutedRef.current) return;
     try {
       const content = await _tts(label, 1.4);
       if (content) {
@@ -483,7 +492,7 @@ export default function AIChatBot({ selected, onClose }) {
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
                                 to: userEmail,
-                                subject: "[TrafficSync] 교통 분석 리포트",
+                                subject: "[Syncro] 분석결과를 알려드립니다",
                                 body: m.text,
                               }),
                             });

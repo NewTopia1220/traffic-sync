@@ -497,6 +497,9 @@ async def free_chat(req: ChatRequest):
         f"\n[요청 유저 이메일: {req.userEmail}]"
         f"\n사용자가 현재 질문에서 '이메일', '메일로' 등을 직접 언급한 경우에만 "
         f"분석 완료 후 send_email_report 도구를 호출할 것.\n"
+        "send_email_report 호출 시 subject는 '[Syncro] 분석결과를 알려드립니다' 형식으로 작성할 것.\n"
+        "이메일 본문 마지막에는 반드시 아래 마무리 문구를 그대로 추가할 것:\n"
+        "---\n본 메일은 Syncro 교통 관제 시스템에서 자동 발송되었습니다.\n감사합니다.\n\nSyncro 교통 관제 시스템 드림\n"
         "이메일 발송 여부를 묻거나 '이메일로 보내드릴까요?' 같은 문구를 답변에 절대 포함하지 말 것."
     ) if req.userEmail else ""
 
@@ -562,13 +565,17 @@ async def free_chat_stream(req: ChatRequest, request: Request):
         "① 현재 상태: 속도·위험등급·혼잡도 요약\n"
         "② 혼잡 원인: 어느 방향 신호가 왜 막히는지 (rmndCs 높은 적색 방향 기준)\n"
         "③ 조정 권고: 구체적으로 어떤 현시를 몇 초 조정할지\n"
-        "이메일 본문도 동일한 분석 형식으로 작성할 것. 데이터 나열 금지."
+        "이메일 본문도 동일한 분석 형식으로 작성할 것. 데이터 나열 금지.\n"
+        "이메일 본문 마지막에는 반드시 '---\\n본 메일은 Syncro 교통 관제 시스템에서 자동 발송되었습니다.\\n감사합니다.\\n\\nSyncro 교통 관제 시스템 드림' 문구를 추가할 것."
     )
 
     email_ctx = (
         f"\n[요청 유저 이메일: {req.userEmail}]"
         f"\n사용자가 현재 질문에서 '이메일', '메일로' 등을 직접 언급한 경우에만 "
         f"분석 완료 후 send_email_report 도구를 호출할 것.\n"
+        "send_email_report 호출 시 subject는 '[Syncro] 분석결과를 알려드립니다' 형식으로 작성할 것.\n"
+        "이메일 본문 마지막에는 반드시 아래 마무리 문구를 그대로 추가할 것:\n"
+        "---\n본 메일은 Syncro 교통 관제 시스템에서 자동 발송되었습니다.\n감사합니다.\n\nSyncro 교통 관제 시스템 드림\n"
         "이메일 발송 여부를 묻거나 '이메일로 보내드릴까요?' 같은 문구를 답변에 절대 포함하지 말 것."
     ) if req.userEmail else ""
 
@@ -950,13 +957,18 @@ async def bottleneck_email(req: DistrictRequest):
         f"[시스템 분석 및 조치 권고]\n"
         f"(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장. 반드시 한국어로 작성)\n\n"
         f"---\n"
-        f"TrafficSync 자동 발송 | 조치 후 관제 시스템에서 확인 바랍니다.\n\n"
+        f"본 메일은 Syncro 교통 관제 시스템에서 자동 발송되었습니다.\n"
+        f"조치 후 관제 시스템에서 결과를 확인해 주시기 바랍니다.\n"
+        f"감사합니다.\n\n"
+        f"Syncro 교통 관제 시스템 드림\n\n"
         f"병목 교차로가 없으면 아래 양식만 출력:\n"
         f"교통관제 자동화 시스템입니다.\n"
         f"현재 {req.district} 내 15km/h 이하 구간이 감지되지 않았습니다.\n"
         f"수집 교차로: {{total_crossroads}}개 / 현재 교통 상황 양호\n\n"
         f"---\n"
-        f"TrafficSync 자동 발송"
+        f"본 메일은 Syncro 교통 관제 시스템에서 자동 발송되었습니다.\n"
+        f"감사합니다.\n\n"
+        f"Syncro 교통 관제 시스템 드림"
     )
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
     return ChatResponse(answer=strip_chinese(extract_answer(result)))
@@ -981,7 +993,11 @@ async def bottleneck_email_stream(req: DistrictRequest, request: Request):
         f"(병목 교차로를 순위별로 작성. 없으면 '해당 없음' 한 줄)\n\n"
         f"[날씨 현황]\n기온 {{temperatureC}}°C / 강수량 {{precipitationMm}}mm / 풍속 {{windSpeedMs}}m/s\n\n"
         f"[시스템 분석 및 조치 권고]\n(혼잡 원인 추정 + 신호 조정 또는 우회 권고 2~3문장. 반드시 한국어로 작성)\n\n"
-        f"---\nTrafficSync 자동 발송"
+        f"---\n"
+        f"본 메일은 Syncro 교통 관제 시스템에서 자동 발송되었습니다.\n"
+        f"조치 후 관제 시스템에서 결과를 확인해 주시기 바랍니다.\n"
+        f"감사합니다.\n\n"
+        f"Syncro 교통 관제 시스템 드림"
     )
 
     async def generate():
@@ -1050,7 +1066,7 @@ async def bottleneck_email_stream(req: DistrictRequest, request: Request):
                     async with _httpx.AsyncClient(timeout=10.0) as client:
                         await client.post(
                             "http://localhost:8080/api/email/send",
-                            json={"to": req.userEmail, "subject": f"[병목 경보] 서울 {req.district}", "body": report_text},
+                            json={"to": req.userEmail, "subject": f"[Syncro] 서울 {req.district} 분석결과를 알려드립니다", "body": report_text},
                         )
                     yield f"data: {_json.dumps({'type': 'observation', 'content': f'메일 발송 완료 → {req.userEmail}'}, ensure_ascii=False)}\n\n"
                 except Exception as e:

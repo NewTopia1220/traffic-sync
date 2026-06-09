@@ -82,7 +82,9 @@ export function useAssistant({ page, onNavIntent }) {
 
   // ── 마이크 STT 시작/중단 토글 ───────────────────────────────────
   const startVoiceSTT = () => {
-    if (BUSY_STATUS.includes(voiceUI.status)) return  // AI 처리 중엔 불가
+    console.log('[STT] startVoiceSTT 호출, status:', voiceUI.status, 'voiceSTTActive:', voiceSTTActive)
+    if (voiceMinimized) return                        // 최소화 상태에서 STT 금지 (TTS 소리 유입 방지)
+    if (BUSY_STATUS.includes(voiceUI.status)) { console.log('[STT] BUSY 상태로 차단:', voiceUI.status); return }
     if (voiceUI.status === 'email_confirm') return    // 이메일 확인 중엔 버튼으로만
 
     if (voiceSTTActive) {  // 이미 켜져 있으면 중단
@@ -94,12 +96,13 @@ export function useAssistant({ page, onNavIntent }) {
     }
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) return
+    if (!SR) { console.log('[STT] SpeechRecognition 미지원'); return }
     const r = new SR()
     r.lang = 'ko-KR'; r.maxAlternatives = 1
     sttRecRef.current = r
     setVoiceSTTActive(true)
     setVoiceUI(prev => ({ ...prev, status: 'listening' }))
+    console.log('[STT] r.start() 호출')
 
     r.onresult = (e) => {
       const text = e.results[0][0].transcript
@@ -132,7 +135,8 @@ export function useAssistant({ page, onNavIntent }) {
         })
       }
     }
-    r.onerror = () => {
+    r.onerror = (e) => {
+      console.log('[STT] 오류:', e.error, e.message)
       sttRecRef.current = null
       setVoiceSTTActive(false)
       setVoiceUI(prev => ({ ...prev, status: 'idle' }))
@@ -149,11 +153,14 @@ export function useAssistant({ page, onNavIntent }) {
   startVoiceSTTRef.current = startVoiceSTT
 
   // STT 결과를 Promise로 받기 — 버튼으로도, 자동으로도 resolve 가능
+  // autoStartMs=null 이면 자동 시작 없이 버튼 클릭 대기
   const waitForVoiceInput = (autoStartMs = 600) => new Promise(resolve => {
     voiceInputRef.current = resolve
-    setTimeout(() => {
-      if (voiceInputRef.current) startVoiceSTTRef.current?.()  // 최신 함수로 호출
-    }, autoStartMs)
+    if (autoStartMs != null) {
+      setTimeout(() => {
+        if (voiceInputRef.current) startVoiceSTTRef.current?.()
+      }, autoStartMs)
+    }
   })
 
   // ── 전역 박수 감지 → 음성 세션 시작/중단 ────────────────────────
@@ -208,15 +215,41 @@ export function useAssistant({ page, onNavIntent }) {
     }
   }
 
-  // AI 플로팅 버튼: 패널 열려있으면 닫기, 최소화 상태면 펼치기, 없으면 새 세션
+  // AI 플로팅 버튼
+  // - 패널 열려있을 때 클릭 → 최소화 + TTS 음소거 (AI는 백그라운드 유지)
+  // - 최소화 상태일 때 클릭 → 패널 보이기 + TTS 음소거 해제
+  //   + AI가 바쁘지 않으면 인사 TTS 재생
+  // - 꺼져있을 때 클릭 → 새 세션 시작
   const onFloatingClick = () => {
-    if (voiceUI.active && !voiceMinimized) {
-      closeVoiceUI()               // X → 항상 완전히 닫기
-    } else if (voiceUI.messages.length > 0) {
-      setVoiceUI(prev => ({ ...prev, active: true }))
+    if (!voiceUI.active) {
+      voiceSessionRef.current?.()      // 꺼져있으면 → 새 세션 시작
+    } else if (voiceMinimized) {
+      // 최소화 → 다시 열기 + TTS 음소거 해제
+      setTTSMuted(false)
+      setIsMuted(false)
       setVoiceMinimized(false)
+      // AI가 바쁘지 않으면 인사 텍스트 + TTS만 재생
+      // STT는 루프의 waitForVoiceInput 타이머에 맡김 (이중 호출 방지)
+      if (!BUSY_STATUS.includes(voiceUI.status) && voiceUI.status !== 'email_confirm') {
+        const user = readUser()
+        const name = user.name || '관제사'
+        const greeting = `안녕하세요 ${name}님, 무엇을 도와드릴까요?`
+        setVoiceUI(prev => ({ ...prev, messages: [...prev.messages, { role: 'ai', text: greeting }], status: 'greeting' }))
+        speakAsync(greeting).then(() => {
+          if (!sessionAbortedRef.current) {
+            setVoiceUI(prev => prev.status === 'greeting' ? { ...prev, status: 'idle' } : prev)
+          }
+        })
+      }
     } else {
-      voiceSessionRef.current?.()
+      // 패널 열려있을 때 → 최소화 + TTS 음소거 + STT 중단
+      stopAllTTS()
+      setTTSMuted(true)
+      setIsMuted(true)
+      sttRecRef.current?.abort()
+      sttRecRef.current = null
+      setVoiceSTTActive(false)
+      setVoiceMinimized(true)
     }
   }
 
@@ -226,15 +259,12 @@ export function useAssistant({ page, onNavIntent }) {
     const name  = user.name  || '관제사'
     const email = user.email || null
     sessionAbortedRef.current = false
+    stopAllTTS()  // 이전 세션에서 남은 TTS 체인/오디오 완전 초기화
 
-    // 패널 열기. 첫 세션이면 메시지 초기화 + 인사 추가, 재방문이면 이어쓰기.
+    // 패널 열기 — 항상 새 세션으로 초기화 (인사 + TTS + STT 순서)
     setVoiceMinimized(false)
     const greeting = `안녕하세요 ${name}님, AI 어시스턴트입니다. 무엇을 도와드릴까요?`
-    setVoiceUI(prev => prev.messages.length === 0
-      ? { active: true, messages: [{ role: 'ai', text: greeting }], steps: [], status: 'greeting', report: '' }
-      : { ...prev, active: true, status: 'greeting', steps: [] }
-    )
-    // 매 세션마다 항상 인사 TTS 재생 — TTS 키 없으면 즉시 resolve됨
+    setVoiceUI({ active: true, messages: [{ role: 'ai', text: greeting }], steps: [], status: 'greeting', report: '' })
     await speakAsync(greeting)
     // X가 눌렸으면 STT 자동 시작 전에 즉시 종료
     if (sessionAbortedRef.current) {
@@ -302,6 +332,26 @@ export function useAssistant({ page, onNavIntent }) {
       skipEmailConfirm: false,
       onError: async () => { await speakAsync('처리 중 오류가 발생했습니다.') },
     })
+
+    // 추가 질문 루프 — 분석 끝나면 1초 후 자동 STT 재시작
+    while (!sessionAbortedRef.current) {
+      const nextQ = await waitForVoiceInput(1000)  // 1초 후 자동 STT
+      if (!nextQ || sessionAbortedRef.current) break
+
+      setVoiceUI(prev => ({
+        ...prev,
+        messages: [...prev.messages, { role: 'user', text: nextQ }],
+        steps: [], status: 'thinking',
+      }))
+      if (sessionAbortedRef.current) break
+
+      await streamAgent({
+        endpoint: '/api/agent/chat/stream',
+        body: { question: nextQ, userEmail: email },
+        skipEmailConfirm: false,
+        onError: async () => { await speakAsync('처리 중 오류가 발생했습니다.') },
+      })
+    }
   }
   voiceSessionRef.current = runVoiceSession
 
@@ -324,7 +374,7 @@ export function useAssistant({ page, onNavIntent }) {
     await streamAgent({
       endpoint: '/api/agent/district-report/stream',
       body: { district: gu },
-      emailSubject: `[TrafficSync] ${gu} 교통 리포트`,
+      emailSubject: `[Syncro] ${gu} 분석결과를 알려드립니다`,
       onError: async () => { await speakAsync('교통 데이터 분석 중 오류가 발생했습니다.') },
     })
   }
@@ -339,6 +389,7 @@ export function useAssistant({ page, onNavIntent }) {
     abortRef.current = abortCtrl
 
     let reportText = ''
+    let ttsSpeakPromise = Promise.resolve()  // answer TTS promise — 직접 추적
     let emailSentByAI = false  // AI가 send_email_report 도구로 이미 발송했는지
     try {
       const res = await fetch(`${PYTHON_BASE}${endpoint}`, {
@@ -370,13 +421,15 @@ export function useAssistant({ page, onNavIntent }) {
           } else if (data.type === 'observation') {
             setVoiceUI(prev => ({ ...prev, steps: [...prev.steps, data] }))
           } else if (data.type === 'answer') {
-            reportText = data.content
-            setVoiceUI(prev => ({
-              ...prev,
-              messages: [...prev.messages, { role: 'ai', text: reportText }],
-              steps: [], status: 'speaking', report: reportText,
-            }))
-            speakAsync(reportText)
+            reportText = data.content || ''
+            if (reportText.trim()) {
+              setVoiceUI(prev => ({
+                ...prev,
+                messages: [...prev.messages, { role: 'ai', text: reportText }],
+                steps: [], status: 'speaking', report: reportText,
+              }))
+              ttsSpeakPromise = speakAsync(reportText)
+            }
           }
         }
       }
@@ -389,15 +442,24 @@ export function useAssistant({ page, onNavIntent }) {
     }
     abortRef.current = null
 
+    // answer 이벤트 없이 스트림이 끝난 경우 — 응답 없음 표시
+    if (!reportText.trim()) {
+      setVoiceUI(prev => ({ ...prev, steps: [], status: 'done' }))
+      return
+    }
+
+    // answer TTS 완전히 끝날 때까지 대기 후 이메일 확인 표시
+    await ttsSpeakPromise
+    if (sessionAbortedRef.current) { setVoiceUI(prev => ({ ...prev, status: 'done' })); return }
+
     // AI가 이미 이메일을 보냈거나, 이메일 계정이 없거나, 스킵 플래그면 확인 생략
     if (emailSentByAI || skipEmailConfirm || !email) {
       setVoiceUI(prev => ({ ...prev, status: 'done' }))
       return
     }
 
-    // 답변 TTS 끝난 뒤 이메일 발송 여부 확인 (await 방식으로 변경 — .then() dangling 방지)
+    // 이메일 확인 — 버튼으로만 (음성 없음)
     const emailMsg = '이 리포트를 이메일로 보내드릴까요?'
-    await speakAsync(emailMsg)
     if (sessionAbortedRef.current) { setVoiceUI(prev => ({ ...prev, status: 'done' })); return }
     setVoiceUI(prev => ({ ...prev, messages: [...prev.messages, { role: 'ai', text: emailMsg }], status: 'email_confirm' }))
     const confirmed = await new Promise(res => {
@@ -412,7 +474,7 @@ export function useAssistant({ page, onNavIntent }) {
       await fetch(`${API_BASE}/api/email/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: email, subject: emailSubject || '[TrafficSync] 교통 관제 리포트', body: reportText }),
+        body: JSON.stringify({ to: email, subject: emailSubject || '[Syncro] 분석결과를 알려드립니다', body: reportText }),
       })
       setVoiceUI(prev => ({ ...prev, messages: [...prev.messages, { role: 'user', text: '네' }, { role: 'ai', text: '이메일을 발송했습니다.' }], status: 'done' }))
       await speakAsync('이메일을 발송했습니다.')
