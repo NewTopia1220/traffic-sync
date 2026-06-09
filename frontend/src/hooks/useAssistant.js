@@ -228,8 +228,7 @@ export function useAssistant({ page, onNavIntent }) {
       setTTSMuted(false)
       setIsMuted(false)
       setVoiceMinimized(false)
-      // AI가 바쁘지 않으면 인사 텍스트 + TTS만 재생
-      // STT는 루프의 waitForVoiceInput 타이머에 맡김 (이중 호출 방지)
+      // AI가 바쁘지 않으면 인사 텍스트 + TTS → 끝나면 자동 STT
       if (!BUSY_STATUS.includes(voiceUI.status) && voiceUI.status !== 'email_confirm') {
         const user = readUser()
         const name = user.name || '관제사'
@@ -238,6 +237,9 @@ export function useAssistant({ page, onNavIntent }) {
         speakAsync(greeting).then(() => {
           if (!sessionAbortedRef.current) {
             setVoiceUI(prev => prev.status === 'greeting' ? { ...prev, status: 'idle' } : prev)
+            setTimeout(() => {
+              if (!sessionAbortedRef.current) startVoiceSTTRef.current?.()
+            }, 100)
           }
         })
       }
@@ -333,9 +335,9 @@ export function useAssistant({ page, onNavIntent }) {
       onError: async () => { await speakAsync('처리 중 오류가 발생했습니다.') },
     })
 
-    // 추가 질문 루프 — 분석 끝나면 1초 후 자동 STT 재시작
+    // 추가 질문 루프 — 마이크 버튼으로만 시작 (자동 STT 없음)
     while (!sessionAbortedRef.current) {
-      const nextQ = await waitForVoiceInput(1000)  // 1초 후 자동 STT
+      const nextQ = await waitForVoiceInput(null)  // 자동 시작 없이 버튼 대기
       if (!nextQ || sessionAbortedRef.current) break
 
       setVoiceUI(prev => ({
