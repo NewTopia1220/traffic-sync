@@ -3,6 +3,7 @@ import { useClapDetection } from "../../hooks/useClapDetection";
 import { ThinkingBlock, InlineSteps } from "./ChatSteps";
 
 const PYTHON_BASE    = import.meta.env.VITE_PYTHON_URL    || "http://localhost:8001";
+const API_BASE       = (import.meta.env.VITE_API_URL       || "http://localhost:8080").replace(/\/+$/, "");
 const GOOGLE_TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_KEY || "";
 
 const INITIAL_MSG = [
@@ -34,7 +35,7 @@ const MSG_STORAGE_KEY       = 'ts_chatbot_messages';
 const COLLAPSED_STORAGE_KEY = 'ts_chatbot_collapsed';
 const LIVE_STORAGE_KEY      = 'ts_chatbot_live';
 
-export default function AIChatBot({ selected, onClose }) {
+export default function AIChatBot({ selected, onClose, isMuted = false }) {
   const [messages, setMessages] = useState(() => {
     try {
       const saved = sessionStorage.getItem(MSG_STORAGE_KEY);
@@ -43,6 +44,7 @@ export default function AIChatBot({ selected, onClose }) {
   });
   const [input,          setInput]          = useState("");
   const [loading,        setLoading]        = useState(false);
+  const [emailSent,      setEmailSent]      = useState({});  // idx → 'sending'|'sent'|'error'
   // 스트리밍 중단 복원: 마지막으로 저장된 liveSteps부터 시작
   const [liveSteps, setLiveSteps] = useState(() => {
     try {
@@ -71,6 +73,15 @@ export default function AIChatBot({ selected, onClose }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, liveSteps]);
+
+  const isMutedRef = useRef(isMuted)
+  useEffect(() => {
+    isMutedRef.current = isMuted
+    if (isMuted) {
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; setSpeaking(false); window.__chatbotSpeaking = false; }
+      if (actionAudioRef.current) { actionAudioRef.current.pause(); actionAudioRef.current = null; }
+    }
+  }, [isMuted]);
 
   // 세션 유지 — 닫았다 열어도 메시지·추론·접힘 상태 모두 보존
   useEffect(() => {
@@ -114,7 +125,7 @@ export default function AIChatBot({ selected, onClose }) {
 
   // 전체 답변 TTS (자동재생)
   const speakText = useCallback(async (text) => {
-    if (!GOOGLE_TTS_KEY || !text) return;
+    if (!GOOGLE_TTS_KEY || !text || isMutedRef.current) return;
     stopSpeaking();
     setSpeaking(true);
     window.__chatbotSpeaking = true;
@@ -131,7 +142,7 @@ export default function AIChatBot({ selected, onClose }) {
 
   // 도구 호출 알림 TTS — 이전 도구 알림 즉시 교체 (큐 없음)
   const speakAction = useCallback(async (label) => {
-    if (!GOOGLE_TTS_KEY || !label) return;
+    if (!GOOGLE_TTS_KEY || !label || isMutedRef.current) return;
     try {
       const content = await _tts(label, 1.4);
       if (content) {
@@ -232,6 +243,7 @@ export default function AIChatBot({ selected, onClose }) {
         body: JSON.stringify({
           question:  q,
           crsrdId:   selected?.crsrdId ?? null,
+          crsrdNm:   selected?.crsrdNm ?? null,
           userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
         }),
         signal: abortCtrl.signal,
@@ -354,8 +366,32 @@ export default function AIChatBot({ selected, onClose }) {
               <span style={{ animation: "chatDotBlink 1s ease infinite" }}>●</span> 재생 중 · 클릭해서 중지
             </button>
           )}
+          <button
+            onClick={() => {
+              if (loading) return;
+              try {
+                sessionStorage.removeItem(MSG_STORAGE_KEY);
+                sessionStorage.removeItem(COLLAPSED_STORAGE_KEY);
+                sessionStorage.removeItem(LIVE_STORAGE_KEY);
+              } catch {}
+              setMessages(INITIAL_MSG);
+              setLiveSteps([]);
+              setCollapsedSteps({});
+              setEmailSent({});
+            }}
+            disabled={loading}
+            title="대화 삭제"
+            style={{
+              marginLeft: "auto",
+              background: "none", border: "none",
+              color: "rgba(255,255,255,0.3)", fontSize: 11,
+              cursor: loading ? "default" : "pointer", padding: "0 4px", lineHeight: 1,
+              opacity: loading ? 0.3 : 1,
+            }}
+          >
+            🗑
+          </button>
           <button onClick={onClose} style={{
-            marginLeft: "auto",
             background: "none", border: "none",
             color: "rgba(255,255,255,0.3)", fontSize: 14,
             cursor: "pointer", padding: "0 2px", lineHeight: 1,
@@ -436,6 +472,49 @@ export default function AIChatBot({ selected, onClose }) {
                 }}>
                   {m.text}
                 </div>
+                {/* 이메일 발송 버튼 — 로그인 상태이고 초기 인사 메시지가 아닐 때만 표시 */}
+                {idx > 0 && JSON.parse(localStorage.getItem("ts_user") || "{}").email && (
+                  <div style={{ paddingLeft: 2 }}>
+                    {emailSent[idx] === "sent" ? (
+                      <span style={{ fontSize: 11, color: "rgba(100,200,120,0.7)" }}>✓ 이메일 발송 완료</span>
+                    ) : emailSent[idx] === "error" ? (
+                      <span style={{ fontSize: 11, color: "rgba(255,100,100,0.7)" }}>발송 실패 — 다시 시도</span>
+                    ) : (
+                      <button
+                        disabled={emailSent[idx] === "sending"}
+                        onClick={async () => {
+                          const userEmail = JSON.parse(localStorage.getItem("ts_user") || "{}").email;
+                          if (!userEmail) return;
+                          setEmailSent(prev => ({ ...prev, [idx]: "sending" }));
+                          try {
+                            const res = await fetch(`${API_BASE}/api/email/send`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                to: userEmail,
+                                subject: "[Syncro] 분석결과를 알려드립니다",
+                                body: m.text,
+                              }),
+                            });
+                            setEmailSent(prev => ({ ...prev, [idx]: res.ok ? "sent" : "error" }));
+                          } catch {
+                            setEmailSent(prev => ({ ...prev, [idx]: "error" }));
+                          }
+                        }}
+                        style={{
+                          padding: "3px 10px", fontSize: 11, borderRadius: 5,
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          background: emailSent[idx] === "sending" ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.05)",
+                          color: emailSent[idx] === "sending" ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.4)",
+                          cursor: emailSent[idx] === "sending" ? "default" : "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        {emailSent[idx] === "sending" ? "발송 중..." : "📧 이메일로 받기"}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )
           )}

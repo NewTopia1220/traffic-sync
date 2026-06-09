@@ -397,6 +397,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
             <AIChatBot
               selected={selected}
               onClose={() => setChatOpen(false)}
+              isMuted={isMuted}
             />
           </div>
         )}

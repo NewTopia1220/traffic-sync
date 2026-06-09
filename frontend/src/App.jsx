@@ -255,8 +255,6 @@ export default function App() {
       stations={stations}
       isMuted={assistant.isMuted}
       onToggleMute={assistant.toggleMute}
-      isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
-      onToggleMic={assistant.onFloatingClick}
     />
   )
 
@@ -412,6 +410,7 @@ export default function App() {
           pending={assistant.pendingBriefing}
           onStart={assistant.acceptPendingBriefing}
           onDismiss={assistant.dismissPendingBriefing}
+          shifted={assistant.voiceUI.active && !assistant.voiceMinimized}
         />
       )}
     </>
