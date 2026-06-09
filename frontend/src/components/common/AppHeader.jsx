@@ -31,6 +31,7 @@ export default function AppHeader({
   onGoMyPage,
   onLogout,
   rightExtra,
+  fetchMsg,
   complaintCount = 0,
 }) {
   const [time, setTime] = useState(new Date());
@@ -55,9 +56,9 @@ export default function AppHeader({
   const tabs = [
     ["통합 대시보드", "main"],
     ["실시간 지도", "map"],
-    ["뉴스", "news"],
-    ["CCTV", "cctv"],
     ["신호 시뮬레이션", "simulation"],
+    ["CCTV", "cctv"],
+    ["뉴스", "news"],
     ["민원 관리", "complaints"],
   ];
 
@@ -166,15 +167,13 @@ export default function AppHeader({
 
   // ── 데스크톱 헤더 (기존 그대로) ──────────────────────────────────
   return (
-    <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 12px", height: 60, display: "flex", alignItems: "center", gap: 8, flexShrink: 0, position: "sticky", top: 0, zIndex: 100, fontFamily: V.sans, overflow: "hidden", whiteSpace: "nowrap" }}>
+    <div style={{ background: V.bg0, borderBottom: `1px solid ${V.line}`, padding: "0 20px", height: 92, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, position: "sticky", top: 0, zIndex: 100, fontFamily: V.sans, overflow: "hidden", whiteSpace: "nowrap" }}>
       <button onClick={onGoMain} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 210, flexShrink: 0, background: "transparent", border: 0, padding: 0, cursor: "pointer", textAlign: "left", fontFamily: V.sans }}>
-        <div style={{ width: 24, height: 24, borderRadius: 4, display: "grid", placeItems: "center", background: "#0a0a0a", border: `1px solid ${V.line}` }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: V.grn, display: "block" }} />
-        </div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: V.ink0 }}>Syncro 교통 관제 시스템</div>
+          <div style={{ fontWeight: 800, fontSize: 20, color: V.ink0 }}>Syncro 교통 관제 시스템</div>
         </div>
       </button>
+
 
       <div style={{ display: "flex", gap: 2, background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 999, padding: 3, flexShrink: 0 }}>
         {tabs.map(([label, tab]) => {
@@ -183,8 +182,8 @@ export default function AppHeader({
           const dotColor = isActive ? V.blu : isCivil ? V.org : V.ink3;
           return (
             <button key={tab} onClick={() => go(tab)}
-              style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "6px 10px", borderRadius: 999, fontSize: 13, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans, position: "relative", whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1.15 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
+              style={{ appearance: "none", border: 0, background: isActive ? "#141414" : "transparent", color: isActive ? V.blu : "#fff", padding: "8px 12px", borderRadius: 999, fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, boxShadow: isActive ? "inset 0 0 0 1px #2a2a2a" : "none", fontFamily: V.sans, position: "relative", whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1.15 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
               {label}
               {isCivil && complaintCount > 0 && (
                 <span style={{ position: "absolute", top: 4, right: 6, minWidth: 16, height: 16, background: V.org, borderRadius: 999, fontFamily: V.mono, fontSize: 9, fontWeight: 700, color: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>
@@ -196,27 +195,119 @@ export default function AppHeader({
         })}
       </div>
 
+      {rightExtra && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 4,
+            marginTop: 5,
+            padding: "3px 5px",
+            border: `1px solid ${V.line}`,
+            borderRadius: 999,
+            background: "rgba(255,255,255,0.025)",
+            flexShrink: 0,
+          }}
+        >
+          {rightExtra}
+        </div>
+      )}
+
       {selectedGu && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "4px 9px", borderRadius: 2, background: "#1a1206", border: "1px solid #3a2a14", color: V.org, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: V.org, display: "inline-block" }} />
           {selectedGu.name} 선택됨
         </div>
       )}
+      {fetchMsg && (
+        <div
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 7, padding: "4px 10px", borderRadius: 2, background: "#0c1a12",
+            border: "1px solid #1a3a24", color: V.grn, fontSize: 11, fontWeight: 600, fontFamily: V.mono, whiteSpace: "nowrap", flexShrink: 0,
+          }}
+        >
+          ✓ {fetchMsg}
+        </div>
+      )}
 
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, whiteSpace: "nowrap" }}>
         {statusText && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", border: `1px solid ${V.line}`, background: V.bg0, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink1, whiteSpace: "nowrap" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", border: `1px solid ${V.line}`, background: V.bg0, borderRadius: 2, fontFamily: V.mono, fontSize: 12, color: V.ink1, whiteSpace: "nowrap",  flexShrink: 0 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusLive ? V.grn : V.ink3, display: "inline-block" }} />
             {statusText}
           </span>
         )}
-        {rightExtra}
-        <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink0, letterSpacing: ".3px" }}>
+
+        
+
+        
+
+       
+
+        {/* <span style={{ fontFamily: V.mono, fontSize: 11, color: V.ink0, letterSpacing: ".3px" }}>
           <span style={{ color: V.ink2, marginRight: 6 }}>{time.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}</span>
           {time.toLocaleTimeString("ko-KR")}
-        </span>
-        {onGoMyPage && <button onClick={onGoMyPage} style={{ background: "transparent", border: `1px solid ${V.line}`, borderRadius: 999, padding: "6px 10px", color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: V.sans, whiteSpace: "nowrap", flexShrink: 0 }}>마이페이지</button>}
-        {onLogout && <button onClick={() => { localStorage.removeItem("ts_user"); onLogout(); }} style={{ background: "transparent", border: "1px solid #3a1820", borderRadius: 999, padding: "6px 10px", color: V.red, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: V.sans, whiteSpace: "nowrap", flexShrink: 0 }}>로그아웃</button>}
+        </span> */}
+        
+        
+        <div
+          style={{
+            display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", fontFamily: V.mono, gap: 4,
+             color: V.ink0, letterSpacing: ".2px", whiteSpace: "nowrap", flexShrink: 0, 
+          }}
+        >
+          <span style={{ color: V.ink2, fontSize: 11, lineHeight: 1.15 }}>
+            {time.toLocaleDateString("ko-KR", {
+              year: "numeric", month: "long", day: "numeric", weekday: "short", 
+            })}
+          </span>
+          <span style={{ color: V.ink0, fontSize: 12, fontWeight: 600 }}>
+            {time.toLocaleTimeString("ko-KR")}
+          </span>
+         
+        </div>
+
+
+         {onGoMyPage && (
+          <button
+            onClick={onGoMyPage}
+            title="마이페이지"
+            aria-label="마이페이지"
+            style={{
+              width: 40, height: 40, display: "grid", placeItems: "center", background: "transparent",
+              border: `1px solid #a59c9e`, borderRadius: 999, cursor: "pointer", flexShrink: 0,
+            }}
+          >
+            <img src="/icons/user.png" alt=""
+              style={{
+                width: 20, height: 20, objectFit: "contain", filter: "invert(1)", opacity: 0.95,
+              }}
+            />
+          </button>
+        )}
+
+        {onLogout && (
+          <button
+            onClick={() => {
+              localStorage.removeItem("ts_user");
+              onLogout();
+            }}
+            title="로그아웃"
+            aria-label="로그아웃"
+            style={{
+              width: 40, height: 40, display: "grid", placeItems: "center", background: "transparent",
+              border: "1px solid #a59c9e", borderRadius: 999, cursor: "pointer", flexShrink: 0,
+            }}
+          >
+            <img src="/icons/logout.png" alt=""
+              style={{
+                width: 20, height: 20, objectFit: "contain", filter: "invert(1)", opacity: 0.95,
+              }}
+            />
+          </button>
+        )}
+        
       </div>
     </div>
   );

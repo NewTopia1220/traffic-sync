@@ -217,6 +217,10 @@ export default function App() {
       onGoMyPage={() => setPage('mypage')}
       onLogout={() => setPage('login')}
       selectedGu={selectedGu}
+      isMuted={assistant.isMuted}
+      onToggleMute={assistant.toggleMute}
+      isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+      onToggleMic={assistant.onFloatingClick}
     />
   )
 
@@ -249,6 +253,10 @@ export default function App() {
       wsStatus={wsStatus}
       lastUpdate={lastUpdate}
       stations={stations}
+      isMuted={assistant.isMuted}
+      onToggleMute={assistant.toggleMute}
+      isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+      onToggleMic={assistant.onFloatingClick}
     />
   )
 
@@ -273,6 +281,10 @@ export default function App() {
             onGoMyPage={() => setPage('mypage')}
             onLogout={() => setPage('login')}
             selectedGu={selectedGu}
+            isMuted={assistant.isMuted}
+            onToggleMute={assistant.toggleMute}
+            isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+            onToggleMic={assistant.onFloatingClick}
           />
         </div>
       )}
@@ -341,6 +353,10 @@ export default function App() {
           wsStatus={wsStatus}
           lastUpdate={lastUpdate}
           stations={stations}
+          isMuted={assistant.isMuted}
+          onToggleMute={assistant.toggleMute}
+          isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
+          onToggleMic={assistant.onFloatingClick}
         />
       )}
 

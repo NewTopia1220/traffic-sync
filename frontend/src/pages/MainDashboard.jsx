@@ -119,17 +119,27 @@ function BottleneckEmailBtn({ district, apiBase }) {
     });
   };
 
-  const label = status === "loading" ? "⏳" : status === "done" ? "📨" : status === "error" ? "❌" : "📧";
+  const iconSrc =
+    status === "loading" ? "/icons/mail_send.png" :
+    status === "done" ? "/icons/mail_send.png" :
+    status === "error" ? "/icons/mail.png" :
+    "/icons/mail.png";
+  
+
+  // const label = status === "loading" ? "⏳" : status === "done" ? "📨" : status === "error" ? "❌" : "📧";
   const color = status === "done" ? "#2ee07a" : status === "error" ? "#ff5566" : "#4ea6ff";
 
   return (
     <button onClick={handleClick} disabled={status === "loading"} style={{
       fontSize: 15, padding: "6px 10px", borderRadius: 999, fontWeight: 500,
-      border: "1px solid #1a1a1a", background: "transparent",
+      // border: "1px solid #1a1a1a", 
+      border: 0,
+      background: "transparent",
       color: "#fff", cursor: status === "loading" ? "wait" : "pointer",
       fontFamily: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif", transition: "all 0.2s", boxShadow: "none", letterSpacing: "0"
     }}>
-      {label}
+      {/* {label} */}
+      <img src={iconSrc} alt="" style={{width: 18, height: 18, objectFit: "contain", filter: "invert(1)", opacity: status === "loading" ? 0.75 : 0.95, }} />
     </button>
   );
 }
@@ -1100,7 +1110,9 @@ export default function MainDashboard({
       <AppHeader
         activePage="main"
         selectedGu={selectedGu}
-        statusText={isLive ? "LIVE · V2X 연결됨" : undefined}
+        fetchMsg={fetchMsg}
+        // statusText={isLive ? "LIVE · V2X 연결됨" : undefined}
+        statusText={isLive ? undefined : undefined}
         statusLive={isLive}
         onGoMain={() => {}}
         onGoMap={onGoMap}
@@ -1118,7 +1130,8 @@ export default function MainDashboard({
                 title={isMicActive ? "AI 음성 끄기" : "AI 음성 켜기"}
                 style={{
                   background: isMicActive ? "rgba(255,60,60,0.15)" : "transparent",
-                  border: `1px solid ${isMicActive ? "rgba(255,60,60,0.4)" : V.line}`,
+                  // border: `1px solid ${isMicActive ? "rgba(255,60,60,0.4)" : V.line}`,
+                  border: 0,
                   borderRadius: 999,
                   width: 32, height: 32,
                   display: "flex", alignItems: "center", justifyContent: "center",
@@ -1129,7 +1142,11 @@ export default function MainDashboard({
                   transition: "border-color .2s, background .2s",
                 }}
               >
-                🎤
+                <img
+                  src={isMicActive ? "/icons/microphone.png" : "/icons/microphone_off.png"}
+                  alt=""
+                  style={{width: 18, height: 18, objectFit: "contain", filter: "invert(1)", opacity: isMicActive ? 1 : 0.9, }}
+                />
               </button>
             )}
             {onToggleMute && (
@@ -1138,7 +1155,8 @@ export default function MainDashboard({
                 title={isMuted ? "음소거 해제" : "음소거"}
                 style={{
                   background: isMuted ? "#1a0a0a" : "transparent",
-                  border: `1px solid ${isMuted ? "#5a1a1a" : V.line}`,
+                  // border: `1px solid ${isMuted ? "#5a1a1a" : V.line}`,
+                  border: 0,
                   borderRadius: 999,
                   width: 32, height: 32,
                   display: "flex", alignItems: "center", justifyContent: "center",
@@ -1149,25 +1167,16 @@ export default function MainDashboard({
                   transition: "border-color .2s, color .2s",
                 }}
               >
-                {isMuted ? "🔇" : "🔊"}
+                {/* {isMuted ? "🔇" : "🔊"} */}
+                <img
+                  src={isMuted ? "/icons/mute.png" : "/icons/speaker.png"}
+                  alt=""
+                  style={{width: 18, height: 18, objectFit: "contain", filter: "invert(1)", opacity: isMuted ? 1 : 0.9,}}
+                />
               </button>
             )}
             {selectedGu && (
               <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
-            )}
-            {fetchMsg && (
-              <span style={{
-                fontSize: 12,
-                color: V.grn,
-                padding: "3px 10px",
-                borderRadius: 2,
-                border: "1px solid #1a3a24",
-                background: "#0c1a12",
-                fontFamily: V.mono,
-                whiteSpace: "nowrap",
-              }}>
-                ✓ {fetchMsg}
-              </span>
             )}
           </>
         )}
