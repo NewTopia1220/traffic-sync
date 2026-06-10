@@ -7,6 +7,7 @@ import com.example.demo.model.CrossroadInfo;
 import com.example.demo.model.context.CrossroadRoadLinkMapping;
 import com.example.demo.model.context.GeoPoint;
 import com.example.demo.model.context.TopisLinkGeometry;
+import com.example.demo.repository.CrossroadDirectionLinkRepository;
 import com.example.demo.repository.CrossroadSupplementalMappingRepository;
 import com.example.demo.repository.TopisLinkVertexRepository;
 import org.junit.jupiter.api.Test;
@@ -27,11 +28,12 @@ class CrossroadSupplementalMappingServiceTest {
     @Test
     void fillsSpeedLinkIdWhenStoredRiskMappingHasNoSpeedMapping() throws Exception {
         CrossroadSupplementalMappingRepository mappingRepository = mock(CrossroadSupplementalMappingRepository.class);
+        CrossroadDirectionLinkRepository directionLinkRepository = mock(CrossroadDirectionLinkRepository.class);
         TopisApiService topisApiService = mock(TopisApiService.class);
         TopisLinkVertexRepository vertexRepository = mock(TopisLinkVertexRepository.class);
         RoadLinkMappingService roadLinkMappingService = roadLinkMappingService();
         CrossroadSupplementalMappingService service =
-                new CrossroadSupplementalMappingService(mappingRepository, topisApiService, roadLinkMappingService, vertexRepository);
+                new CrossroadSupplementalMappingService(mappingRepository, directionLinkRepository, topisApiService, roadLinkMappingService, vertexRepository);
 
         CrossroadSupplementalMappingEntity existing = new CrossroadSupplementalMappingEntity();
         existing.setCrsrdId("C1");
@@ -59,11 +61,12 @@ class CrossroadSupplementalMappingServiceTest {
     @Test
     void createsRiskAndSpeedMappingFromNearestTopisLink() throws Exception {
         CrossroadSupplementalMappingRepository mappingRepository = mock(CrossroadSupplementalMappingRepository.class);
+        CrossroadDirectionLinkRepository directionLinkRepository = mock(CrossroadDirectionLinkRepository.class);
         TopisApiService topisApiService = mock(TopisApiService.class);
         TopisLinkVertexRepository vertexRepository = mock(TopisLinkVertexRepository.class);
         RoadLinkMappingService roadLinkMappingService = roadLinkMappingService();
         CrossroadSupplementalMappingService service =
-                new CrossroadSupplementalMappingService(mappingRepository, topisApiService, roadLinkMappingService, vertexRepository);
+                new CrossroadSupplementalMappingService(mappingRepository, directionLinkRepository, topisApiService, roadLinkMappingService, vertexRepository);
 
         when(mappingRepository.findByCrsrdIdIn(any())).thenReturn(List.of());
         when(vertexRepository.findAllByOrderByIdLinkIdAscIdVerSeqAsc()).thenReturn(List.of());
@@ -82,11 +85,12 @@ class CrossroadSupplementalMappingServiceTest {
     @Test
     void createsMappingFromDbTopisLinkVerticesBeforeFallbackSources() throws Exception {
         CrossroadSupplementalMappingRepository mappingRepository = mock(CrossroadSupplementalMappingRepository.class);
+        CrossroadDirectionLinkRepository directionLinkRepository = mock(CrossroadDirectionLinkRepository.class);
         TopisApiService topisApiService = mock(TopisApiService.class);
         TopisLinkVertexRepository vertexRepository = mock(TopisLinkVertexRepository.class);
         RoadLinkMappingService roadLinkMappingService = roadLinkMappingService();
         CrossroadSupplementalMappingService service =
-                new CrossroadSupplementalMappingService(mappingRepository, topisApiService, roadLinkMappingService, vertexRepository);
+                new CrossroadSupplementalMappingService(mappingRepository, directionLinkRepository, topisApiService, roadLinkMappingService, vertexRepository);
 
         when(mappingRepository.findByCrsrdIdIn(any())).thenReturn(List.of());
         when(vertexRepository.findAllByOrderByIdLinkIdAscIdVerSeqAsc()).thenReturn(List.of(
@@ -106,11 +110,12 @@ class CrossroadSupplementalMappingServiceTest {
     @Test
     void rebuildsCompleteStoredMappingFromDbTopisLinkVertices() throws Exception {
         CrossroadSupplementalMappingRepository mappingRepository = mock(CrossroadSupplementalMappingRepository.class);
+        CrossroadDirectionLinkRepository directionLinkRepository = mock(CrossroadDirectionLinkRepository.class);
         TopisApiService topisApiService = mock(TopisApiService.class);
         TopisLinkVertexRepository vertexRepository = mock(TopisLinkVertexRepository.class);
         RoadLinkMappingService roadLinkMappingService = roadLinkMappingService();
         CrossroadSupplementalMappingService service =
-                new CrossroadSupplementalMappingService(mappingRepository, topisApiService, roadLinkMappingService, vertexRepository);
+                new CrossroadSupplementalMappingService(mappingRepository, directionLinkRepository, topisApiService, roadLinkMappingService, vertexRepository);
 
         CrossroadSupplementalMappingEntity existing = new CrossroadSupplementalMappingEntity();
         existing.setCrsrdId("C1");
@@ -141,11 +146,12 @@ class CrossroadSupplementalMappingServiceTest {
     @Test
     void storesGuNameOnCompleteStoredMappingWithoutRecalculatingTopisLink() throws Exception {
         CrossroadSupplementalMappingRepository mappingRepository = mock(CrossroadSupplementalMappingRepository.class);
+        CrossroadDirectionLinkRepository directionLinkRepository = mock(CrossroadDirectionLinkRepository.class);
         TopisApiService topisApiService = mock(TopisApiService.class);
         TopisLinkVertexRepository vertexRepository = mock(TopisLinkVertexRepository.class);
         RoadLinkMappingService roadLinkMappingService = roadLinkMappingService();
         CrossroadSupplementalMappingService service =
-                new CrossroadSupplementalMappingService(mappingRepository, topisApiService, roadLinkMappingService, vertexRepository);
+                new CrossroadSupplementalMappingService(mappingRepository, directionLinkRepository, topisApiService, roadLinkMappingService, vertexRepository);
 
         CrossroadSupplementalMappingEntity existing = new CrossroadSupplementalMappingEntity();
         existing.setCrsrdId("C1");
