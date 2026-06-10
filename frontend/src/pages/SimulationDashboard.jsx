@@ -130,7 +130,7 @@ function numberOrNull(value) {
 }
 
 
-export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu, isMuted, onToggleMute, isMicActive, onToggleMic, }) {
+export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu, isMuted, onToggleMute, isMicActive, onToggleMic, wsData = [] }) {
   useEffect(() => {
     console.log('[SimDashboard] MOUNTED, viewer:', !!window.ws3d?.viewer)
     return () => console.log('[SimDashboard] UNMOUNTED')
@@ -281,8 +281,16 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const callLLM = useCallback((resolved) => {
     if (!end?.intNo) return;
     const _bottleneckContextMap = bottleneckContextMap;
+
+    // wsData를 crsrdId 기준으로 인덱싱 → toIntNo와 동일 키 공간
+    const wsMap = new Map((wsData || []).map(cr => [String(cr.crsrdId), cr]));
+    const enriched = resolved.map(seg => ({
+      ...seg,
+      speedByDirection: wsMap.get(String(seg.toIntNo))?.speedByDirection ?? null,
+    }));
+
     // Spring은 List<String> 기대 → 반드시 문자열로 변환
-    const bottleneckIntNos = resolved
+    const bottleneckIntNos = enriched
       .filter(seg => Number(seg.speedKph) < 15)
       .map(seg => String(seg.toIntNo))
       .filter((v, i, arr) => arr.indexOf(v) === i);
@@ -310,7 +318,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         question: "각 병목 교차로의 신호계획을 분석해서 15km/h 이하 구간 전체의 신호를 최적화해줘. 분석 결과와 추천 신호 조정값만 반환하고, 실제 적용은 관제사 승인 이후 진행됩니다.",
-        routeTraffic: resolved,
+        routeTraffic: enriched,
         bottleneckIntNos,
         contexts: bottleneckIntNos.map(id => _bottleneckContextMap[String(id)]).filter(Boolean),
         userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
@@ -342,7 +350,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         setAiAdjustmentsMap({});
       })
       .finally(() => setRouteAnalysisLoading(false));
-  }, [end, bottleneckContextMap]);
+  }, [end, bottleneckContextMap, wsData]);
 
   // 경로 확정 시 속도 수집 타임아웃
   useEffect(() => {

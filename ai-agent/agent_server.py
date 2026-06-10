@@ -83,10 +83,15 @@ def _calc_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return (math.degrees(math.atan2(x, y)) + 360) % 360
 
 def _bearing_dir(b: float) -> str:
-    if b < 45 or b >= 315: return 'N'
-    if b < 135: return 'E'
-    if b < 225: return 'S'
-    return 'W'
+    # 8방향 (45° 단위)
+    if b < 22.5 or b >= 337.5: return 'N'
+    if b < 67.5:  return 'NE'
+    if b < 112.5: return 'E'
+    if b < 157.5: return 'SE'
+    if b < 202.5: return 'S'
+    if b < 247.5: return 'SW'
+    if b < 292.5: return 'W'
+    return 'NW'
 
 def _haversine_km(lat1, lon1, lat2, lon2) -> float:
     import math
@@ -96,7 +101,8 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> float:
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-DIR_KO = {'N': '북', 'S': '남', 'E': '동', 'W': '서'}
+DIR_KO = {'N': '북', 'S': '남', 'E': '동', 'W': '서',
+          'NE': '북동', 'NW': '북서', 'SE': '남동', 'SW': '남서'}
 
 def calc_signal_delta(spd_f: float) -> tuple[str, int]:
     """속도 → (상태명, 권고 초 변화량) — 범위 아닌 중간 고정값으로 LLM 계산 제거"""
@@ -152,7 +158,7 @@ def select_directional(center_lat, center_lon, crossroads):
             continue
         if d not in best or dist < best[d][1]:
             best[d] = (cr, dist)
-    order = ['N', 'E', 'S', 'W']
+    order = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
     return [(cr, d) for d in order if d in best for (cr, _) in [best[d]]]
 
 async def _worker_discuss_turn(worker_llm, worker_idx, dir_ko, my_nm, my_analysis,
@@ -188,6 +194,30 @@ async def _worker_discuss_turn(worker_llm, worker_idx, dir_ko, my_nm, my_analysi
     return content
 
 
+_WORKER_DIR_KO = {
+    "nt": "북", "et": "동", "st": "남", "wt": "서",
+    "ne": "북동", "nw": "북서", "se": "남동", "sw": "남서",
+}
+_WORKER_DIR_ORDER = ["nt", "et", "st", "wt", "ne", "nw", "se", "sw"]
+
+def _build_dir_speed_str(speed_by_dir: dict | None) -> str:
+    """방향별 속도를 '북 17.2km/h | 동 측정값없음 | 남 15.1km/h | ...' 형식으로 반환"""
+    if not speed_by_dir:
+        return "방향별 측정값 없음"
+    parts = []
+    seen = set()
+    for code in _WORKER_DIR_ORDER:
+        ko = _WORKER_DIR_KO[code]
+        val = speed_by_dir.get(code)
+        # "없음" 대신 "측정값없음" — LLM이 통행불가로 오해하지 않도록
+        parts.append(f"{ko} {val}km/h" if val is not None else f"{ko} 측정값없음")
+        seen.add(code)
+    for code, val in speed_by_dir.items():
+        if code not in seen:
+            ko = _WORKER_DIR_KO.get(code, code)
+            parts.append(f"{ko} {val}km/h" if val is not None else f"{ko} 측정값없음")
+    return " | ".join(parts)
+
 async def _worker_analyze(worker_llm, cr, traffic_data, worker_idx, direction, queue):
     """워커: 교차로 데이터 분석 후 결과를 queue에 push"""
     dir_ko   = DIR_KO.get(direction, direction)
@@ -208,13 +238,25 @@ async def _worker_analyze(worker_llm, cr, traffic_data, worker_idx, direction, q
             spd        = spd_raw
             congestion = traffic_data.get('congestion', 'N/A')
             risk       = traffic_data.get('riskGrade', 'N/A')
+            spd_by_dir = traffic_data.get('speedKphByDirection') or {}
+            dir_speed_str = _build_dir_speed_str(spd_by_dir)
 
-            # Python 코드로 직접 계산 — LLM이 수치 선택 안 하도록
-            spd_f     = float(spd)
-            state, delta = calc_signal_delta(spd_f)
+            # 중심 교차로를 향하는 방향 속도
+            # 에이전트 위치의 반대 방향 = 중심으로 향하는 차량 속도
+            _TOWARD_CENTER = {
+                'E': 'wt', 'W': 'et', 'S': 'nt', 'N': 'st',
+                'NE': 'sw', 'NW': 'se', 'SE': 'nw', 'SW': 'ne',
+            }
+            toward_key = _TOWARD_CENTER.get(direction)
+            toward_spd = spd_by_dir.get(toward_key) if toward_key else None
+            # 중심 방향 속도 있으면 그걸 사용, 없으면 평균으로 폴백
+            calc_spd = float(toward_spd) if isinstance(toward_spd, (int, float)) and toward_spd > 0 else float(spd)
+
+            state, delta = calc_signal_delta(calc_spd)
             sign      = "+" if delta >= 0 else ""
             delta_str = f"{sign}{delta}초"
-            pressure  = f"{state}({spd}km/h) → 중심 교차로 {dir_ko}방향 유입 압력: {delta_str}"
+            spd_display = f"{calc_spd}km/h" + (f" ({toward_key} 방향)" if toward_spd else " (평균)")
+            pressure  = f"{state}({spd_display}) → 중심 교차로 {dir_ko}방향 유입 압력: {delta_str}"
 
             pressure_level = "높음" if delta > 5 else "낮음"
             prompt = (
@@ -222,14 +264,16 @@ async def _worker_analyze(worker_llm, cr, traffic_data, worker_idx, direction, q
                 f"[역할] 너는 데이터 보고 에이전트야. 신호 조정 결정은 오케스트레이터가 담당.\n"
                 f"[담당 교차로] {nm} ({dir_ko}쪽)\n\n"
                 f"[보유 데이터]\n"
-                f"  속도: {spd}km/h ({state})\n"
+                f"  평균 속도: {spd}km/h ({state})\n"
+                f"  방향별 속도: {dir_speed_str}\n"
                 f"  혼잡: {congestion} / 위험도: {risk}\n"
                 f"  유입 압력 분석: {pressure}\n\n"
-                f"다른 에이전트들에게 2문장으로 보고:\n"
-                f"  문장1: {dir_ko}쪽 {nm}의 현재 속도/혼잡 상황\n"
-                f"  문장2: 중심 교차로 {dir_ko}방향 유입 압력 수준 ({pressure_level})\n\n"
-                f"✓ 예: '{dir_ko}쪽 {nm} {spd}km/h {state}. {dir_ko}방향 유입 압력 {pressure_level}, {pressure}'\n"
-                f"✗ 금지: 차량 대수('약 N대'), 교통량 수치, '운전자', '+N초 해달라' (신호 결정 금지)"
+                f"아래 내용을 자연스러운 3문장으로 보고 (번호·레이블 출력 금지):\n"
+                f"  · {dir_ko}쪽 {nm}의 방향별 속도를 그대로 나열\n"
+                f"    (측정값없음 = 센서 미수신이며 통행 불가 아님, 통행불가/불가능 표현 금지)\n"
+                f"  · 혼잡도와 위험도 등급\n"
+                f"  · {dir_ko}방향 유입 압력 {pressure_level}, {delta_str}\n\n"
+                f"금지: '1문장' '2문장' 레이블, 차량 대수, '+N초 해달라', '통행 불가능'"
             )
             result  = await worker_llm.ainvoke([{"role": "user", "content": prompt}])
             content = strip_chinese((result.content if hasattr(result, 'content') else str(result)).strip())
@@ -239,7 +283,8 @@ async def _worker_analyze(worker_llm, cr, traffic_data, worker_idx, direction, q
                          'direction': dir_ko, 'crossroad_name': nm,
                          'content': content, 'has_data': has_data,
                          'speed': spd, 'state': state,
-                         'delta': delta, 'delta_str': delta_str})
+                         'delta': delta, 'delta_str': delta_str,
+                         'spd_by_dir': spd_by_dir if has_valid_speed else {}})
     except Exception as e:
         await queue.put({'type': 'worker_done', 'worker_id': worker_idx,
                          'direction': dir_ko, 'crossroad_name': nm,
@@ -967,6 +1012,9 @@ async def simulation_chat(req: SimulationChatRequest):
             f"원래 신호계획과 비교해서 어떤 현시가 얼마나 바뀌었는지 분석해줘."
         )
 
+    _DIR_KO = {"north":"북","east":"동","south":"남","west":"서",
+               "northeast":"북동","northwest":"북서","southeast":"남동","southwest":"남서"}
+
     traffic_block = ""
     if req.routeTraffic:
         lines = []
@@ -975,9 +1023,12 @@ async def simulation_chat(req: SimulationChatRequest):
             cng = seg.get("congestion", "")
             spd_str = f"{spd}km/h" if spd is not None else "미수집"
             bottleneck_mark = " ★병목" if spd is not None and spd < 15 else ""
+            spd_by_dir = seg.get("speedByDirection") or {}
+            dir_parts = [f"{_DIR_KO.get(k, k)} {v}km/h" for k, v in spd_by_dir.items() if v is not None]
+            dir_str = f" [{', '.join(dir_parts)}]" if dir_parts else ""
             lines.append(
                 f"  {seg.get('fromIntNo','?')}→{seg.get('toIntNo','?')}"
-                f" ({seg.get('axisName','')}) | {spd_str} | {cng}{bottleneck_mark}"
+                f" ({seg.get('axisName','')}) | 평균 {spd_str}{dir_str} | {cng}{bottleneck_mark}"
             )
         traffic_block = (
             "\n\n[경로 구간별 실시간 속도 — 15km/h 이하가 병목]\n" + "\n".join(lines)
@@ -986,8 +1037,11 @@ async def simulation_chat(req: SimulationChatRequest):
     # Webster 공식 기반 JSON 출력 지시
     json_instruction = (
         "\n\n[신호 최적화 출력 형식]\n"
-        "Webster 공식으로 조정값을 계산한 뒤, 아래 순서로 출력:\n"
-        "1. JSON 블록을 맨 앞에 출력 (조정값)\n"
+        "Webster 공식으로 조정값을 계산한 뒤, 아래 순서로 출력:\n\n"
+        "0. 답변 맨 처음에 아래 형식으로 측정 속도 표를 반드시 출력할 것 (방향 데이터 없으면 평균만):\n"
+        "[측정 속도]\n"
+        "• 교차로명: 평균 Xkm/h | 북 Akm/h | 서 Bkm/h | 남 Ckm/h\n\n"
+        "1. 그 다음 JSON 블록 출력 (조정값)\n"
         "```json\n"
         "{\"adjustments\": [{\"intNo\": \"47\", \"phases\": [{\"no\": 1, \"sec\": 80}, {\"no\": 2, \"sec\": 30}, {\"no\": 3, \"sec\": 20}, {\"no\": 4, \"sec\": 10}]}]}\n"
         "```\n"
@@ -1006,7 +1060,7 @@ async def simulation_chat(req: SimulationChatRequest):
         "3. 마지막에 [REPORT] 태그로 시작하는 이메일용 상세 분석 보고서를 작성할 것:\n"
         "- 형식: 분석관 보고서 (한국어, 전문적 어조)\n"
         "- 각 교차로별로 아래 항목 포함:\n"
-        "  ① 현황: 해당 구간 실시간 속도 및 병목 판단 (15km/h 기준)\n"
+        "  ① 현황: 방향별 실시간 속도 및 병목 판단 (15km/h 기준)\n"
         "  ② Webster 최적 주기 계산: Co = (1.5L + 5) / (1 - ΣY)\n"
         "     - L = 손실시간 (현시 수 × 4s 추정)\n"
         "     - Y = 각 현시 포화도비 (현재 초 / cycleVal로 추정)\n"
@@ -1105,20 +1159,30 @@ async def simulation_chat_stream(req: SimulationChatRequest, request: Request):
             f"원래 신호계획과 비교해서 어떤 현시가 얼마나 바뀌었는지 분석해줘."
         )
 
+    _DIR_KO = {"north":"북","east":"동","south":"남","west":"서",
+               "northeast":"북동","northwest":"북서","southeast":"남동","southwest":"남서"}
+
     traffic_block = ""
     if req.routeTraffic:
         lines = []
         for seg in req.routeTraffic:
             spd = seg.get("speedKph")
             mark = " ★병목" if spd is not None and spd < 15 else ""
-            lines.append(f"  {seg.get('fromIntNo')}→{seg.get('toIntNo')} | {spd}km/h{mark}")
+            spd_by_dir = seg.get("speedByDirection") or {}
+            dir_parts = [f"{_DIR_KO.get(k, k)} {v}km/h" for k, v in spd_by_dir.items() if v is not None]
+            dir_str = f" [{', '.join(dir_parts)}]" if dir_parts else ""
+            lines.append(f"  {seg.get('fromIntNo')}→{seg.get('toIntNo')} | 평균 {spd}km/h{dir_str}{mark}")
         traffic_block = "\n\n[경로 속도 — 15km/h↓ 병목]\n" + "\n".join(lines)
 
     json_instruction = (
-        "\n\n신호 조정이 필요하면 답변 맨 앞에 먼저 출력:\n"
+        "\n\n답변 순서:\n"
+        "0. 맨 처음에 측정 속도 표 출력 (반드시):\n"
+        "[측정 속도]\n"
+        "• 교차로명: 평균 Xkm/h | 북 Akm/h | 서 Bkm/h | 남 Ckm/h (없는 방향 생략)\n\n"
+        "1. 그 다음 JSON 조정값 출력:\n"
         "```json\n{\"adjustments\":[{\"intNo\":\"신호계획의 intNo 숫자\",\"phases\":[{\"no\":현시번호,\"sec\":초}]}]}\n```\n"
         "⚠️ intNo는 신호계획 괄호 안 숫자 ID 그대로 사용 — 필수 필드, 절대 생략 금지.\n"
-        "그 다음 교차로명(이름만, intNo 숫자 제외)으로 현시별 변경 결과 나열."
+        "2. 그 다음 교차로명(이름만, intNo 숫자 제외)으로 현시별 변경 결과 나열."
     )
 
     prompt = (
@@ -1516,33 +1580,33 @@ async def multi_analyze_stream(req: MultiAnalyzeRequest, request: Request):
             )
 
             ROUND_INSTRUCTIONS = [
-                # 1라운드: 자기 교차로 속도 데이터 + 유입 압력 공유 (신호 초 금지)
+                # 1라운드: 자기 교차로 방향별 속도 + 유입 압력 공유
                 lambda dk, nm, last, cnm=center_nm: (
-                    f"너는 {dk}쪽 {nm} 담당 에이전트야. [1라운드: 유입 압력 공유]\n"
-                    f"자기 교차로 속도/혼잡 상황과 중심 교차로({cnm})로의 유입 압력 수준만 2문장으로 공유.\n"
-                    f"✓ 예: '{dk}쪽 {nm} 18km/h 서행. {cnm} {dk}방향 유입 압력 높음.'\n"
-                    f"✗ 금지: '+N초', '신호 연장' ← 신호 수치는 오케스트레이터 담당"
+                    f"너는 {dk}쪽 {nm} 담당 에이전트야. [1라운드: 방향별 속도 공유]\n"
+                    f"위 '내 담당 교차로' 데이터만 사용해서 자연스러운 2문장으로 보고해.\n"
+                    f"  · 첫 문장: {dk}쪽 {nm}의 방향별 속도 나열 (없는 방향은 '없음')\n"
+                    f"  · 둘째 문장: {cnm} {dk}방향 유입 압력 수준\n"
+                    f"금지: '1문장' '2문장' 같은 레이블 출력, '+N초', 다른 교차로 수치를 내 것처럼 사용"
                     + STRICT_RULE
                 ),
-                # 2라운드: 방향별 우선순위 논의 (신호 초 금지)
+                # 2라운드: 방향별 우선순위 논의
                 lambda dk, nm, last, cnm=center_nm: (
                     f"너는 {dk}쪽 {nm} 담당 에이전트야. [2라운드: 우선순위 논의]\n"
                     f"다른 방향들과 비교해서 {dk}방향 압력의 우선순위를 2문장으로 말해.\n"
-                    f"✓ 예: '{dk}쪽 압력이 북쪽보다 낮아, 우선순위 낮음. 북쪽 먼저 해결이 맞겠어.'\n"
-                    f"✗ 금지: '+N초', 신호 조정 수치 ← 오케스트레이터 담당"
+                    f"금지: '+N초', 신호 조정 수치, 형식 설명 텍스트 출력"
                     + STRICT_RULE
                 ),
-                # 3라운드: 압력 우선순위 합의 (마지막 워커는 종합 합의안)
+                # 3라운드: 압력 우선순위 합의
                 lambda dk, nm, last, cnm=center_nm: (
                     (
-                        f"너는 {dk}쪽 {nm} 담당 에이전트야. [3라운드: 우선순위 최종 합의]\n"
-                        f"방향별 유입 압력 순위를 정리해서 오케스트레이터에게 넘길 합의안 2문장.\n"
-                        f"✓ 예: '합의: 북>{dk}>남 순으로 압력 높음. 오케스트레이터가 이 순서로 신호 조정 바람.'\n"
-                        f"✗ 금지: '+N초', 신호 조정 수치"
+                        f"너는 {dk}쪽 {nm} 담당 에이전트야. [3라운드: 최종 합의]\n"
+                        f"방향별 유입 압력 순위를 정리해서 오케스트레이터에게 합의안 2문장으로 전달.\n"
+                        f"형식: '합의: X>Y>Z 순으로 압력 높음. 이 순서로 신호 조정 권고.'\n"
+                        f"금지: '+N초', 신호 조정 수치, 형식 설명 텍스트 출력"
                     ) if last else (
                         f"너는 {dk}쪽 {nm} 담당 에이전트야. [3라운드: 합의]\n"
                         f"{dk}방향 압력 우선순위에 동의/수정 1문장.\n"
-                        f"✓ 예: '{dk}쪽 압력 중간 수준 동의. 북쪽 우선 해결 맞겠어.'"
+                        f"금지: 형식 설명 텍스트 출력"
                     ) + STRICT_RULE
                 ),
             ]
@@ -1568,11 +1632,24 @@ async def multi_analyze_stream(req: MultiAnalyzeRequest, request: Request):
                         for d in discuss_results
                     ) if discuss_results else "없음"
 
+                    # 현재 워커 자신의 1차 분석만 분리
+                    my_analysis = next(
+                        (f"[내 담당 교차로 — {a['direction']}쪽 {a['crossroad_name']}]\n{a['content']}"
+                         for a in worker_results if a['direction'] == dir_ko),
+                        ""
+                    )
+                    other_analyses = "\n".join(
+                        f"[{a['direction']}쪽 {a['crossroad_name']}] {a['content']}"
+                        for a in worker_results if a['direction'] != dir_ko
+                    )
+
                     instruction = ROUND_INSTRUCTIONS[round_num - 1](dir_ko, nm, is_last)
                     prompt = (
                         f"/think 반드시 한국어로만 답변하십시오.\n\n"
                         f"[상황] 서울 교통 관제 센터 AI 에이전트 내부 회의.\n\n"
-                        f"[1차 분석 — 이 수치만 사용할 것]\n{analyses}\n\n"
+                        f"⚠️ 너의 담당 교차로 수치만 사용할 것. 다른 교차로 수치를 네 것처럼 쓰지 말 것.\n\n"
+                        f"{my_analysis}\n\n"
+                        f"[다른 에이전트 분석 — 참고만]\n{other_analyses}\n\n"
                         f"[지금까지 토론]\n{chat_so_far}\n\n"
                         f"{instruction}"
                     )
@@ -1609,9 +1686,12 @@ async def multi_analyze_stream(req: MultiAnalyzeRequest, request: Request):
             for r in worker_results:
                 if r.get('has_data') and r.get('delta') is not None:
                     sign = "+" if r['delta'] >= 0 else ""
+                    by_dir = r.get('spd_by_dir') or {}
+                    dir_parts = [f"{_WORKER_DIR_KO.get(k, k)} {v}km/h" for k, v in by_dir.items() if v is not None]
+                    dir_str = f" [방향별: {', '.join(dir_parts)}]" if dir_parts else ""
                     calc_lines.append(
                         f"  {r['direction']}방향 ({r['crossroad_name']}): "
-                        f"속도 {r.get('speed', 'N/A')}km/h {r.get('state', '')} "
+                        f"평균 {r.get('speed', 'N/A')}km/h {r.get('state', '')}{dir_str} "
                         f"→ 권고 {sign}{r['delta']}초"
                     )
                 else:
@@ -1626,13 +1706,16 @@ async def multi_analyze_stream(req: MultiAnalyzeRequest, request: Request):
                 f"[코드 계산 결과 — 이 수치를 그대로 사용, 임의 변경 금지]\n"
                 f"{calc_block}\n\n"
                 f"[에이전트 토론 요약 (우선순위 참고용)]\n{discuss_block}\n"
-                f"위 코드 계산 결과를 바탕으로 관제사용 권고문을 작성하세요:\n\n"
-                f"① 현황 요약 (데이터 있는 방향만, 방향별 속도/상태 한 줄씩)\n"
+                f"아래 순서대로 반드시 모두 작성하세요 (순서 바꾸거나 항목 생략 금지):\n\n"
+                f"① 현황 요약\n"
+                f"   데이터 있는 방향마다 아래 형식으로 한 줄씩 출력:\n"
+                f"   · {{방향}}방향 ({{교차로명}}): 평균 Xkm/h | 북 Akm/h · 동 Bkm/h · 서 Ckm/h · 남 Dkm/h (측정값없는 방향 생략) | {{상태}}\n"
+                f"   ← 반드시 코드 계산 결과 [방향별] 수치를 그대로 사용할 것\n\n"
                 f"② {center_nm} 신호 조정 권고안\n"
-                f"   코드 계산값 그대로 사용 (숫자 임의 변경 금지):\n"
-                f"   예: 북방향 +10초, 남방향 -5초, 서방향 +4초, 동방향 데이터없음\n"
+                f"   코드 계산값 그대로 (숫자 임의 변경 금지):\n"
+                f"   · {{방향}}방향: +N초 (또는 데이터없음이면 '현장 확인 필요')\n\n"
                 f"③ 예상 효과 1~2문장\n\n"
-                f"마무리 인사말 없이 권고문만 작성."
+                f"금지: 마크다운 헤더(###, ####, ##), 마무리 인사말, ① 현황 요약 생략"
             )
 
             yield f"data: {_json.dumps({'type':'orchestrator_start'}, ensure_ascii=False)}\n\n"
