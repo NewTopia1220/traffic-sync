@@ -61,6 +61,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [aiAdjustment, setAiAdjustment] = useState(null);
   const [aiAdjustKey, setAiAdjustKey] = useState(0);
   const [aiAdjustmentsMap, setAiAdjustmentsMap] = useState({});
+  const [appliedAdjustmentsMap, setAppliedAdjustmentsMap] = useState({});
   const [appliedIntNos, setAppliedIntNos] = useState(new Set());
   const [speedUnavailable, setSpeedUnavailable] = useState(false);
   const [bottleneckCrossroads, setBottleneckCrossroads] = useState([]);
@@ -152,6 +153,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
     setAiAdjustment(null);
     setAiAdjustmentsMap({});
+    setAppliedAdjustmentsMap({});
     setAppliedIntNos(new Set());
     setAiAdjustKey(0);
     setSpeedUnavailable(false);
@@ -215,6 +217,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setRouteAnalysisLoading(false);
     setAiAdjustment(null);
     setAiAdjustmentsMap({});
+    setAppliedAdjustmentsMap({});
     setAiAdjustKey(0);
     setIsOptimized(false);
     llmCalledRouteRef.current = null;
@@ -241,28 +244,28 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   }, [routeTraffic, end?.intNo]);
 
   // 실시간 속도 도착 시 stats 재계산
+  // 제어 후 시간은 더 이상 프론트에서 s * 1.35로 계산하지 않고,
+  // 백엔드 /api/signal/simulation/route-travel-time 결과를 사용한다.
   useEffect(() => {
     if (!routeTraffic?.segments?.length || !stats?.distanceMeters) return;
     const resolved = resolveSegments(routeTraffic.segments);
     const speeds = resolved.map(seg => Number(seg.speedKph)).filter(s => Number.isFinite(s) && s > 0);
     if (!speeds.length) return;
 
-    const distance = stats.distanceMeters;
     const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
     const slowSegs = speeds.filter(s => s < 15);
     const bottleneckCount = slowSegs.length;
-    const beforeSec = Math.round(distance / (avgSpeed / 3.6));
-    const improvedSpeeds = speeds.map(s => (s < 15 ? Math.min(s * 1.35, 50) : s));
-    const afterAvg = improvedSpeeds.reduce((a, b) => a + b, 0) / improvedSpeeds.length;
-    const afterSec = Math.round(distance / (afterAvg / 3.6));
 
+    // 백엔드 응답 전까지 보여줄 기본 제어 전 값만 계산한다.
+    // 제어 후/단축시간은 백엔드 신호 현시 기반 재계산값만 반영한다.
+    const fallbackBeforeSec = Math.round(stats.distanceMeters / (avgSpeed / 3.6));
     setStats(prev => ({
       ...prev,
-      beforeSec,
-      afterSec: isOptimized ? afterSec : null,
-      savedSec: isOptimized ? Math.max(0, beforeSec - afterSec) : null,
+      beforeSec: prev?.beforeSec ?? fallbackBeforeSec,
+      afterSec: isOptimized ? prev?.afterSec ?? null : null,
+      savedSec: isOptimized ? prev?.savedSec ?? null : null,
       beforeSpeedKph: Math.round(avgSpeed * 10) / 10,
-      afterSpeedKph: isOptimized ? Math.round(afterAvg * 10) / 10 : null,
+      afterSpeedKph: isOptimized ? prev?.afterSpeedKph ?? null : null,
       bottleneckCount,
     }));
 
@@ -275,6 +278,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       .filter((v, i, arr) => arr.findIndex(x => String(x.intNo) === String(v.intNo)) === i);
 
     setBottleneckCrossroads(bCrossroads);
+
     // 병목 교차로 context 미리 fetch (DB fallback) — VehicleSignalPanel이 본 교차로는 덮어쓰지 않음
     setBottleneckContextMap({});
     bCrossroads.forEach(cr => {
@@ -287,7 +291,66 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         })
         .catch(() => {});
     });
-  }, [routeTraffic, stats?.distanceMeters, isOptimized]);
+
+    const contexts = [originContext, waypointContext, destContext, ...Object.values(bottleneckContextMap || {})]
+      .filter(Boolean)
+      .filter((ctx, idx, arr) => arr.findIndex(x => String(x.intNo) === String(ctx.intNo)) === idx);
+
+    const adjustments = isOptimized
+      ? Object.values(appliedAdjustmentsMap || {})
+      : [];
+
+    fetch(`${API_BASE}/api/signal/simulation/route-travel-time`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        routeNodes: routeTraffic.requestedRouteNodes || [],
+        routeTraffic: resolved,
+        contexts,
+        adjustments,
+        optimized: isOptimized,
+      }),
+    })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => {
+        setStats(prev => ({
+          ...prev,
+          beforeSec: data.beforeSec ?? prev?.beforeSec ?? fallbackBeforeSec,
+          afterSec: isOptimized ? data.afterSec ?? null : null,
+          savedSec: isOptimized ? data.savedSec ?? null : null,
+          beforeSpeedKph: data.beforeSpeedKph ?? Math.round(avgSpeed * 10) / 10,
+          afterSpeedKph: isOptimized ? data.afterSpeedKph ?? null : null,
+          bottleneckCount,
+          travelTimeSource: data.source,
+          beforeSignalDelaySec: data.beforeSignalDelaySec,
+          afterSignalDelaySec: data.afterSignalDelaySec,
+        }));
+      })
+      .catch(() => {
+        // 백엔드 재계산 실패 시 제어 전 값만 유지하고, 제어 후 값은 임의 계산하지 않는다.
+        setStats(prev => ({
+          ...prev,
+          beforeSec: prev?.beforeSec ?? fallbackBeforeSec,
+          afterSec: isOptimized ? null : null,
+          savedSec: isOptimized ? null : null,
+          beforeSpeedKph: Math.round(avgSpeed * 10) / 10,
+          afterSpeedKph: null,
+          bottleneckCount,
+        }));
+      });
+  }, [
+    routeTraffic,
+    stats?.distanceMeters,
+    isOptimized,
+    originContext,
+    waypointContext,
+    destContext,
+    JSON.stringify(bottleneckContextMap),
+    JSON.stringify(appliedAdjustmentsMap),
+  ]);
 
   // 출발지/목적지 변경 시 상태 초기화
   useEffect(() => {
@@ -356,6 +419,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setAiAdjustment(null);
     setAiAdjustKey(0);
     setAiAdjustmentsMap({});
+    setAppliedAdjustmentsMap({});
     setAppliedIntNos(new Set());
     setSpeedUnavailable(false);
     setBottleneckCrossroads([]);
@@ -367,6 +431,12 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const handleManualSave = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(activeSignalKey);
+    if (sliderCrossroad?.intNo) {
+      setAppliedAdjustmentsMap(prev => ({
+        ...prev,
+        [String(sliderCrossroad.intNo)]: { intNo: String(sliderCrossroad.intNo), phases: simulation },
+      }));
+    }
     setIsOptimized(true);
   };
 
@@ -399,6 +469,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
     applyAdjustment(target);
     setAppliedIntNos(prev => new Set([...prev, String(target.intNo)]));
+    setAppliedAdjustmentsMap(prev => ({ ...prev, [String(target.intNo)]: target }));
 
     // 모두 적용됐으면 완료 처리
     if (unapplied.length <= 1) setIsOptimized(true);
@@ -407,13 +478,32 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const handleAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(activeSignalKey);
+    if (sliderCrossroad?.intNo) {
+      setAppliedAdjustmentsMap(prev => ({
+        ...prev,
+        [String(sliderCrossroad.intNo)]: { intNo: String(sliderCrossroad.intNo), phases: simulation },
+      }));
+    }
   };
   const handleBottleneckManualSave = (simulation) => {
-    setSimPhases(simulation); setSimPhaseTarget(bottleneckSignalKey); setIsOptimized(true);
+    setSimPhases(simulation); setSimPhaseTarget(bottleneckSignalKey);
+    if (sliderCrossroad?.intNo) {
+      setAppliedAdjustmentsMap(prev => ({
+        ...prev,
+        [String(sliderCrossroad.intNo)]: { intNo: String(sliderCrossroad.intNo), phases: simulation },
+      }));
+    }
+    setIsOptimized(true);
   };
   const handleBottleneckAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(bottleneckSignalKey);
+    if (sliderCrossroad?.intNo) {
+      setAppliedAdjustmentsMap(prev => ({
+        ...prev,
+        [String(sliderCrossroad.intNo)]: { intNo: String(sliderCrossroad.intNo), phases: simulation },
+      }));
+    }
   };
 
   const panelTitle = activeSignal.adjustTitle;
@@ -430,47 +520,38 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         onGoSimulation={() => {}} onGoComplaints={onGoComplaints} onGoMyPage={onGoMyPage} onLogout={onLogout}
         rightExtra={(
           <>
-            {onToggleMic && (
-              <button
-                onClick={onToggleMic}
-                title={isMicActive ? "AI 음성 끄기" : "AI 음성 켜기"}
-                style={{
-                  background: isMicActive ? "rgba(255,60,60,0.15)" : "transparent",
-                  border: 0, borderRadius: 999, width: 32, height: 32, display: "flex", alignItems: "center",
-                  justifyContent: "center", cursor: "pointer", flexShrink: 0,
-                }}
-              >
-                <img
-                  src={isMicActive ? "/icons/microphone.png" : "/icons/microphone_off.png"}
-                  alt=""
-                  style={{
-                    width: 18, height: 18, objectFit: "contain", filter: "invert(1)", opacity: isMicActive ? 1 : 0.75,
-                  }}
-                />
-              </button>
-            )}
-
             {onToggleMute && (
               <button
                 onClick={onToggleMute}
                 title={isMuted ? "음소거 해제" : "음소거"}
                 style={{
                   background: isMuted ? "#1a0a0a" : "transparent",
-                  border: 0, borderRadius: 999, width: 32, height: 32, display: "flex",
-                  alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
+                  border: 0,
+                  borderRadius: 999,
+                  width: 32,
+                  height: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  flexShrink: 0,
                 }}
               >
                 <img
                   src={isMuted ? "/icons/mute.png" : "/icons/speaker.png"}
                   alt=""
                   style={{
-                    width: 18, height: 18, objectFit: "contain", filter: "invert(1)", opacity: isMuted ? 1 : 0.9,
+                    width: 18,
+                    height: 18,
+                    objectFit: "contain",
+                    filter: "invert(1)",
+                    opacity: isMuted ? 1 : 0.9,
                   }}
                 />
               </button>
             )}
           </>
-  )}
+        )}
 
       />
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: driveView ? "minmax(0, 1fr) 400px" : "minmax(0, 1fr) 330px 400px", minHeight: 0 }}>
@@ -536,7 +617,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
                     <MetricBox label="제어 전" value={formatSec(stats.beforeSec)} color="#ef4444" sub={`${stats.beforeSpeedKph}km/h`} animate />
-                    <MetricBox label="제어 후" value={formatSec(stats.afterSec)} color="#22c55e" sub={`${stats.afterSpeedKph}km/h`} animate />
+                    <MetricBox label="제어 후" value={formatSec(stats.afterSec)} color="#22c55e" sub={stats.afterSpeedKph != null ? `${stats.afterSpeedKph}km/h` : "신호 재계산 대기"} animate />
                   </div>
                   <div style={{ padding: "12px 10px", borderRadius: 5, background: "rgba(34,197,94,0.10)", border: "1px solid rgba(34,197,94,0.35)", textAlign: "center" }}>
                     <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>예상 단축 시간</div>
