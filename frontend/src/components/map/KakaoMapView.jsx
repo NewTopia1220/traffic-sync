@@ -685,7 +685,7 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
       {/* 우상단: 교통 상태 범례 (pointerEvents:none → 지도 클릭 방해 안 함) */}
       <div style={{ position: "absolute", top: 10, right: 10, background: "rgba(18,14,10,0.88)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "8px 11px", zIndex: 10, pointerEvents: "none", backdropFilter: "blur(4px)" }}>
         <div style={{ fontSize: 11, color: "#aab4c8", fontWeight: 700, marginBottom: 8 }}>교통 상태</div>
-        {[["#2ee07a", "원활 (40km/h+)"], ["#ffaa33", "서행 (20~40km/h)"], ["#ff5566", "혼잡 (~20km/h)"]].map(([c, l]) => (
+        {[["#2ee07a", "원활 (25km/h+)"], ["#ffaa33", "서행 (15~25km/h)"], ["#ff5566", "정체 (~15km/h)"]].map(([c, l]) => (
           <div key={l} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
             <div style={{ width: 9, height: 9, borderRadius: "50%", background: c }} />
             <span style={{ fontSize: 11, color: "#aab4c8" }}>{l}</span>
