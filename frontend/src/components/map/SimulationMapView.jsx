@@ -217,10 +217,11 @@ export default function SimulationMapView({
     if (!mapReady || !viewerRef.current || selectedList.length > 0 || !window.Cesium) return;
     const viewer = viewerRef.current;
     const Cesium = window.Cesium;
+    const center = selectedGuLL || { lon: 127.0396, lat: 37.5126 };
     const timer = setTimeout(() => {
       try {
         viewer.camera.setView({
-          destination: Cesium.Cartesian3.fromDegrees(127.0396, 37.5126, 1200),
+          destination: Cesium.Cartesian3.fromDegrees(center.lon, center.lat, 1200),
           orientation: { heading: Cesium.Math.toRadians(0), pitch: Cesium.Math.toRadians(-45), roll: 0 },
         });
         viewer.scene.requestRender?.();
@@ -229,7 +230,7 @@ export default function SimulationMapView({
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [mapReady, selectedList.length]);
+  }, [mapReady, selectedList.length, selectedGuLat, selectedGuLon]);
 
   // 교차로 마커 렌더링
   useEffect(() => {
@@ -346,8 +347,7 @@ export default function SimulationMapView({
     if (!currentStats) {
       onStatsChange?.({
         distanceMeters: Math.round(routeLengthMeters(routePoints)),
-        beforeSec: null, afterSec: null, savedSec: null,
-        beforeSpeedKph: null, afterSpeedKph: null, minSpeedKph: null,
+        minSpeedKph: null,
         bottleneckCount: 0, viaCount: viaCrossroads.length,
         speedMissing: true, realTimeSpeed: false, segmentsCount: 0,
       });
@@ -355,8 +355,6 @@ export default function SimulationMapView({
     }
     onStatsChange?.({
       distanceMeters: Math.round(currentStats.distance),
-      beforeSec: currentStats.totalSec, afterSec: null, savedSec: null,
-      beforeSpeedKph: currentStats.avgSpeedKph, afterSpeedKph: null,
       minSpeedKph: currentStats.minSpeedKph,
       bottleneckCount: currentStats.bottleneckCount,
       viaCount: viaCrossroads.length,
