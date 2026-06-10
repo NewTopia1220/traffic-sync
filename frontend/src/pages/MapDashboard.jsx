@@ -114,7 +114,7 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
   }, [fetchComplaints, selectedGu?.name]);
 
   const bottlenecks = [...wsData]
-    .filter(c => c.congestion === "혼잡" || c.congestion === "서행")
+    .filter(c => c.congestion === "정체" || c.congestion === "혼잡" || c.congestion === "서행")
     .sort((a, b) => (a.speed ?? Number.MAX_SAFE_INTEGER) - (b.speed ?? Number.MAX_SAFE_INTEGER));
   const risks       = [...wsData].filter(isHighRisk).sort((a, b) => riskRank(b) - riskRank(a));
   const validSpeeds = wsData.map(c => c.speed).filter(Number.isFinite);
