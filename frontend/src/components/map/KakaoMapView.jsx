@@ -360,10 +360,8 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
 
   // 민원 클릭 시 해당 위치로 이동
   useEffect(() => {
-    console.log('[민원이동] lat:', complaintCenter?.lat, 'lng:', complaintCenter?.lng);
     if (!ready || !mapObj.current || !complaintCenter?.lat || !complaintCenter?.lng) return;
     const pos = new window.kakao.maps.LatLng(complaintCenter.lat, complaintCenter.lng);
-    console.log('[민원이동] panTo 실행', pos);
     mapObj.current.setCenter(pos);
     mapObj.current.setLevel(4);
   }, [ready, complaintCenter?._t]);

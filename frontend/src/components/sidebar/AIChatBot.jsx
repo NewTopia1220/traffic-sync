@@ -214,12 +214,17 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
     }, []),
   });
 
-  // ── 멀티에이전트 키워드 감지 ────────────────────────────────────
-  const MULTI_RE = /주변\s*교차로|인근\s*교차로|근처\s*교차로|주변\s*분석|인근\s*분석|멀티에이전트/;
-  const isMultiQuery = (q) => MULTI_RE.test(q) && selected?.lat != null;
+  // 라우팅은 백엔드 LLM이 판단 (route_multi 이벤트로 응답)
 
   // ── 멀티에이전트 스트리밍 ──────────────────────────────────────
-  async function _sendMulti(q) {
+  async function _sendMulti(q, coordOverride = null) {
+    // coordOverride: route_multi 이벤트에서 받은 { lat, lon, crsrdId, crsrdNm }
+    // selected가 null(교차로 미선택)일 때 백엔드가 찾아준 좌표 사용
+    const lat     = coordOverride?.lat     ?? selected?.lat;
+    const lon     = coordOverride?.lon     ?? selected?.lon;
+    const crsrdId = coordOverride?.crsrdId ?? selected?.crsrdId;
+    const crsrdNm = coordOverride?.crsrdNm ?? selected?.crsrdNm ?? "선택 교차로";
+
     setMessages(prev => [...prev, { role: "user", text: q, steps: [] }]);
     setInput("");
     setLoading(true);
@@ -227,7 +232,7 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
     const multiMsgIdx = { current: -1 };
     setMessages(prev => {
       multiMsgIdx.current = prev.length;
-      return [...prev, { role: "multi_group", centerName: selected.crsrdNm || "선택 교차로", workers: [], discussions: [], orchestrator: null, loadingWorkers: true, loadingDiscuss: false, currentRound: 0 }];
+      return [...prev, { role: "multi_group", centerName: crsrdNm, workers: [], discussions: [], orchestrator: null, loadingWorkers: true, loadingDiscuss: false, currentRound: 0 }];
     });
 
     const abortCtrl = new AbortController();
@@ -239,8 +244,7 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lat: selected.lat, lon: selected.lon,
-          crsrdId: selected.crsrdId, crsrdNm: selected.crsrdNm,
+          lat, lon, crsrdId, crsrdNm,
           userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
         }),
         signal: abortCtrl.signal,
@@ -347,7 +351,6 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
   }, [input, loading, selected]);
 
   async function _send(q, retryCount = 0) {
-    if (isMultiQuery(q)) { await _sendMulti(q); return; }
     const MAX_RETRY = 2;
     // 최초 시도일 때만 유저 메시지 추가 (재시도 시 중복 방지)
     if (retryCount === 0) {
@@ -372,6 +375,8 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
           crsrdId:   selected?.crsrdId ?? null,
           crsrdNm:   selected?.crsrdNm ?? null,
           userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
+          lat:       selected?.lat ?? null,
+          lon:       selected?.lon ?? null,
         }),
         signal: abortCtrl.signal,
       });
@@ -380,8 +385,10 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
       const decoder = new TextDecoder();
       let buffer = "";
       let currentSteps = [];
+      let routedToMulti = false;
+      let routeMultiData = null;
 
-      while (true) {
+      outer: while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -394,7 +401,14 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
           let data;
           try { data = JSON.parse(line.slice(6)); } catch { continue; }
 
-          if (data.type === "done") break;
+          if (data.type === "done") break outer;
+          if (data.type === "route_multi") {
+            // 백엔드 LLM이 멀티에이전트 분석으로 판단 → 재라우팅
+            routedToMulti = true;
+            routeMultiData = data; // lat, lon, crsrdId, crsrdNm 저장
+            reader.cancel().catch(() => {});
+            break outer;
+          }
           if (data.type === "answer") {
             setMessages(prev => [...prev, { role: "ai", text: data.content, steps: currentSteps }]);
             setLiveSteps([]);
@@ -411,6 +425,16 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
             setLiveSteps([...currentSteps]);
           }
         }
+      }
+
+      if (routedToMulti) {
+        clearTimeout(abortTimer);
+        abortCtrlRef.current = null;
+        setLoading(false);
+        // _send가 추가한 유저 메시지 제거 — _sendMulti가 다시 추가
+        setMessages(prev => prev.slice(0, -1));
+        await _sendMulti(q, routeMultiData);
+        return;
       }
     } catch (err) {
       clearTimeout(abortTimer);

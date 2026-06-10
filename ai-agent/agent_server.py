@@ -109,6 +109,38 @@ def calc_signal_delta(spd_f: float) -> tuple[str, int]:
     else:
         return "원활",   -5
 
+async def _classify_multi_analyze(question: str) -> tuple[bool, str | None]:
+    """LLM으로 멀티에이전트 분석 의도 판단 + 장소명 추출
+    Returns: (is_multi, location_name_or_None)
+    응답 형식: "예:선릉역" / "예:없음" / "아니오"
+    """
+    r = await llm.ainvoke([{
+        "role": "user",
+        "content": (
+            '/no_think 이 질문에 "주변/근처/인근 + 분석" 의도가 포함되어 있는지 판단해.\n'
+            '"예:장소명" 또는 "예:없음" 또는 "아니오" 중 하나만 답해.\n'
+            '장소명이 있으면 반드시 추출할 것. 뒤에 다른 작업(신호 최적화 등)이 붙어도 무시하고 근처 분석 의도만 판단.\n'
+            '"선릉역 주변 분석해줘" → "예:선릉역"\n'
+            '"개나리아파트 근처 분석해서 신호 최적화 해줘" → "예:개나리아파트"\n'
+            '"강남역 인근 교차로 봐줘" → "예:강남역"\n'
+            '"근처 교차로 분석해줘" → "예:없음"\n'
+            '"주변 교차로 어때" → "예:없음"\n'
+            '"잠실역 신호 어때" → "아니오"\n'
+            '"병목 TOP3 알려줘" → "아니오"\n'
+            '"이 교차로 분석해줘" → "아니오"\n'
+            '"강남구 교통 상황은" → "아니오"\n'
+            f'질문: {question}'
+        )
+    }])
+    text = r.content.strip().split('\n')[0].strip()  # 첫 줄만 사용
+    if text.startswith("예"):
+        parts = text.split(":", 1)
+        location = parts[1].strip() if len(parts) > 1 else ""
+        location = None if not location or location == "없음" else location
+        return True, location
+    return False, None
+
+
 def select_directional(center_lat, center_lon, crossroads):
     """방향별(N/S/E/W) 가장 가까운 교차로 최대 4개 선택, 중심 교차로 제외"""
     best: dict[str, tuple] = {}
@@ -318,6 +350,8 @@ class ChatRequest(BaseModel):
     crsrdId: str | None = None       # 선택된 교차로 ID (없으면 에이전트가 검색)
     crsrdNm: str | None = None       # 선택된 교차로 이름 (답변에 이름 사용)
     userEmail: str | None = None     # 요청한 유저 이메일 (메일 발송 시 사용)
+    lat: float | None = None         # 선택된 교차로 위도 (멀티에이전트 라우팅용)
+    lon: float | None = None         # 선택된 교차로 경도 (멀티에이전트 라우팅용)
 
 class SimulationChatRequest(BaseModel):
     question: str
@@ -660,8 +694,8 @@ async def free_chat(req: ChatRequest):
 
     email_ctx = (
         f"\n[요청 유저 이메일: {req.userEmail}]"
-        f"\n사용자가 현재 질문에서 '이메일', '메일로' 등을 직접 언급한 경우에만 "
-        f"분석 완료 후 send_email_report 도구를 호출할 것.\n"
+        f"\n[이메일 발송 엄격 규칙] 사용자 질문에 '이메일', '메일', '메일로', '이메일로' 단어가 직접 포함된 경우에만 send_email_report 호출 가능.\n"
+        "분석·최적화·리포트 요청이라도 이메일 키워드 없으면 send_email_report 절대 호출 금지.\n"
         "send_email_report 호출 시 subject는 '[Syncro] 분석결과를 알려드립니다' 형식으로 작성할 것.\n"
         "이메일 본문 마지막에는 반드시 아래 마무리 문구를 그대로 추가할 것:\n"
         "---\n본 메일은 Syncro 교통 관제 시스템에서 자동 발송되었습니다.\n감사합니다.\n\nSyncro 교통 관제 시스템 드림\n"
@@ -736,8 +770,8 @@ async def free_chat_stream(req: ChatRequest, request: Request):
 
     email_ctx = (
         f"\n[요청 유저 이메일: {req.userEmail}]"
-        f"\n사용자가 현재 질문에서 '이메일', '메일로' 등을 직접 언급한 경우에만 "
-        f"분석 완료 후 send_email_report 도구를 호출할 것.\n"
+        f"\n[이메일 발송 엄격 규칙] 사용자 질문에 '이메일', '메일', '메일로', '이메일로' 단어가 직접 포함된 경우에만 send_email_report 호출 가능.\n"
+        "분석·최적화·리포트 요청이라도 이메일 키워드 없으면 send_email_report 절대 호출 금지.\n"
         "send_email_report 호출 시 subject는 '[Syncro] 분석결과를 알려드립니다' 형식으로 작성할 것.\n"
         "이메일 본문 마지막에는 반드시 아래 마무리 문구를 그대로 추가할 것:\n"
         "---\n본 메일은 Syncro 교통 관제 시스템에서 자동 발송되었습니다.\n감사합니다.\n\nSyncro 교통 관제 시스템 드림\n"
@@ -777,6 +811,37 @@ async def free_chat_stream(req: ChatRequest, request: Request):
         )
 
     async def generate():
+        # 주변/근처/인근 키워드 또는 좌표가 있을 때만 LLM 분류 실행 (불필요한 분류 오버헤드 방지)
+        has_nearby_kw = any(kw in req.question for kw in ['주변', '근처', '인근'])
+        if has_nearby_kw or (req.lat is not None and req.lon is not None):
+            try:
+                is_multi, location = await _classify_multi_analyze(req.question)
+                if is_multi:
+                    lat, lon = req.lat, req.lon
+                    crsrd_id, crsrd_nm = req.crsrdId, req.crsrdNm
+
+                    # 좌표 없으면 장소명으로 신호 캐시에서 교차로 검색
+                    if lat is None and location:
+                        async with httpx.AsyncClient(timeout=5.0) as cl:
+                            sig_r = await cl.get(f"{SPRING_BASE}/api/signals")
+                            signals = sig_r.json() if sig_r.status_code == 200 else []
+                        matched = [
+                            s for s in (signals if isinstance(signals, list) else [])
+                            if location in s.get("crsrdNm", "")
+                        ]
+                        if matched:
+                            first = matched[0]
+                            lat      = first.get("lat")
+                            lon      = first.get("lon")
+                            crsrd_id = str(first.get("crsrdId", ""))
+                            crsrd_nm = first.get("crsrdNm", location)
+
+                    if lat is not None:
+                        yield f"data: {_json.dumps({'type': 'route_multi', 'lat': lat, 'lon': lon, 'crsrdId': crsrd_id, 'crsrdNm': crsrd_nm}, ensure_ascii=False)}\n\n"
+                        return
+            except Exception:
+                pass  # 분류/검색 실패 시 일반 ReAct로 폴백
+
         try:
             async for msg_kind, event in agent_stream_with_cancel(request, prompt):
                 if msg_kind == "error":
