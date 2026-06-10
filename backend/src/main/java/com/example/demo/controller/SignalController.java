@@ -65,6 +65,14 @@ public class SignalController {
         return ResponseEntity.ok(topisSimulationTrafficService.buildRouteTraffic(request));
     }
 
+    // 시뮬레이션 도착시간 재계산
+    // 프론트에서 임의로 속도를 올리는 방식이 아니라,
+    // 경로 속도 + 신호 현시/조정값 기준으로 제어 전/후 통과 시간을 백엔드에서 계산한다.
+    @PostMapping("/simulation/route-travel-time")
+    public ResponseEntity<Map<String, Object>> getRouteTravelTime(@RequestBody Map<String, Object> request) {
+        return ResponseEntity.ok(topisSimulationTrafficService.calculateRouteTravelTime(request));
+    }
+
     @GetMapping("/simulation/managed-traffic-links")
     public ResponseEntity<Map<String, Object>> getManagedTrafficLinks(
             @RequestParam(required = false) Double centerLat,
