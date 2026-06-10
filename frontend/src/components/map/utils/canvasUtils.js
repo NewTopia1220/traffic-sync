@@ -80,7 +80,7 @@ export function createDirectionalSpeedLabelCanvas(directionLabel, speedKph, cong
   canvas.height = isBottleneck ? 132 : 92;
   const ctx = canvas.getContext("2d");
   const color = getCongestionColor(congestion);
-  const speedText = speedKph == null ? "수집 중" : `${Math.round(speedKph)}km/h`;
+  const speedText = speedKph == null ? "수집 중" : `${(() => { const v = Math.round(speedKph * 10) / 10; return v % 1 === 0 ? v : v.toFixed(1); })()}km/h`;
   const roadText = axisName ? String(axisName).slice(0, 8) : "";
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -139,7 +139,7 @@ export function createSpeedLabelCanvas(speedKph, congestion, axisName = "") {
   canvas.height = 72;
   const ctx = canvas.getContext("2d");
   const color = getCongestionColor(congestion);
-  const speedText = speedKph == null ? "수집 중" : `${Math.round(speedKph)}km/h`;
+  const speedText = speedKph == null ? "수집 중" : `${(() => { const v = Math.round(speedKph * 10) / 10; return v % 1 === 0 ? v : v.toFixed(1); })()}km/h`;
   const roadText = axisName ? String(axisName).slice(0, 8) : "";
 
   ctx.clearRect(0, 0, 200, 72);
