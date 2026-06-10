@@ -752,6 +752,8 @@ export default function MainDashboard({
   onToggleMute,
   isMicActive = false,
   onToggleMic,
+  notifQueue = [],
+  onDismissNotif,
 }) {
   const [time, setTime] = useState(new Date());
   const [loading, setLoading] = useState(false);
@@ -1122,6 +1124,8 @@ export default function MainDashboard({
         onGoComplaints={onGoComplaints}
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
+        notifQueue={notifQueue}
+        onDismissNotif={onDismissNotif}
         rightExtra={(
           <>
             {onToggleMute && (

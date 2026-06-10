@@ -32,7 +32,7 @@ const TABS = [
 const CHAT_W = 480;
 const CHATBOT_ICON = "/icons/chatbot.webp";
 
-export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, onGoComplaints, selectedGu, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [], isMuted, onToggleMute, isMicActive, onToggleMic, }) {
+export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulation, onGoMyPage, onLogout, onGoComplaints, selectedGu, wsData, setWsData, initialCenter, wsStatus, lastUpdate, stations = [], isMuted, onToggleMute, isMicActive, onToggleMic, notifQueue = [], onDismissNotif, }) {
   const [time,         setTime]         = useState(new Date());
   const [selected,     setSelected]     = useState(null);
   const [activeTab,    setActiveTab]    = useState("map");
@@ -139,6 +139,8 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
         complaintCount={complaints.filter(c => c.status !== "완료").length}
+        notifQueue={notifQueue}
+        onDismissNotif={onDismissNotif}
         rightExtra={(
           <>
             {onToggleMute && (

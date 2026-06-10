@@ -56,6 +56,8 @@ export default function ComplaintManagePage({
   onGoMyPage,
   onLogout,
   headerSelectedGu,
+  notifQueue = [],
+  onDismissNotif,
 }) {
   const [complaints,     setComplaints]   = useState([]);
   const [allComplaints,  setAllComplaints] = useState([]); // 사이드바 카운트용 전체
@@ -171,6 +173,8 @@ export default function ComplaintManagePage({
         onGoMyPage={onGoMyPage}
         onLogout={onLogout}
         complaintCount={counts.접수 + counts.처리중}
+        notifQueue={notifQueue}
+        onDismissNotif={onDismissNotif}
         rightExtra={
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
             {[["접수", counts.접수, V.org], ["처리중", counts.처리중, V.blu], ["완료", counts.완료, V.grn]].map(([label, cnt, color]) => (
