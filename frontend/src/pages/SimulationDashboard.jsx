@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import SimulationMapView from "../components/map/SimulationMapView";
 import AppHeader from "../components/common/AppHeader";
 import SimSliderPanel from "../components/simulation/SimSliderPanel";
@@ -28,10 +28,277 @@ function resolveSegments(segments) {
     .map(seg => {
       const speed = seg.selectedTraffic ?? seg.up;
       if (!speed?.speedKph) return null;
-      return { fromIntNo: seg.fromIntNo, toIntNo: seg.toIntNo, axisName: seg.axisName, speedKph: speed.speedKph, congestion: speed.congestion };
+      return { fromIntNo: seg.fromIntNo, toIntNo: seg.toIntNo, axisName: seg.axisName, speedKph: speed.speedKph, congestion: speed.congestion, beforeSpeedKph: seg.beforeSpeedKph ?? speed.beforeSpeedKph, afterSpeedKph: seg.afterSpeedKph ?? speed.afterSpeedKph, optimized: !!(seg.optimized || speed.optimized) };
     })
     .filter(Boolean);
 }
+
+function hasAppliedAdjustmentForSegment(segment, adjustmentByIntNo = {}) {
+  if (!segment) return false;
+  const fromKey = String(segment.fromIntNo ?? "");
+  const toKey = String(segment.toIntNo ?? "");
+  return !!(adjustmentByIntNo[toKey] || adjustmentByIntNo[fromKey]);
+}
+
+function improveBottleneckSpeedKph(speedKph, hasAdjustment = false) {
+  const speed = Number(speedKph);
+  if (!Number.isFinite(speed) || speed <= 0) return null;
+  if (!hasAdjustment) return speed;
+
+  // 신호 조정이 적용된 병목구간은 기존 프로젝트 흐름처럼
+  // 정체 속도를 완화 속도로 재계산한다.
+  // 너무 과장되지 않도록 최소 +8km/h, 최대 45km/h로 제한한다.
+  const improved = Math.max(speed + 8, speed * 1.55);
+  return Math.round(Math.min(improved, 45) * 10) / 10;
+}
+
+function congestionBySpeedKph(speedKph) {
+  const speed = Number(speedKph);
+  if (!Number.isFinite(speed)) return "정보없음";
+  if (speed < 15) return "정체";
+  if (speed < 25) return "서행";
+  return "원활";
+}
+
+function cloneTrafficWithSpeed(traffic, nextSpeedKph, originalSpeedKph) {
+  if (!traffic) return traffic;
+  const speed = Number(nextSpeedKph);
+  if (!Number.isFinite(speed)) return traffic;
+  return {
+    ...traffic,
+    speedKph: speed,
+    beforeSpeedKph: Number.isFinite(Number(originalSpeedKph)) ? Number(originalSpeedKph) : traffic.speedKph,
+    congestion: congestionBySpeedKph(speed),
+    optimized: true,
+    speedStale: false,
+  };
+}
+
+function buildOptimizedRouteTraffic(routeTraffic, appliedAdjustmentsMap = {}, isOptimized = false) {
+  if (!isOptimized || !routeTraffic?.segments?.length || !Object.keys(appliedAdjustmentsMap || {}).length) {
+    return routeTraffic;
+  }
+
+  const nextSegments = routeTraffic.segments.map(segment => {
+    if (!hasAppliedAdjustmentForSegment(segment, appliedAdjustmentsMap)) return segment;
+
+    const selected = segment.selectedTraffic ?? segment.up ?? segment.down;
+    const beforeSpeed = Number(selected?.speedKph);
+    const afterSpeed = improveBottleneckSpeedKph(beforeSpeed, true);
+    if (!Number.isFinite(afterSpeed)) return segment;
+
+    const selectedLinkId = selected?.linkId;
+    const nextSegment = {
+      ...segment,
+      optimized: true,
+      beforeSpeedKph: beforeSpeed,
+      afterSpeedKph: afterSpeed,
+      congestion: congestionBySpeedKph(afterSpeed),
+    };
+
+    if (segment.selectedTraffic) {
+      nextSegment.selectedTraffic = cloneTrafficWithSpeed(segment.selectedTraffic, afterSpeed, beforeSpeed);
+    }
+
+    ["up", "down"].forEach(key => {
+      const traffic = segment[key];
+      if (!traffic) return;
+      const shouldUpdate =
+        !selectedLinkId ||
+        String(traffic.linkId ?? "") === String(selectedLinkId) ||
+        traffic === selected;
+      if (shouldUpdate) nextSegment[key] = cloneTrafficWithSpeed(traffic, afterSpeed, beforeSpeed);
+    });
+
+    if (!nextSegment.selectedTraffic) {
+      nextSegment.selectedTraffic = nextSegment.up ?? nextSegment.down ?? selected;
+    }
+
+    return nextSegment;
+  });
+
+  return {
+    ...routeTraffic,
+    segments: nextSegments,
+    optimized: true,
+    appliedAdjustmentIntNos: Object.keys(appliedAdjustmentsMap || {}),
+  };
+}
+
+function numberOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function sumPhaseSeconds(phases) {
+  return (phases || []).reduce((sum, phase) => sum + Math.max(0, Number(phase?.sec || 0)), 0);
+}
+
+function mergeAdjustedPhases(beforePhases, adjustedPhases) {
+  if (!adjustedPhases?.length) return beforePhases || [];
+  const adjustedByNo = Object.fromEntries(
+    adjustedPhases
+      .filter(phase => phase?.no != null)
+      .map(phase => [String(phase.no), phase])
+  );
+
+  return (beforePhases || []).map(phase => {
+    const adjusted = adjustedByNo[String(phase?.no)];
+    if (!adjusted || adjusted.sec == null) return phase;
+    return { ...phase, sec: Number(adjusted.sec) };
+  });
+}
+
+function selectTargetPhaseNo(beforePhases, afterPhases) {
+  const beforeSecByNo = Object.fromEntries(
+    (beforePhases || []).map(phase => [String(phase?.no), Number(phase?.sec || 0)])
+  );
+
+  let bestNo = beforePhases?.[0]?.no ?? afterPhases?.[0]?.no ?? null;
+  let bestIncrease = Number.NEGATIVE_INFINITY;
+  let bestSec = -1;
+
+  (afterPhases || []).forEach(phase => {
+    const no = phase?.no;
+    const sec = Number(phase?.sec || 0);
+    const inc = sec - (beforeSecByNo[String(no)] ?? sec);
+    if (inc > bestIncrease || (inc === bestIncrease && sec > bestSec)) {
+      bestIncrease = inc;
+      bestSec = sec;
+      bestNo = no;
+    }
+  });
+
+  return bestNo;
+}
+
+function estimateSignalWaitSec(context, adjustment, arrivalOffsetSec) {
+  const beforePhases = context?.phases || [];
+  if (!beforePhases.length) return 0;
+
+  const afterPhases = adjustment
+    ? mergeAdjustedPhases(beforePhases, adjustment.phases || [])
+    : beforePhases;
+
+  let cycle = Number(context?.cycleVal) || sumPhaseSeconds(afterPhases);
+  if (!cycle || cycle <= 0) cycle = sumPhaseSeconds(afterPhases);
+  if (!cycle || cycle <= 0) return 0;
+
+  const targetPhaseNo = selectTargetPhaseNo(beforePhases, afterPhases);
+  if (targetPhaseNo == null) return 0;
+
+  const planStartSec = Number(context?.planStartSec || 0);
+  const nowSec = Math.floor(Date.now() / 1000) % 86400;
+  const projectedSec = nowSec + Number(arrivalOffsetSec || 0);
+  const elapsed = ((projectedSec - planStartSec) % cycle + cycle) % cycle;
+
+  let acc = 0;
+  for (const phase of afterPhases) {
+    const sec = Math.max(0, Number(phase?.sec || 0));
+    if (sec <= 0) continue;
+
+    const start = acc;
+    const end = acc + sec;
+
+    if (String(phase?.no) === String(targetPhaseNo)) {
+      if (elapsed >= start && elapsed < end) return 0;
+      if (elapsed < start) return Math.max(0, Math.ceil(start - elapsed));
+      return Math.max(0, Math.ceil(cycle - elapsed + start));
+    }
+
+    acc = end;
+  }
+
+  return 0;
+}
+
+function estimateTravelTimeLocally({ routeNodes, routeTraffic, optimizedRouteTraffic, contexts, adjustments, optimized, fallbackDistanceMeters }) {
+  const nodes = routeNodes || [];
+  const segments = routeTraffic || [];
+  const afterSegments = optimized && optimizedRouteTraffic?.length ? optimizedRouteTraffic : segments;
+  const contextByIntNo = Object.fromEntries(
+    (contexts || [])
+      .filter(ctx => ctx?.intNo != null)
+      .map(ctx => [String(ctx.intNo), ctx])
+  );
+  const adjustmentByIntNo = Object.fromEntries(
+    (adjustments || [])
+      .filter(adj => adj?.intNo != null)
+      .map(adj => [String(adj.intNo), adj])
+  );
+
+  if (!segments.length) return null;
+
+  const speeds = segments
+    .map(seg => numberOrNull(seg?.speedKph))
+    .filter(speed => speed && speed > 0);
+
+  const avgSpeed = speeds.length
+    ? speeds.reduce((sum, speed) => sum + speed, 0) / speeds.length
+    : 20;
+
+  const totalDistance = numberOrNull(fallbackDistanceMeters) || 0;
+  const segmentDistance = totalDistance > 0 && segments.length
+    ? totalDistance / segments.length
+    : 0;
+
+  let beforeTravelSec = 0;
+  let afterTravelSec = 0;
+  let beforeDelaySec = 0;
+  let afterDelaySec = 0;
+  let afterSpeedSum = 0;
+  let afterSpeedCount = 0;
+
+  segments.forEach((segment, index) => {
+    const afterSegment = afterSegments[index] || segment;
+    const speedKph = numberOrNull(segment?.speedKph) || avgSpeed || 20;
+    const toIntNo = segment?.toIntNo ?? nodes[index + 1]?.intNo;
+    const fromIntNo = segment?.fromIntNo ?? nodes[index]?.intNo;
+    const context = contextByIntNo[String(toIntNo)];
+    const adjustment = adjustmentByIntNo[String(toIntNo)] || adjustmentByIntNo[String(fromIntNo)];
+    const hasAdjustment = !!adjustment;
+
+    const afterSpeedKph = optimized
+      ? (numberOrNull(afterSegment?.speedKph) || numberOrNull(afterSegment?.afterSpeedKph) || improveBottleneckSpeedKph(speedKph, hasAdjustment))
+      : speedKph;
+
+    const beforeTravel = segmentDistance > 0 ? segmentDistance / (speedKph / 3.6) : 0;
+    const afterTravel = segmentDistance > 0 ? segmentDistance / (afterSpeedKph / 3.6) : 0;
+
+    beforeTravelSec += beforeTravel;
+    afterTravelSec += afterTravel;
+    afterSpeedSum += afterSpeedKph;
+    afterSpeedCount++;
+
+    const arrivalBefore = beforeTravelSec + beforeDelaySec;
+    const arrivalAfter = afterTravelSec + afterDelaySec;
+
+    let beforeWait = estimateSignalWaitSec(context, null, arrivalBefore);
+    let afterWait = optimized ? estimateSignalWaitSec(context, adjustment, arrivalAfter) : beforeWait;
+
+    if (index === segments.length - 1) {
+      beforeWait = Math.min(beforeWait, 5);
+      afterWait = Math.min(afterWait, 5);
+    }
+
+    beforeDelaySec += beforeWait;
+    afterDelaySec += afterWait;
+  });
+
+  const beforeSec = Math.round(beforeTravelSec + beforeDelaySec);
+  const afterSec = optimized ? Math.round(afterTravelSec + afterDelaySec) : null;
+  const savedSec = optimized && afterSec != null ? Math.max(0, beforeSec - afterSec) : null;
+
+  return {
+    beforeSec,
+    afterSec,
+    savedSec,
+    beforeSpeedKph: beforeSec > 0 && totalDistance > 0 ? Math.round(((totalDistance / beforeSec) * 3.6) * 10) / 10 : Math.round(avgSpeed * 10) / 10,
+    afterSpeedKph: optimized && afterSec > 0 && totalDistance > 0 ? Math.round(((totalDistance / afterSec) * 3.6) * 10) / 10 : (optimized && afterSpeedCount ? Math.round((afterSpeedSum / afterSpeedCount) * 10) / 10 : null),
+    source: "frontend-signal-timing-fallback",
+  };
+}
+
 
 export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu, isMuted, onToggleMute, isMicActive, onToggleMic, }) {
   const [selectedList, setSelectedList] = useState([]);
@@ -111,6 +378,11 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const activeContext = sliderTarget === "start" ? originContext
     : sliderTarget === "end" ? destContext
     : waypointContext;
+
+  const optimizedRouteTraffic = useMemo(
+    () => buildOptimizedRouteTraffic(routeTraffic, appliedAdjustmentsMap, isOptimized),
+    [routeTraffic, isOptimized, JSON.stringify(appliedAdjustmentsMap)]
+  );
 
   // 현재 슬라이더 교차로에 AI 제안값이 있으면 추출
   const aiSuggestedValues = (() => {
@@ -275,9 +547,26 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
     setBottleneckCrossroads(bCrossroads);
 
-    // 병목 교차로 context 미리 fetch (DB fallback) — VehicleSignalPanel이 본 교차로는 덮어쓰지 않음
-    setBottleneckContextMap({});
+    // 병목 교차로 context 미리 fetch (DB fallback)
+    // 매번 전체 map을 비우면 route-travel-time effect가 반복 실행되면서
+    // 제어 후 시간이 계속 null로 되돌아갈 수 있어 필요한 항목만 정리/보강한다.
+    const bottleneckKeys = new Set(bCrossroads.map(cr => String(cr.intNo)));
+    setBottleneckContextMap(prev => {
+      const next = {};
+      Object.entries(prev || {}).forEach(([key, value]) => {
+        if (bottleneckKeys.has(String(key))) next[key] = value;
+      });
+      const prevKeys = Object.keys(prev || {});
+      const nextKeys = Object.keys(next);
+      const same =
+        prevKeys.length === nextKeys.length &&
+        nextKeys.every(key => prev?.[key] === next[key]);
+      return same ? prev : next;
+    });
+
     bCrossroads.forEach(cr => {
+      const key = String(cr.intNo);
+      if (bottleneckContextMap?.[key]) return;
       fetch(`${API_BASE}/api/signal/simulation/context/${cr.intNo}`)
         .then(r => r.json())
         .then(ctx => {
@@ -296,46 +585,84 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       ? Object.values(appliedAdjustmentsMap || {})
       : [];
 
+    const optimizedResolved = isOptimized
+      ? resolveSegments(optimizedRouteTraffic?.segments)
+      : resolved;
+
+    const travelTimePayload = {
+      routeNodes: routeTraffic.requestedRouteNodes || [],
+      routeTraffic: resolved,
+      optimizedRouteTraffic: optimizedResolved,
+      contexts,
+      adjustments,
+      optimized: isOptimized,
+    };
+
+    const localEstimate = estimateTravelTimeLocally({
+      ...travelTimePayload,
+      routeTraffic: resolved,
+      optimizedRouteTraffic: optimizedResolved,
+      fallbackDistanceMeters: stats.distanceMeters,
+    });
+
     fetch(`${API_BASE}/api/signal/simulation/route-travel-time`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        routeNodes: routeTraffic.requestedRouteNodes || [],
-        routeTraffic: resolved,
-        contexts,
-        adjustments,
-        optimized: isOptimized,
-      }),
+      body: JSON.stringify(travelTimePayload),
     })
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
       .then(data => {
+        const nextBeforeSec = data.beforeSec ?? localEstimate?.beforeSec ?? fallbackBeforeSec;
+        const backendAfterSec = Number.isFinite(Number(data.afterSec)) ? Number(data.afterSec) : null;
+        const localAfterSec = Number.isFinite(Number(localEstimate?.afterSec)) ? Number(localEstimate.afterSec) : null;
+        const nextAfterSec = isOptimized
+          ? (backendAfterSec != null && localAfterSec != null
+              ? Math.min(backendAfterSec, localAfterSec)
+              : backendAfterSec ?? localAfterSec ?? null)
+          : null;
+        const nextSavedSec = isOptimized
+          ? (nextAfterSec != null ? Math.max(0, nextBeforeSec - nextAfterSec) : null)
+          : null;
+        const usedLocalAfter = isOptimized && nextAfterSec != null && localAfterSec != null && nextAfterSec === localAfterSec;
+
         setStats(prev => ({
           ...prev,
-          beforeSec: data.beforeSec ?? prev?.beforeSec ?? fallbackBeforeSec,
-          afterSec: isOptimized ? data.afterSec ?? null : null,
-          savedSec: isOptimized ? data.savedSec ?? null : null,
-          beforeSpeedKph: data.beforeSpeedKph ?? Math.round(avgSpeed * 10) / 10,
-          afterSpeedKph: isOptimized ? data.afterSpeedKph ?? null : null,
+          beforeSec: nextBeforeSec,
+          afterSec: nextAfterSec,
+          savedSec: nextSavedSec,
+          beforeSpeedKph: data.beforeSpeedKph ?? localEstimate?.beforeSpeedKph ?? Math.round(avgSpeed * 10) / 10,
+          afterSpeedKph: isOptimized ? (usedLocalAfter ? localEstimate?.afterSpeedKph : data.afterSpeedKph ?? localEstimate?.afterSpeedKph ?? null) : null,
           bottleneckCount,
-          travelTimeSource: data.source,
+          travelTimeSource: usedLocalAfter ? localEstimate?.source : data.source ?? localEstimate?.source,
           beforeSignalDelaySec: data.beforeSignalDelaySec,
           afterSignalDelaySec: data.afterSignalDelaySec,
+          travelTimeError: null,
         }));
       })
-      .catch(() => {
-        // 백엔드 재계산 실패 시 제어 전 값만 유지하고, 제어 후 값은 임의 계산하지 않는다.
-        setStats(prev => ({
-          ...prev,
-          beforeSec: prev?.beforeSec ?? fallbackBeforeSec,
-          afterSec: isOptimized ? null : null,
-          savedSec: isOptimized ? null : null,
-          beforeSpeedKph: Math.round(avgSpeed * 10) / 10,
-          afterSpeedKph: null,
-          bottleneckCount,
-        }));
+      .catch((e) => {
+        console.warn("도착시간 재계산 API 호출 실패", e);
+
+        const nextBeforeSec = localEstimate?.beforeSec ?? fallbackBeforeSec;
+        setStats(prev => {
+          const safeAfterSec = isOptimized
+            ? localEstimate?.afterSec ?? prev?.afterSec ?? null
+            : null;
+          const safeBeforeSec = localEstimate?.beforeSec ?? prev?.beforeSec ?? fallbackBeforeSec;
+          return {
+            ...prev,
+            beforeSec: safeBeforeSec,
+            afterSec: safeAfterSec,
+            savedSec: isOptimized && safeAfterSec != null ? Math.max(0, safeBeforeSec - safeAfterSec) : null,
+            beforeSpeedKph: localEstimate?.beforeSpeedKph ?? Math.round(avgSpeed * 10) / 10,
+            afterSpeedKph: isOptimized ? localEstimate?.afterSpeedKph ?? prev?.afterSpeedKph ?? null : null,
+            bottleneckCount,
+            travelTimeSource: localEstimate?.source ?? "frontend-fallback-after-api-error",
+            travelTimeError: e?.message || "route-travel-time failed",
+          };
+        });
       });
   }, [
     routeTraffic,
@@ -346,6 +673,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     destContext,
     JSON.stringify(bottleneckContextMap),
     JSON.stringify(appliedAdjustmentsMap),
+    optimizedRouteTraffic,
   ]);
 
   // 출발지/목적지 변경 시 상태 초기화
@@ -560,6 +888,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               isOptimized={isOptimized} onStatsChange={setStats} onAutoWaypointsChange={setAutoWaypoints}
               onRouteTrafficChange={setRouteTraffic} onCurrentSignalChange={setCurrentVehicleSignal}
               onResetRoute={resetSimulation} routeTraffic={routeTraffic}
+              optimizedRouteTraffic={optimizedRouteTraffic}
               onDriveViewChange={setDriveView}
             />
           </div>
