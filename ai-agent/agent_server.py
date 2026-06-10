@@ -197,27 +197,26 @@ async def _worker_analyze(worker_llm, cr, traffic_data, worker_idx, direction, q
                      'direction': dir_ko, 'crossroad_name': nm,
                      'lat': cr.get('lat'), 'lon': cr.get('lon')})
     try:
-        if not traffic_data:
-            content   = f"{nm}: 실시간 데이터 없음 (캐시 미포함)"
+        spd_raw = traffic_data.get('speedKph') if traffic_data else None
+        has_valid_speed = isinstance(spd_raw, (int, float)) and spd_raw > 0
+
+        if not traffic_data or not has_valid_speed:
+            content   = f"{nm}: 실시간 속도 데이터 없음"
             spd       = 'N/A'
             state, delta, delta_str = "데이터없음", None, "데이터없음"
         else:
-            spd        = traffic_data.get('speedKph', 'N/A')
+            spd        = spd_raw
             congestion = traffic_data.get('congestion', 'N/A')
             risk       = traffic_data.get('riskGrade', 'N/A')
 
             # Python 코드로 직접 계산 — LLM이 수치 선택 안 하도록
-            try:
-                spd_f   = float(spd)
-                state, delta = calc_signal_delta(spd_f)
-                sign      = "+" if delta >= 0 else ""
-                delta_str = f"{sign}{delta}초"
-                pressure  = f"{state}({spd}km/h) → 중심 교차로 {dir_ko}방향 유입 압력: {delta_str}"
-            except Exception:
-                state, delta, delta_str = "알수없음", None, "데이터없음"
-                pressure  = f"속도 데이터 없음, 혼잡={congestion}"
+            spd_f     = float(spd)
+            state, delta = calc_signal_delta(spd_f)
+            sign      = "+" if delta >= 0 else ""
+            delta_str = f"{sign}{delta}초"
+            pressure  = f"{state}({spd}km/h) → 중심 교차로 {dir_ko}방향 유입 압력: {delta_str}"
 
-            pressure_level = "높음" if (delta is not None and delta > 5) else "낮음"
+            pressure_level = "높음" if delta > 5 else "낮음"
             prompt = (
                 f"/think 반드시 한국어로만 답변하십시오.\n\n"
                 f"[역할] 너는 데이터 보고 에이전트야. 신호 조정 결정은 오케스트레이터가 담당.\n"
@@ -235,7 +234,7 @@ async def _worker_analyze(worker_llm, cr, traffic_data, worker_idx, direction, q
             result  = await worker_llm.ainvoke([{"role": "user", "content": prompt}])
             content = strip_chinese((result.content if hasattr(result, 'content') else str(result)).strip())
 
-        has_data = traffic_data is not None
+        has_data = has_valid_speed
         await queue.put({'type': 'worker_done', 'worker_id': worker_idx,
                          'direction': dir_ko, 'crossroad_name': nm,
                          'content': content, 'has_data': has_data,
