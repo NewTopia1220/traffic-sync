@@ -13,12 +13,87 @@ const SPARK_SAMPLE_INTERVAL_MS = 5000;
 
 // ── 전역 색상/폰트 디자인 토큰 ──────────────────────────────────────────────
 // 컴포넌트 인라인 스타일에서 일관된 색상을 쓰기 위한 상수 맵
+// const V = {
+//   bg0: "#000", bg1: "#0a0a0a", line: "#1a1a1a",       // 배경/구분선
+//   ink0: "#e7ecf5", ink1: "#aab4c8", ink2: "#7a7a7a", ink3: "#3a3a3a",  // 텍스트 단계
+//   grn: "#2ee07a", yel: "#facc15", red: "#ff5566", org: "#ffaa33", blu: "#4ea6ff",       // 상태 색상
+//   mono: "'IBM Plex Mono',ui-monospace,Menlo,monospace",
+//   sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
+// };
+
+
 const V = {
-  bg0: "#000", bg1: "#0a0a0a", line: "#1a1a1a",       // 배경/구분선
-  ink0: "#e7ecf5", ink1: "#aab4c8", ink2: "#7a7a7a", ink3: "#3a3a3a",  // 텍스트 단계
-  grn: "#2ee07a", yel: "#facc15", red: "#ff5566", org: "#ffaa33", blu: "#4ea6ff",       // 상태 색상
+  bg0: "#03060a",        // 전체 배경: 거의 검정
+  bg1: "#0c131d",        // 큰 패널 배경: 기존보다 살짝 푸른 어둠
+  bg2: "#121c2a",        // 내부 카드 배경: 카드가 확실히 보이게
+  bg3: "#172437",        // 선택/강조 카드 배경   
+  line: "#3f506a",      // 기본 테두리: 카드 분리감
+  line2: "#5a7193",    // KPI 같은 강조 카드 테두리
+
+  ink0: "#f7faff",
+  ink1: "#d2dbea",
+  ink2: "#9aa8bb",
+  ink3: "#657386",
+
+  grn: "#2ee07a",
+  yel: "#facc15",
+  red: "#ff5566",
+  org: "#ffaa33",
+  blu: "#4ea6ff",
+
   mono: "'IBM Plex Mono',ui-monospace,Menlo,monospace",
   sans: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif",
+};
+
+// const panelStyle = {
+//   background: `linear-gradient(180deg, ${V.bg1} 0%, #070b11 100%)`,
+//   border: `1px solid ${V.line}`,
+//   borderRadius: 6,
+//   boxShadow: "0 0 0 1px rgba(255,255,255,0.025), 0 14px 34px rgba(0,0,0,0.42)",
+// };
+const panelStyle = {
+  background: `linear-gradient(180deg, ${V.bg1} 0%, #070b11 100%)`,
+  border: `1px solid ${V.line}`,
+  borderRadius: 6,
+  boxShadow: `
+    0 0 0 1px rgba(78,166,255,0.08),
+    0 14px 34px rgba(0,0,0,0.46)
+  `,
+};
+
+// const panelHeaderStyle = {
+//   display: "flex",
+//   alignItems: "center",
+//   gap: 10,
+//   padding: "10px 13px",
+//   borderBottom: `1px solid ${V.line}`,
+//   background: "rgba(16,24,38,0.92)",
+//   flexShrink: 0,
+// };
+const panelHeaderStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "10px 13px",
+  borderBottom: `1px solid ${V.line}`,
+  background: "linear-gradient(180deg, rgba(20,31,47,0.95), rgba(11,17,26,0.95))",
+  flexShrink: 0,
+};
+
+// const innerCardStyle = {
+//   background: V.bg2,
+//   border: `1px solid ${V.line}`,
+//   borderRadius: 6,
+//   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.035)",
+// };
+const innerCardStyle = {
+  background: `linear-gradient(180deg, ${V.bg2} 0%, #0b111a 100%)`,
+  border: `1px solid ${V.line}`,
+  borderRadius: 6,
+  boxShadow: `
+    inset 0 1px 0 rgba(255,255,255,0.045),
+    0 8px 18px rgba(0,0,0,0.32)
+  `,
 };
 
 // 위험도 API 점수는 100점을 넘을 수 있으므로 300점을 기준으로 게이지를 환산한다.
@@ -44,17 +119,27 @@ function BottleneckEmailBtn({ district, apiBase }) {
     });
   };
 
-  const label = status === "loading" ? "⏳" : status === "done" ? "📨" : status === "error" ? "❌" : "📧";
+  const iconSrc =
+    status === "loading" ? "/icons/mail_send.png" :
+    status === "done" ? "/icons/mail_send.png" :
+    status === "error" ? "/icons/mail.png" :
+    "/icons/mail.png";
+  
+
+  // const label = status === "loading" ? "⏳" : status === "done" ? "📨" : status === "error" ? "❌" : "📧";
   const color = status === "done" ? "#2ee07a" : status === "error" ? "#ff5566" : "#4ea6ff";
 
   return (
     <button onClick={handleClick} disabled={status === "loading"} style={{
       fontSize: 15, padding: "6px 10px", borderRadius: 999, fontWeight: 500,
-      border: "1px solid #1a1a1a", background: "transparent",
+      // border: "1px solid #1a1a1a", 
+      border: 0,
+      background: "transparent",
       color: "#fff", cursor: status === "loading" ? "wait" : "pointer",
       fontFamily: "'Pretendard','Noto Sans KR','Malgun Gothic',system-ui,sans-serif", transition: "all 0.2s", boxShadow: "none", letterSpacing: "0"
     }}>
-      {label}
+      {/* {label} */}
+      <img src={iconSrc} alt="" style={{width: 18, height: 18, objectFit: "contain", filter: "invert(1)", opacity: status === "loading" ? 0.75 : 0.95, }} />
     </button>
   );
 }
@@ -243,16 +328,26 @@ function LivCard({ name, color, speed, sparkData }) {
   const trendLabel = trend == null ? "" : `${trend > 0 ? "+" : ""}${trend} km/h`;
 
   return (
-    <div style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "14px 16px 10px", display: "flex", flexDirection: "column", gap: 8, minHeight: 172 }}>
+    // <div style={{ background: V.bg0, border: `1px solid ${V.line}`, borderRadius: 2, padding: "14px 16px 10px", display: "flex", flexDirection: "column", gap: 8, minHeight: 172 }}>
+    <div style={{
+      ...innerCardStyle,
+      padding: "17px 18px 12px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      minHeight: 190,
+    }}>
       {/* 헤더: 색상 막대 + 교차로명 + 상태 배지 */}
       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
         <span style={{ display: "inline-block", width: 14, height: 3, background: color, borderRadius: 1, marginRight: 9 }} />
-        <span style={{ color: "#fff", fontSize: 17, fontWeight: 600 }}>{name}</span>
+        {/* <span style={{ color: "#fff", fontSize: 17, fontWeight: 600 }}>{name}</span> */}
+        <span style={{ color: "#fff", fontSize: 19, fontWeight: 800 }}>{name}</span>
         <span style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11, color: stColor, padding: "3px 8px", border: `1px solid ${stColor}44`, borderRadius: 2 }}>{st}</span>
       </div>
       {/* 속도 수치 + 추세 */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontFamily: V.mono, flexShrink: 0 }}>
-        <span style={{ fontSize: 44, fontWeight: 700, color: "#fff", lineHeight: 1, letterSpacing: "-1px" }}>{speed ?? "—"}</span>
+        {/* <span style={{ fontSize: 44, fontWeight: 700, color: "#fff", lineHeight: 1, letterSpacing: "-1px" }}>{speed ?? "—"}</span> */}
+        <span style={{ fontSize: 48, fontWeight: 800, color: "#fff", lineHeight: 1, letterSpacing: "-1px" }}>{speed ?? "—"}</span>
         <span style={{ fontSize: 14, color: V.ink2 }}>km/h</span>
         {trend !== null && (
           <span style={{ marginLeft: "auto", fontSize: 13, color: trendColor }}>
@@ -268,10 +363,10 @@ function LivCard({ name, color, speed, sparkData }) {
         }
       </div>
       {/* 하단 통계 바 */}
-      <div style={{ display: "flex", gap: 12, fontFamily: V.mono, fontSize: 11, color: V.ink2, paddingTop: 6, borderTop: `1px solid #141414`, flexShrink: 0 }}>
+      <div style={{ display: "flex", gap: 7, fontFamily: V.mono, fontSize: 10, color: V.ink2, paddingTop: 6, borderTop: `1px solid #141414`, flexShrink: 0 }}>
         <span>{cnt}관측</span>
-        <span>윈도우 평균 <b style={{ color: V.ink1 }}>{winAvg ?? "—"} km/h</b></span>
-        <span>최소·최대 <b style={{ color: V.ink1 }}>{mn ?? "—"} / {mx ?? "—"} km/h</b></span>
+        <span>윈도우 평균 <b style={{ color: V.ink1 }}>{winAvg ?? "—"} </b></span>
+        <span>최소·최대 <b style={{ color: V.ink1 }}>{mn ?? "—"} / {mx ?? "—"}  (km/h)</b></span>
       </div>
     </div>
   );
@@ -348,7 +443,7 @@ function ForecastChart({ up = [], down = [], name }) {
           <div style={{ fontSize: 15, color: "#fff", fontWeight: 700 }}>
             <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>{name || "—"}
           </div>
-          <div style={{ fontSize: 11, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>상행/하행 0시–23시 예측 (대/시)</div>
+          <div style={{ fontSize: 9, color: V.ink2, fontFamily: V.mono, marginTop: 3 }}>상행/하행 0시–23시 예측 (대/시)</div>
         </div>
         {/* 상행/하행 피크 요약 */}
         <div style={{ display: "flex", gap: 16 }}>
@@ -1015,7 +1110,9 @@ export default function MainDashboard({
       <AppHeader
         activePage="main"
         selectedGu={selectedGu}
-        statusText={isLive ? "LIVE · V2X 연결됨" : undefined}
+        fetchMsg={fetchMsg}
+        // statusText={isLive ? "LIVE · V2X 연결됨" : undefined}
+        statusText={isLive ? undefined : undefined}
         statusLive={isLive}
         onGoMain={() => {}}
         onGoMap={onGoMap}
@@ -1027,33 +1124,14 @@ export default function MainDashboard({
         onLogout={onLogout}
         rightExtra={(
           <>
-            {onToggleMic && (
-              <button
-                onClick={onToggleMic}
-                title={isMicActive ? "AI 음성 끄기" : "AI 음성 켜기"}
-                style={{
-                  background: isMicActive ? "rgba(255,60,60,0.15)" : "transparent",
-                  border: `1px solid ${isMicActive ? "rgba(255,60,60,0.4)" : V.line}`,
-                  borderRadius: 999,
-                  width: 32, height: 32,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  cursor: "pointer",
-                  fontSize: 15,
-                  flexShrink: 0,
-                  animation: isMicActive ? "micPulse 1s ease infinite" : "none",
-                  transition: "border-color .2s, background .2s",
-                }}
-              >
-                🎤
-              </button>
-            )}
             {onToggleMute && (
               <button
                 onClick={onToggleMute}
                 title={isMuted ? "음소거 해제" : "음소거"}
                 style={{
                   background: isMuted ? "#1a0a0a" : "transparent",
-                  border: `1px solid ${isMuted ? "#5a1a1a" : V.line}`,
+                  // border: `1px solid ${isMuted ? "#5a1a1a" : V.line}`,
+                  border: 0,
                   borderRadius: 999,
                   width: 32, height: 32,
                   display: "flex", alignItems: "center", justifyContent: "center",
@@ -1064,32 +1142,24 @@ export default function MainDashboard({
                   transition: "border-color .2s, color .2s",
                 }}
               >
-                {isMuted ? "🔇" : "🔊"}
+                {/* {isMuted ? "🔇" : "🔊"} */}
+                <img
+                  src={isMuted ? "/icons/mute.png" : "/icons/speaker.png"}
+                  alt=""
+                  style={{width: 18, height: 18, objectFit: "contain", filter: "invert(1)", opacity: isMuted ? 1 : 0.9,}}
+                />
               </button>
             )}
             {selectedGu && (
               <BottleneckEmailBtn district={selectedGu.name} apiBase={API_BASE} />
-            )}
-            {fetchMsg && (
-              <span style={{
-                fontSize: 12,
-                color: V.grn,
-                padding: "3px 10px",
-                borderRadius: 2,
-                border: "1px solid #1a3a24",
-                background: "#0c1a12",
-                fontFamily: V.mono,
-                whiteSpace: "nowrap",
-              }}>
-                ✓ {fetchMsg}
-              </span>
             )}
           </>
         )}
       />
 
       {/* ── KPI 카드 4개 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, padding: "6px 10px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, padding: "10px 14px" }}>
+      {/* <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, padding: "6px 10px" }}> */}
         <KpiCard value={activeData.length || 0} unit="개" label="모니터링 교차로" sub={guLabel} status="정상" />
         <KpiCard value={riskReadyData.length ? highRisk : "—"} unit={riskReadyData.length ? "개" : ""} label="위험 교차로" sub={riskReadyData.length ? "등급 3 이상" : "위험도 수집 대기"} status={riskStatus} />
         <KpiCard value={avgSpeed} unit="km/h" label="현재 평균 속도" sub="전 교차로 추정" status={speedStatus} />
@@ -1097,12 +1167,16 @@ export default function MainDashboard({
       </div>
 
       {/* ── 2행: 실시간 속도 + 서울 지도 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 6, padding: "0 10px", alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, padding: "0 14px", alignItems: "stretch" }}>
+      {/* <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 6, padding: "0 10px", alignItems: "stretch" }}> */}
 
         {/* 실시간 구간 속도 패널 */}
-        <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808", flexWrap: "wrap", flexShrink: 0 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
+        <div style={{ ...panelStyle, display: "flex", flexDirection: "column" }}>
+        {/* <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column" }}> */}
+          <div style={{ ...panelHeaderStyle, flexWrap: "wrap" }}>
+          {/* <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808", flexWrap: "wrap", flexShrink: 0 }}> */}
+            <span style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>
+            {/* <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}> */}
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>실시간 구간 속도
             </span>
             {/* 교차로 선택 드롭다운 */}
@@ -1127,12 +1201,14 @@ export default function MainDashboard({
         </div>
 
         {/* 서울 SVG 지도 */}
-        <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column", minHeight: 360 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808", flexShrink: 0 }}>
+        <div style={{ ...panelStyle, display: "flex", flexDirection: "column", minHeight: 360 }}>
+        {/* <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column", minHeight: 360 }}> */}
+          <div style={panelHeaderStyle}>
+          {/* <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808", flexShrink: 0 }}> */}
             <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>서울 교통 현황
             </span>
-            <button onClick={() => onGoMap(selectedGu)} style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11, color: V.ink1, padding: "3px 8px", border: `1px solid ${V.line}`, borderRadius: 2, background: V.bg0, cursor: "pointer" }}>
+            <button onClick={() => onGoMap(selectedGu)} style={{ marginLeft: "auto", fontFamily: V.mono, fontSize: 11, fontWeight: 700, color: V.ink1, padding: "3px 8px", border: `1px solid ${V.line}`, borderRadius: 2, background: V.bg0, cursor: "pointer" }}>
               실시간 지도 →
             </button>
           </div>
@@ -1145,11 +1221,14 @@ export default function MainDashboard({
 
       
       {/* ── 3행: 위험도 패널 + 예측 차트 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 6, padding: "6px 10px 16px", alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, padding: "10px 14px 18px", alignItems: "stretch" }}>
+      {/* <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 6, padding: "6px 10px 16px", alignItems: "stretch" }}> */}
 
         {/* 위험도 패널 */}
-        <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}>
+        <div style={{ ...panelStyle }}>
+        {/* <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2 }}> */}
+          <div style={panelHeaderStyle}>
+          {/* <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}> */}
             <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>교차로별 위험도
             </span>
@@ -1228,8 +1307,10 @@ export default function MainDashboard({
         </div>
 
         {/* 시간대별 교통량 예측 */}
-        <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}>
+        <div style={{ ...panelStyle, display: "flex", flexDirection: "column" }}>
+        {/* <div style={{ background: V.bg1, border: `1px solid ${V.line}`, borderRadius: 2, display: "flex", flexDirection: "column" }}> */}
+          <div style={panelHeaderStyle}>
+          {/* <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: `1px solid ${V.line}`, background: "#080808" }}> */}
             <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
               <span style={{ color: V.ink3, marginRight: 8, fontSize: 11 }}>▪</span>시간대별 교통량 예측
             </span>

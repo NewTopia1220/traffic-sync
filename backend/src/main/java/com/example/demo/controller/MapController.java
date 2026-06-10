@@ -150,6 +150,23 @@ public class MapController {
         }
     }
 
+    // 멀티에이전트용 인근 교차로 조회 — 캐시/V2X 건드리지 않는 순수 DB 조회
+    @GetMapping("/api/crossroads/nearby")
+    @ResponseBody
+    public List<Map<String, Object>> getNearby(
+            @RequestParam double lat,
+            @RequestParam double lon,
+            @RequestParam(defaultValue = "2.5") double radius) {
+        return crossroadRepository.findWithinRadius(lat, lon, radius).stream()
+                .map(e -> Map.<String, Object>of(
+                        "crsrdId", e.getCrsrdId(),
+                        "crsrdNm", e.getCrsrdNm(),
+                        "lat",     e.getLat(),
+                        "lon",     e.getLon()
+                ))
+                .collect(Collectors.toList());
+    }
+
     // 구 단위 AI 리포트 — 메인 대시보드 구 클릭 시 호출
     @PostMapping("/api/district/report")
     @ResponseBody

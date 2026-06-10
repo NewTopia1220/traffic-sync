@@ -24,13 +24,16 @@ export default function SimulationMapView({
   onResetRoute,
   onDriveViewChange,
   carReady = false,
+  optimizedRouteTraffic = null,
 }) {
   const markerEntitiesRef = useRef({});
   const routePointsRef = useRef([]);
   const viaCrossroadsRef = useRef([]);
+  const routeClearingRef = useRef(false);
   const startRef = useRef(null);
   const endRef = useRef(null);
   const destroyCallbackRef = useRef(null);
+  
 
   const [crossroads, setCrossroads] = useState([]);
   const [driveView, setDriveView] = useState(false);
@@ -69,14 +72,35 @@ export default function SimulationMapView({
     viewerRef, trafficAreaQuery, trafficAreaKey, mapReady, driveView, isSimulationActive,
   });
 
+  // const {
+  //   routeTraffic, routeTrafficRef,
+  //   fetchSignalCtx, prefetchSignals,
+  //   getBackendMovementForNode, getReverseBackendMovementForNode,
+  // } = useRouteTraffic({
+  //   start, end, viaCrossroads, routePoints, routePointsRef,
+  //   onRouteTrafficChange,
+  // });
   const {
     routeTraffic, routeTrafficRef,
     fetchSignalCtx, prefetchSignals,
     getBackendMovementForNode, getReverseBackendMovementForNode,
   } = useRouteTraffic({
-    start, end, viaCrossroads, routePoints, routePointsRef,
+    start,
+    end,
+    viaCrossroads,
+    routePoints,
+    routePointsRef,
     onRouteTrafficChange,
+    onBlockedLeftTurn: handleBlockedLeftTurn,
   });
+
+  const activeRouteTraffic = isOptimized && optimizedRouteTraffic?.segments?.length
+    ? optimizedRouteTraffic
+    : routeTraffic;
+
+  useEffect(() => {
+    routeTrafficRef.current = activeRouteTraffic;
+  }, [activeRouteTraffic, routeTrafficRef]);
 
   const {
     animationRef, progressRef, reverseProgressRef,
@@ -91,6 +115,35 @@ export default function SimulationMapView({
     getBackendMovementForNode, getReverseBackendMovementForNode,
     isOptimized, driveView, onCurrentSignalChange,
   });
+
+  function handleBlockedLeftTurn(blockedLeftTurn) {
+    routeClearingRef.current = true;
+
+    routePointsRef.current = [];
+    viaCrossroadsRef.current = [];
+    startRef.current = null;
+    endRef.current = null;
+
+    stopAnimation();
+    clearOverlays();
+
+    setRoutePlan({ points: [], viaCrossroads: [] });
+
+    onRouteTrafficChange?.(null);
+    onCurrentSignalChange?.(null);
+    onStatsChange?.(null);
+    onAutoWaypointsChange?.([]);
+
+    onResetRoute?.();
+
+    setTimeout(() => {
+      clearOverlays();
+      viewerRef.current?.scene?.requestRender?.();
+
+      alert(`${blockedLeftTurn.node.intNm} 교차로의 해당 방향은 좌회전 신호가 없어 경로를 연결할 수 없습니다.`);
+      routeClearingRef.current = false;
+    }, 50);
+  }
 
   // destroyCallbackRef: useVWorldViewer 언마운트 전 다른 훅 정리
   destroyCallbackRef.current = () => {
@@ -111,9 +164,16 @@ export default function SimulationMapView({
       .catch(() => console.warn("교차로 데이터 로드 실패"));
   }, []);
 
+  
   // 경로 계획 재계산
   useEffect(() => {
-    if (selectedList.length < 2) { setRoutePlan({ points: [], viaCrossroads: [] }); return; }
+    if (routeClearingRef.current) return;
+
+    if (selectedList.length < 2) {
+      setRoutePlan({ points: [], viaCrossroads: [] });
+      return;
+    }
+
     setRoutePlan(buildRouteFromSelectedList(selectedList, crossroads));
   }, [
     selectedList.map(i => i.intNo).join("|"),
@@ -182,7 +242,7 @@ export default function SimulationMapView({
     crossroads.forEach(cr => {
       const lon = toCoord(cr.xCoord);
       const lat = toCoord(cr.yCoord);
-      if (!lon || !lat) return;
+      if (!lon || !lat || !Number.isFinite(lon) || !Number.isFinite(lat)) return;
       const isStart = start?.intNo === cr.intNo;
       const isEnd = end?.intNo === cr.intNo;
       const viaIndex = viaCrossroads.findIndex(v => v.intNo === cr.intNo);
@@ -198,7 +258,7 @@ export default function SimulationMapView({
           image: createMarkerCanvas(color, size, markerText),
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          disableDepthTestDistance: 1e10,
         },
         label: (isStart || isEnd || isVia) ? {
           text: isVia ? `경유 ${viaIndex + 1} · ${cr.intNm}` : `${isStart ? "출발" : "도착"} · ${cr.intNm}`,
@@ -208,7 +268,7 @@ export default function SimulationMapView({
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           pixelOffset: new Cesium.Cartesian2(0, -32),
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          disableDepthTestDistance: 1e10,
         } : undefined,
         properties: { intNo: cr.intNo, intNm: cr.intNm, xCoord: cr.xCoord, yCoord: cr.yCoord },
       });
@@ -278,6 +338,7 @@ export default function SimulationMapView({
     viaCrossroadsRef.current = viaCrossroads;
     startRef.current = start;
     endRef.current = end;
+    routeTrafficRef.current = activeRouteTraffic;
     renderRouteSimulation(routePoints, viaCrossroads, startLL, endLL);
     prefetchSignals(viaCrossroads, start, end, signalCacheRef, signalFetchingRef);
     animationRef.current = requestAnimationFrame(startCarAnimation);
@@ -303,7 +364,7 @@ export default function SimulationMapView({
       realTimeSpeed: currentStats.realTimeSpeed,
       segmentsCount: currentStats.segmentsCount,
     });
-  }, [selectedList, isOptimized, mapReady, routePlan, driveView, routeTraffic]);
+  }, [selectedList, isOptimized, mapReady, routePlan, driveView, routeTraffic, activeRouteTraffic]);
 
   // 주행뷰 전환 시 카메라
   useEffect(() => {
@@ -316,6 +377,63 @@ export default function SimulationMapView({
       flyToSelectedArea(startLL, endLL, routePoints);
     }
   }, [driveView, mapReady]);
+
+
+  // 페이지를 떠났다가 다시 시뮬레이션 페이지로 돌아왔을 때
+  // display:none 상태였던 VWorld/Cesium canvas를 강제로 다시 렌더링한다.
+  useEffect(() => {
+    const reviveSimulationViewer = () => {
+      const run = () => {
+        const viewer = viewerRef.current;
+        if (!viewer || !window.Cesium) return;
+
+        try {
+          viewer.resize?.();
+          viewer.scene?.requestRender?.();
+        } catch (err) {
+          console.warn("[SimMap] VWorld viewer 재활성화 실패:", err);
+        }
+
+        const currentRoutePoints = routePointsRef.current || [];
+        const currentViaCrossroads = viaCrossroadsRef.current || [];
+        const currentStart = startRef.current;
+        const currentEnd = endRef.current;
+
+        if (currentRoutePoints.length < 2 || !currentStart || !currentEnd) return;
+
+        const currentStartLL = getCrLonLat(currentStart);
+        const currentEndLL = getCrLonLat(currentEnd);
+        if (!currentStartLL || !currentEndLL) return;
+
+        // 숨김/표시 전환 후 차량 엔티티가 사라진 경우 경로 오버레이와 차량을 복원한다.
+        if (!carEntityRef.current || !reverseCarEntityRef.current) {
+          clearOverlays();
+          renderRouteSimulation(currentRoutePoints, currentViaCrossroads, currentStartLL, currentEndLL);
+          prefetchSignals(currentViaCrossroads, currentStart, currentEnd, signalCacheRef, signalFetchingRef);
+        }
+
+        // RAF가 멈춘 상태면 다시 시작한다.
+        if (!animationRef.current && !simulationCompleted) {
+          animationRef.current = requestAnimationFrame(startCarAnimation);
+        }
+
+        viewer.scene?.requestRender?.();
+      };
+
+      setTimeout(run, 60);
+      setTimeout(run, 320);
+    };
+
+    window.addEventListener("traffic-sync:simulation-activate", reviveSimulationViewer);
+
+    if (mapReady) {
+      reviveSimulationViewer();
+    }
+
+    return () => {
+      window.removeEventListener("traffic-sync:simulation-activate", reviveSimulationViewer);
+    };
+  }, [mapReady, simulationCompleted]);
 
   // ─── JSX ──────────────────────────────────────────────────────────────────
 

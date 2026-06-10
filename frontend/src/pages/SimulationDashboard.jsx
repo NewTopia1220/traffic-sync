@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import SimulationMapView from "../components/map/SimulationMapView";
 import AppHeader from "../components/common/AppHeader";
 import SimSliderPanel from "../components/simulation/SimSliderPanel";
@@ -28,12 +28,283 @@ function resolveSegments(segments) {
     .map(seg => {
       const speed = seg.selectedTraffic ?? seg.up;
       if (!speed?.speedKph) return null;
-      return { fromIntNo: seg.fromIntNo, toIntNo: seg.toIntNo, axisName: seg.axisName, speedKph: speed.speedKph, congestion: speed.congestion };
+      return { fromIntNo: seg.fromIntNo, toIntNo: seg.toIntNo, axisName: seg.axisName, speedKph: speed.speedKph, congestion: speed.congestion, beforeSpeedKph: seg.beforeSpeedKph ?? speed.beforeSpeedKph, afterSpeedKph: seg.afterSpeedKph ?? speed.afterSpeedKph, optimized: !!(seg.optimized || speed.optimized) };
     })
     .filter(Boolean);
 }
 
-export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu }) {
+function hasAppliedAdjustmentForSegment(segment, adjustmentByIntNo = {}) {
+  if (!segment) return false;
+  const fromKey = String(segment.fromIntNo ?? "");
+  const toKey = String(segment.toIntNo ?? "");
+  return !!(adjustmentByIntNo[toKey] || adjustmentByIntNo[fromKey]);
+}
+
+function improveBottleneckSpeedKph(speedKph, hasAdjustment = false) {
+  const speed = Number(speedKph);
+  if (!Number.isFinite(speed) || speed <= 0) return null;
+  if (!hasAdjustment) return speed;
+
+  // 신호 조정이 적용된 병목구간은 기존 프로젝트 흐름처럼
+  // 정체 속도를 완화 속도로 재계산한다.
+  // 너무 과장되지 않도록 최소 +8km/h, 최대 45km/h로 제한한다.
+  const improved = Math.max(speed + 8, speed * 1.55);
+  return Math.round(Math.min(improved, 45) * 10) / 10;
+}
+
+function congestionBySpeedKph(speedKph) {
+  const speed = Number(speedKph);
+  if (!Number.isFinite(speed)) return "정보없음";
+  if (speed < 15) return "정체";
+  if (speed < 25) return "서행";
+  return "원활";
+}
+
+function cloneTrafficWithSpeed(traffic, nextSpeedKph, originalSpeedKph) {
+  if (!traffic) return traffic;
+  const speed = Number(nextSpeedKph);
+  if (!Number.isFinite(speed)) return traffic;
+  return {
+    ...traffic,
+    speedKph: speed,
+    beforeSpeedKph: Number.isFinite(Number(originalSpeedKph)) ? Number(originalSpeedKph) : traffic.speedKph,
+    congestion: congestionBySpeedKph(speed),
+    optimized: true,
+    speedStale: false,
+  };
+}
+
+function buildOptimizedRouteTraffic(routeTraffic, appliedAdjustmentsMap = {}, isOptimized = false) {
+  if (!isOptimized || !routeTraffic?.segments?.length || !Object.keys(appliedAdjustmentsMap || {}).length) {
+    return routeTraffic;
+  }
+
+  const nextSegments = routeTraffic.segments.map(segment => {
+    if (!hasAppliedAdjustmentForSegment(segment, appliedAdjustmentsMap)) return segment;
+
+    const selected = segment.selectedTraffic ?? segment.up ?? segment.down;
+    const beforeSpeed = Number(selected?.speedKph);
+    const afterSpeed = improveBottleneckSpeedKph(beforeSpeed, true);
+    if (!Number.isFinite(afterSpeed)) return segment;
+
+    const selectedLinkId = selected?.linkId;
+    const nextSegment = {
+      ...segment,
+      optimized: true,
+      beforeSpeedKph: beforeSpeed,
+      afterSpeedKph: afterSpeed,
+      congestion: congestionBySpeedKph(afterSpeed),
+    };
+
+    if (segment.selectedTraffic) {
+      nextSegment.selectedTraffic = cloneTrafficWithSpeed(segment.selectedTraffic, afterSpeed, beforeSpeed);
+    }
+
+    ["up", "down"].forEach(key => {
+      const traffic = segment[key];
+      if (!traffic) return;
+      const shouldUpdate =
+        !selectedLinkId ||
+        String(traffic.linkId ?? "") === String(selectedLinkId) ||
+        traffic === selected;
+      if (shouldUpdate) nextSegment[key] = cloneTrafficWithSpeed(traffic, afterSpeed, beforeSpeed);
+    });
+
+    if (!nextSegment.selectedTraffic) {
+      nextSegment.selectedTraffic = nextSegment.up ?? nextSegment.down ?? selected;
+    }
+
+    return nextSegment;
+  });
+
+  return {
+    ...routeTraffic,
+    segments: nextSegments,
+    optimized: true,
+    appliedAdjustmentIntNos: Object.keys(appliedAdjustmentsMap || {}),
+  };
+}
+
+function numberOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function sumPhaseSeconds(phases) {
+  return (phases || []).reduce((sum, phase) => sum + Math.max(0, Number(phase?.sec || 0)), 0);
+}
+
+function mergeAdjustedPhases(beforePhases, adjustedPhases) {
+  if (!adjustedPhases?.length) return beforePhases || [];
+  const adjustedByNo = Object.fromEntries(
+    adjustedPhases
+      .filter(phase => phase?.no != null)
+      .map(phase => [String(phase.no), phase])
+  );
+
+  return (beforePhases || []).map(phase => {
+    const adjusted = adjustedByNo[String(phase?.no)];
+    if (!adjusted || adjusted.sec == null) return phase;
+    return { ...phase, sec: Number(adjusted.sec) };
+  });
+}
+
+function selectTargetPhaseNo(beforePhases, afterPhases) {
+  const beforeSecByNo = Object.fromEntries(
+    (beforePhases || []).map(phase => [String(phase?.no), Number(phase?.sec || 0)])
+  );
+
+  let bestNo = beforePhases?.[0]?.no ?? afterPhases?.[0]?.no ?? null;
+  let bestIncrease = Number.NEGATIVE_INFINITY;
+  let bestSec = -1;
+
+  (afterPhases || []).forEach(phase => {
+    const no = phase?.no;
+    const sec = Number(phase?.sec || 0);
+    const inc = sec - (beforeSecByNo[String(no)] ?? sec);
+    if (inc > bestIncrease || (inc === bestIncrease && sec > bestSec)) {
+      bestIncrease = inc;
+      bestSec = sec;
+      bestNo = no;
+    }
+  });
+
+  return bestNo;
+}
+
+function estimateSignalWaitSec(context, adjustment, arrivalOffsetSec) {
+  const beforePhases = context?.phases || [];
+  if (!beforePhases.length) return 0;
+
+  const afterPhases = adjustment
+    ? mergeAdjustedPhases(beforePhases, adjustment.phases || [])
+    : beforePhases;
+
+  let cycle = Number(context?.cycleVal) || sumPhaseSeconds(afterPhases);
+  if (!cycle || cycle <= 0) cycle = sumPhaseSeconds(afterPhases);
+  if (!cycle || cycle <= 0) return 0;
+
+  const targetPhaseNo = selectTargetPhaseNo(beforePhases, afterPhases);
+  if (targetPhaseNo == null) return 0;
+
+  const planStartSec = Number(context?.planStartSec || 0);
+  const nowSec = Math.floor(Date.now() / 1000) % 86400;
+  const projectedSec = nowSec + Number(arrivalOffsetSec || 0);
+  const elapsed = ((projectedSec - planStartSec) % cycle + cycle) % cycle;
+
+  let acc = 0;
+  for (const phase of afterPhases) {
+    const sec = Math.max(0, Number(phase?.sec || 0));
+    if (sec <= 0) continue;
+
+    const start = acc;
+    const end = acc + sec;
+
+    if (String(phase?.no) === String(targetPhaseNo)) {
+      if (elapsed >= start && elapsed < end) return 0;
+      if (elapsed < start) return Math.max(0, Math.ceil(start - elapsed));
+      return Math.max(0, Math.ceil(cycle - elapsed + start));
+    }
+
+    acc = end;
+  }
+
+  return 0;
+}
+
+function estimateTravelTimeLocally({ routeNodes, routeTraffic, optimizedRouteTraffic, contexts, adjustments, optimized, fallbackDistanceMeters }) {
+  const nodes = routeNodes || [];
+  const segments = routeTraffic || [];
+  const afterSegments = optimized && optimizedRouteTraffic?.length ? optimizedRouteTraffic : segments;
+  const contextByIntNo = Object.fromEntries(
+    (contexts || [])
+      .filter(ctx => ctx?.intNo != null)
+      .map(ctx => [String(ctx.intNo), ctx])
+  );
+  const adjustmentByIntNo = Object.fromEntries(
+    (adjustments || [])
+      .filter(adj => adj?.intNo != null)
+      .map(adj => [String(adj.intNo), adj])
+  );
+
+  if (!segments.length) return null;
+
+  const speeds = segments
+    .map(seg => numberOrNull(seg?.speedKph))
+    .filter(speed => speed && speed > 0);
+
+  const avgSpeed = speeds.length
+    ? speeds.reduce((sum, speed) => sum + speed, 0) / speeds.length
+    : 20;
+
+  const totalDistance = numberOrNull(fallbackDistanceMeters) || 0;
+  const segmentDistance = totalDistance > 0 && segments.length
+    ? totalDistance / segments.length
+    : 0;
+
+  let beforeTravelSec = 0;
+  let afterTravelSec = 0;
+  let beforeDelaySec = 0;
+  let afterDelaySec = 0;
+  let afterSpeedSum = 0;
+  let afterSpeedCount = 0;
+
+  segments.forEach((segment, index) => {
+    const afterSegment = afterSegments[index] || segment;
+    const speedKph = numberOrNull(segment?.speedKph) || avgSpeed || 20;
+    const toIntNo = segment?.toIntNo ?? nodes[index + 1]?.intNo;
+    const fromIntNo = segment?.fromIntNo ?? nodes[index]?.intNo;
+    const context = contextByIntNo[String(toIntNo)];
+    const adjustment = adjustmentByIntNo[String(toIntNo)] || adjustmentByIntNo[String(fromIntNo)];
+    const hasAdjustment = !!adjustment;
+
+    const afterSpeedKph = optimized
+      ? (numberOrNull(afterSegment?.speedKph) || numberOrNull(afterSegment?.afterSpeedKph) || improveBottleneckSpeedKph(speedKph, hasAdjustment))
+      : speedKph;
+
+    const beforeTravel = segmentDistance > 0 ? segmentDistance / (speedKph / 3.6) : 0;
+    const afterTravel = segmentDistance > 0 ? segmentDistance / (afterSpeedKph / 3.6) : 0;
+
+    beforeTravelSec += beforeTravel;
+    afterTravelSec += afterTravel;
+    afterSpeedSum += afterSpeedKph;
+    afterSpeedCount++;
+
+    const arrivalBefore = beforeTravelSec + beforeDelaySec;
+    const arrivalAfter = afterTravelSec + afterDelaySec;
+
+    let beforeWait = estimateSignalWaitSec(context, null, arrivalBefore);
+    let afterWait = optimized ? estimateSignalWaitSec(context, adjustment, arrivalAfter) : beforeWait;
+
+    if (index === segments.length - 1) {
+      beforeWait = Math.min(beforeWait, 5);
+      afterWait = Math.min(afterWait, 5);
+    }
+
+    beforeDelaySec += beforeWait;
+    afterDelaySec += afterWait;
+  });
+
+  const beforeSec = Math.round(beforeTravelSec + beforeDelaySec);
+  const afterSec = optimized ? Math.round(afterTravelSec + afterDelaySec) : null;
+  const savedSec = optimized && afterSec != null ? Math.max(0, beforeSec - afterSec) : null;
+
+  return {
+    beforeSec,
+    afterSec,
+    savedSec,
+    beforeSpeedKph: beforeSec > 0 && totalDistance > 0 ? Math.round(((totalDistance / beforeSec) * 3.6) * 10) / 10 : Math.round(avgSpeed * 10) / 10,
+    afterSpeedKph: optimized && afterSec > 0 && totalDistance > 0 ? Math.round(((totalDistance / afterSec) * 3.6) * 10) / 10 : (optimized && afterSpeedCount ? Math.round((afterSpeedSum / afterSpeedCount) * 10) / 10 : null),
+    source: "frontend-signal-timing-fallback",
+  };
+}
+
+
+export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu, isMuted, onToggleMute, isMicActive, onToggleMic, }) {
+  useEffect(() => {
+    console.log('[SimDashboard] MOUNTED, viewer:', !!window.ws3d?.viewer)
+    return () => console.log('[SimDashboard] UNMOUNTED')
+  }, [])
   const [selectedList, setSelectedList] = useState([]);
   const [isOptimized, setIsOptimized] = useState(false);
   const [stats, setStats] = useState(null);
@@ -52,13 +323,16 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [currentVehicleSignal, setCurrentVehicleSignal] = useState(null);
   const [routeTraffic, setRouteTraffic] = useState(null);
   const [routeAnalysis, setRouteAnalysis] = useState(null);
+  const [routeReport, setRouteReport] = useState(null);
   const [routeAnalysisLoading, setRouteAnalysisLoading] = useState(false);
   const [aiAdjustment, setAiAdjustment] = useState(null);
   const [aiAdjustKey, setAiAdjustKey] = useState(0);
   const [aiAdjustmentsMap, setAiAdjustmentsMap] = useState({});
+  const [appliedAdjustmentsMap, setAppliedAdjustmentsMap] = useState({});
   const [appliedIntNos, setAppliedIntNos] = useState(new Set());
   const [speedUnavailable, setSpeedUnavailable] = useState(false);
   const [bottleneckCrossroads, setBottleneckCrossroads] = useState([]);
+  const [bottleneckContextMap, setBottleneckContextMap] = useState({});
   const [driveView, setDriveView] = useState(false);
   const llmCalledRouteRef = useRef(null);
   const llmTimerRef = useRef(null);
@@ -96,13 +370,23 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const selectedSignalConfig = {
     start: { icon: "🟢", label: "출발지", signalTitle: "출발지 신호체계", adjustTitle: "출발지 신호 조정", crossroad: start, emptyText: "출발지를 먼저 선택하세요", onPhaseChange: setOriginPhaseIdx, onContextChange: setOriginContext },
     waypoint: { icon: "🟠", label: "병목 경유지", signalTitle: "병목 경유지 신호체계", adjustTitle: "병목 경유지 신호 조정", crossroad: selectedWaypoint, emptyText: "자동 경유지가 잡히면 경유지 신호체계가 표시됩니다", onPhaseChange: setWaypointPhaseIdx, onContextChange: setWaypointContext },
-    bottleneck: { icon: "🟡", label: "병목지", signalTitle: "병목지 신호체계", adjustTitle: "병목지 신호 조정", crossroad: selectedBottleneck, emptyText: "병목지가 탐색되면 신호체계가 표시됩니다", onPhaseChange: setWaypointPhaseIdx, onContextChange: setWaypointContext },
+    bottleneck: { icon: "🟡", label: "병목지", signalTitle: "병목지 신호체계", adjustTitle: "병목지 신호 조정", crossroad: selectedBottleneck, emptyText: "병목지가 탐색되면 신호체계가 표시됩니다", onPhaseChange: setWaypointPhaseIdx, onContextChange: (ctx) => { setWaypointContext(ctx); if (selectedBottleneck?.intNo && ctx?.phases?.length) setBottleneckContextMap(prev => ({ ...prev, [String(selectedBottleneck.intNo)]: ctx })); } },
     end: { icon: "🔴", label: "목적지", signalTitle: "목적지 신호체계", adjustTitle: "목적지 신호 조정", crossroad: end, emptyText: "목적지를 선택하면 신호체계가 표시됩니다", onPhaseChange: setDestPhaseIdx, onContextChange: setDestContext },
   };
 
   const activeSignal = selectedSignalConfig[sliderTarget] ?? selectedSignalConfig.end;
   const hasActiveSignalCrossroad = !!activeSignal.crossroad;
   const bottleneckSignalKey = selectedBottleneck ? `bottleneck:${selectedBottleneck.intNo}` : "bottleneck";
+
+  // VehicleSignalPanel이 이미 가져온 context → 슬라이더 기준값으로 사용 (DB 중복 fetch 제거)
+  const activeContext = sliderTarget === "start" ? originContext
+    : sliderTarget === "end" ? destContext
+    : waypointContext;
+
+  const optimizedRouteTraffic = useMemo(
+    () => buildOptimizedRouteTraffic(routeTraffic, appliedAdjustmentsMap, isOptimized),
+    [routeTraffic, isOptimized, JSON.stringify(appliedAdjustmentsMap)]
+  );
 
   // 현재 슬라이더 교차로에 AI 제안값이 있으면 추출
   const aiSuggestedValues = (() => {
@@ -132,25 +416,28 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   // 경로 병목 구간 AI 분석
   const callLLM = useCallback((resolved) => {
     if (!end?.intNo) return;
+    const _bottleneckContextMap = bottleneckContextMap;
     // Spring은 List<String> 기대 → 반드시 문자열로 변환
     const bottleneckIntNos = resolved
-      .filter(seg => Number(seg.speedKph) < 40)
+      .filter(seg => Number(seg.speedKph) < 15)
       .map(seg => String(seg.toIntNo))
       .filter((v, i, arr) => arr.indexOf(v) === i);
 
     setAiAdjustment(null);
     setAiAdjustmentsMap({});
+    setAppliedAdjustmentsMap({});
     setAppliedIntNos(new Set());
     setAiAdjustKey(0);
     setSpeedUnavailable(false);
 
     if (bottleneckIntNos.length === 0) {
-      setRouteAnalysis("현재 경로에 40km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
+      setRouteAnalysis("현재 경로에 15km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다.");
       setRouteAnalysisLoading(false);
       return;
     }
 
     setRouteAnalysis(null);
+    setRouteReport(null);
     setRouteAnalysisLoading(true);
 
     // Spring 백엔드 /api/simulation-chat → 내부적으로 Python agent(8001)로 프록시
@@ -158,9 +445,10 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        question: "각 병목 교차로의 신호계획을 분석해서 40km/h 이하 구간 전체의 신호를 최적화해줘. 분석 결과와 추천 신호 조정값만 반환하고, 실제 적용은 관제사 승인 이후 진행됩니다.",
+        question: "각 병목 교차로의 신호계획을 분석해서 15km/h 이하 구간 전체의 신호를 최적화해줘. 분석 결과와 추천 신호 조정값만 반환하고, 실제 적용은 관제사 승인 이후 진행됩니다.",
         routeTraffic: resolved,
         bottleneckIntNos,
+        contexts: bottleneckIntNos.map(id => _bottleneckContextMap[String(id)]).filter(Boolean),
         userEmail: JSON.parse(localStorage.getItem("ts_user") || "{}").email || null,
       }),
     })
@@ -169,7 +457,12 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         return r.json();
       })
       .then(data => {
-        setRouteAnalysis(data.answer ?? null);
+        const rawAnswer = data.answer ?? null;
+        const cleanAnswer = rawAnswer
+          ? rawAnswer.replace(/^###\s*/gm, "• ").replace(/^##\s*/gm, "• ").replace(/^#\s*/gm, "• ")
+          : null;
+        setRouteAnalysis(cleanAnswer);
+        setRouteReport(data.report ?? null);
         const adjs = data.adjustments?.length ? data.adjustments
           : data.adjustment?.intNo ? [data.adjustment] : [];
         if (adjs.length > 0) {
@@ -185,16 +478,18 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         setAiAdjustmentsMap({});
       })
       .finally(() => setRouteAnalysisLoading(false));
-  }, [end]);
+  }, [end, bottleneckContextMap]);
 
   // 경로 확정 시 속도 수집 타임아웃
   useEffect(() => {
     if (!end?.intNo || !stats?.distanceMeters) return;
     setSpeedUnavailable(false);
     setRouteAnalysis(null);
+    setRouteReport(null);
     setRouteAnalysisLoading(false);
     setAiAdjustment(null);
     setAiAdjustmentsMap({});
+    setAppliedAdjustmentsMap({});
     setAiAdjustKey(0);
     setIsOptimized(false);
     llmCalledRouteRef.current = null;
@@ -221,28 +516,28 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   }, [routeTraffic, end?.intNo]);
 
   // 실시간 속도 도착 시 stats 재계산
+  // 제어 후 시간은 더 이상 프론트에서 s * 1.35로 계산하지 않고,
+  // 백엔드 /api/signal/simulation/route-travel-time 결과를 사용한다.
   useEffect(() => {
     if (!routeTraffic?.segments?.length || !stats?.distanceMeters) return;
     const resolved = resolveSegments(routeTraffic.segments);
     const speeds = resolved.map(seg => Number(seg.speedKph)).filter(s => Number.isFinite(s) && s > 0);
     if (!speeds.length) return;
 
-    const distance = stats.distanceMeters;
     const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
-    const slowSegs = speeds.filter(s => s < 40);
+    const slowSegs = speeds.filter(s => s < 15);
     const bottleneckCount = slowSegs.length;
-    const beforeSec = Math.round(distance / (avgSpeed / 3.6));
-    const improvedSpeeds = speeds.map(s => (s < 40 ? Math.min(s * 1.35, 50) : s));
-    const afterAvg = improvedSpeeds.reduce((a, b) => a + b, 0) / improvedSpeeds.length;
-    const afterSec = Math.round(distance / (afterAvg / 3.6));
 
+    // 백엔드 응답 전까지 보여줄 기본 제어 전 값만 계산한다.
+    // 제어 후/단축시간은 백엔드 신호 현시 기반 재계산값만 반영한다.
+    const fallbackBeforeSec = Math.round(stats.distanceMeters / (avgSpeed / 3.6));
     setStats(prev => ({
       ...prev,
-      beforeSec,
-      afterSec: isOptimized ? afterSec : null,
-      savedSec: isOptimized ? Math.max(0, beforeSec - afterSec) : null,
+      beforeSec: prev?.beforeSec ?? fallbackBeforeSec,
+      afterSec: isOptimized ? prev?.afterSec ?? null : null,
+      savedSec: isOptimized ? prev?.savedSec ?? null : null,
       beforeSpeedKph: Math.round(avgSpeed * 10) / 10,
-      afterSpeedKph: isOptimized ? Math.round(afterAvg * 10) / 10 : null,
+      afterSpeedKph: isOptimized ? prev?.afterSpeedKph ?? null : null,
       bottleneckCount,
     }));
 
@@ -250,12 +545,140 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     (routeTraffic.requestedRouteNodes || []).forEach(n => { nodeMap[String(n.intNo)] = n; });
 
     const bCrossroads = resolved
-      .filter(seg => Number(seg.speedKph ?? 999) < 40)
+      .filter(seg => Number(seg.speedKph ?? 999) < 15)
       .map(seg => ({ intNo: seg.toIntNo, intNm: nodeMap[String(seg.toIntNo)]?.intNm || `교차로 ${seg.toIntNo}`, speedKph: seg.speedKph }))
       .filter((v, i, arr) => arr.findIndex(x => String(x.intNo) === String(v.intNo)) === i);
 
     setBottleneckCrossroads(bCrossroads);
-  }, [routeTraffic, stats?.distanceMeters, isOptimized]);
+
+    // 병목 교차로 context 미리 fetch (DB fallback)
+    // 매번 전체 map을 비우면 route-travel-time effect가 반복 실행되면서
+    // 제어 후 시간이 계속 null로 되돌아갈 수 있어 필요한 항목만 정리/보강한다.
+    const bottleneckKeys = new Set(bCrossroads.map(cr => String(cr.intNo)));
+    setBottleneckContextMap(prev => {
+      const next = {};
+      Object.entries(prev || {}).forEach(([key, value]) => {
+        if (bottleneckKeys.has(String(key))) next[key] = value;
+      });
+      const prevKeys = Object.keys(prev || {});
+      const nextKeys = Object.keys(next);
+      const same =
+        prevKeys.length === nextKeys.length &&
+        nextKeys.every(key => prev?.[key] === next[key]);
+      return same ? prev : next;
+    });
+
+    bCrossroads.forEach(cr => {
+      const key = String(cr.intNo);
+      if (bottleneckContextMap?.[key]) return;
+      fetch(`${API_BASE}/api/signal/simulation/context/${cr.intNo}`)
+        .then(r => r.json())
+        .then(ctx => {
+          if (!ctx.error) setBottleneckContextMap(prev =>
+            prev[String(cr.intNo)] ? prev : { ...prev, [String(cr.intNo)]: ctx }
+          );
+        })
+        .catch(() => {});
+    });
+
+    const contexts = [originContext, waypointContext, destContext, ...Object.values(bottleneckContextMap || {})]
+      .filter(Boolean)
+      .filter((ctx, idx, arr) => arr.findIndex(x => String(x.intNo) === String(ctx.intNo)) === idx);
+
+    const adjustments = isOptimized
+      ? Object.values(appliedAdjustmentsMap || {})
+      : [];
+
+    const optimizedResolved = isOptimized
+      ? resolveSegments(optimizedRouteTraffic?.segments)
+      : resolved;
+
+    const travelTimePayload = {
+      routeNodes: routeTraffic.requestedRouteNodes || [],
+      routeTraffic: resolved,
+      optimizedRouteTraffic: optimizedResolved,
+      contexts,
+      adjustments,
+      optimized: isOptimized,
+    };
+
+    const localEstimate = estimateTravelTimeLocally({
+      ...travelTimePayload,
+      routeTraffic: resolved,
+      optimizedRouteTraffic: optimizedResolved,
+      fallbackDistanceMeters: stats.distanceMeters,
+    });
+
+    fetch(`${API_BASE}/api/signal/simulation/route-travel-time`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(travelTimePayload),
+    })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => {
+        const nextBeforeSec = data.beforeSec ?? localEstimate?.beforeSec ?? fallbackBeforeSec;
+        const backendAfterSec = Number.isFinite(Number(data.afterSec)) ? Number(data.afterSec) : null;
+        const localAfterSec = Number.isFinite(Number(localEstimate?.afterSec)) ? Number(localEstimate.afterSec) : null;
+        const nextAfterSec = isOptimized
+          ? (backendAfterSec != null && localAfterSec != null
+              ? Math.min(backendAfterSec, localAfterSec)
+              : backendAfterSec ?? localAfterSec ?? null)
+          : null;
+        const nextSavedSec = isOptimized
+          ? (nextAfterSec != null ? Math.max(0, nextBeforeSec - nextAfterSec) : null)
+          : null;
+        const usedLocalAfter = isOptimized && nextAfterSec != null && localAfterSec != null && nextAfterSec === localAfterSec;
+
+        setStats(prev => ({
+          ...prev,
+          beforeSec: nextBeforeSec,
+          afterSec: nextAfterSec,
+          savedSec: nextSavedSec,
+          beforeSpeedKph: data.beforeSpeedKph ?? localEstimate?.beforeSpeedKph ?? Math.round(avgSpeed * 10) / 10,
+          afterSpeedKph: isOptimized ? (usedLocalAfter ? localEstimate?.afterSpeedKph : data.afterSpeedKph ?? localEstimate?.afterSpeedKph ?? null) : null,
+          bottleneckCount,
+          travelTimeSource: usedLocalAfter ? localEstimate?.source : data.source ?? localEstimate?.source,
+          beforeSignalDelaySec: data.beforeSignalDelaySec,
+          afterSignalDelaySec: data.afterSignalDelaySec,
+          travelTimeError: null,
+        }));
+      })
+      .catch((e) => {
+        console.warn("도착시간 재계산 API 호출 실패", e);
+
+        const nextBeforeSec = localEstimate?.beforeSec ?? fallbackBeforeSec;
+        setStats(prev => {
+          const safeAfterSec = isOptimized
+            ? localEstimate?.afterSec ?? prev?.afterSec ?? null
+            : null;
+          const safeBeforeSec = localEstimate?.beforeSec ?? prev?.beforeSec ?? fallbackBeforeSec;
+          return {
+            ...prev,
+            beforeSec: safeBeforeSec,
+            afterSec: safeAfterSec,
+            savedSec: isOptimized && safeAfterSec != null ? Math.max(0, safeBeforeSec - safeAfterSec) : null,
+            beforeSpeedKph: localEstimate?.beforeSpeedKph ?? Math.round(avgSpeed * 10) / 10,
+            afterSpeedKph: isOptimized ? localEstimate?.afterSpeedKph ?? prev?.afterSpeedKph ?? null : null,
+            bottleneckCount,
+            travelTimeSource: localEstimate?.source ?? "frontend-fallback-after-api-error",
+            travelTimeError: e?.message || "route-travel-time failed",
+          };
+        });
+      });
+  }, [
+    routeTraffic,
+    stats?.distanceMeters,
+    isOptimized,
+    originContext,
+    waypointContext,
+    destContext,
+    JSON.stringify(bottleneckContextMap),
+    JSON.stringify(appliedAdjustmentsMap),
+    optimizedRouteTraffic,
+  ]);
 
   // 출발지/목적지 변경 시 상태 초기화
   useEffect(() => {
@@ -278,6 +701,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       setSimPhases(null);
       setSimPhaseTarget(null);
       setRouteAnalysis(null);
+    setRouteReport(null);
       setRouteAnalysisLoading(false);
       setAiAdjustment(null);
       setAiAdjustKey(0);
@@ -318,10 +742,12 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setCurrentVehicleSignal(null);
     setRouteTraffic(null);
     setRouteAnalysis(null);
+    setRouteReport(null);
     setRouteAnalysisLoading(false);
     setAiAdjustment(null);
     setAiAdjustKey(0);
     setAiAdjustmentsMap({});
+    setAppliedAdjustmentsMap({});
     setAppliedIntNos(new Set());
     setSpeedUnavailable(false);
     setBottleneckCrossroads([]);
@@ -330,32 +756,24 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
   };
 
-  // 저장 시 AI 분석 내용 포함 이메일 자동 발송
-  const sendAdjustmentEmail = (intNo, intNm, simulation) => {
-    const userEmail = JSON.parse(localStorage.getItem("ts_user") || "{}").email || null;
-    if (!userEmail) return;
-    const lines = simulation.map(p => `  • 현시 ${p.no} [${(p.dirs || []).join(", ")}]: ${p.sec}초`).join("\n");
-    const analysisSection = routeAnalysis ? `\n[AI 병목 분석 결과]\n${routeAnalysis}\n` : "";
-    const body = `[신호 수동 조정 완료]\n\n교차로: ${intNm} (ID: ${intNo})\n조정 내용:\n${lines}\n${analysisSection}\n관제사 직접 제어로 신호 현시 시간이 조정되었습니다.`;
-    fetch(`${API_BASE}/api/email/send`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: userEmail, subject: `[신호 조정] ${intNm} 현시 수동 조정 완료`, body }),
-    }).catch(() => {});
-  };
-
   const handleManualSave = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(activeSignalKey);
+    if (sliderCrossroad?.intNo) {
+      setAppliedAdjustmentsMap(prev => ({
+        ...prev,
+        [String(sliderCrossroad.intNo)]: { intNo: String(sliderCrossroad.intNo), phases: simulation },
+      }));
+    }
     setIsOptimized(true);
-    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
   };
 
   const runAiBottleneckAnalysis = () => {
     if (!canOptimize || routeAnalysisLoading) return;
     const resolved = resolveSegments(routeTraffic?.segments);
     if (!resolved.length) { setRouteAnalysis("속도 API 매핑 결과가 없어 AI 병목 분석을 실행할 수 없습니다."); setSpeedUnavailable(true); return; }
-    const bottleneckSegments = resolved.filter(seg => seg.speedKph < 40);
-    if (!bottleneckSegments.length) { setRouteAnalysis("현재 경로에 40km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다."); setAiAdjustmentsMap({}); return; }
+    const bottleneckSegments = resolved.filter(seg => seg.speedKph < 15);
+    if (!bottleneckSegments.length) { setRouteAnalysis("현재 경로에 15km/h 이하 병목구간이 없습니다. AI 신호 개입이 필요하지 않습니다."); setAiAdjustmentsMap({}); return; }
     setIsOptimized(false);
     callLLM(resolved);
   };
@@ -379,25 +797,41 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
     applyAdjustment(target);
     setAppliedIntNos(prev => new Set([...prev, String(target.intNo)]));
+    setAppliedAdjustmentsMap(prev => ({ ...prev, [String(target.intNo)]: target }));
 
     // 모두 적용됐으면 완료 처리
     if (unapplied.length <= 1) setIsOptimized(true);
   };
 
-  // AI 자동 제어 애니메이션 완료 → 상태 업데이트 + 이메일 자동 발송
   const handleAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(activeSignalKey);
-    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
+    if (sliderCrossroad?.intNo) {
+      setAppliedAdjustmentsMap(prev => ({
+        ...prev,
+        [String(sliderCrossroad.intNo)]: { intNo: String(sliderCrossroad.intNo), phases: simulation },
+      }));
+    }
   };
   const handleBottleneckManualSave = (simulation) => {
-    setSimPhases(simulation); setSimPhaseTarget(bottleneckSignalKey); setIsOptimized(true);
-    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
+    setSimPhases(simulation); setSimPhaseTarget(bottleneckSignalKey);
+    if (sliderCrossroad?.intNo) {
+      setAppliedAdjustmentsMap(prev => ({
+        ...prev,
+        [String(sliderCrossroad.intNo)]: { intNo: String(sliderCrossroad.intNo), phases: simulation },
+      }));
+    }
+    setIsOptimized(true);
   };
   const handleBottleneckAutoApplied = (simulation) => {
     setSimPhases(simulation);
     setSimPhaseTarget(bottleneckSignalKey);
-    if (sliderCrossroad) sendAdjustmentEmail(sliderCrossroad.intNo, sliderCrossroad.intNm, simulation);
+    if (sliderCrossroad?.intNo) {
+      setAppliedAdjustmentsMap(prev => ({
+        ...prev,
+        [String(sliderCrossroad.intNo)]: { intNo: String(sliderCrossroad.intNo), phases: simulation },
+      }));
+    }
   };
 
   const panelTitle = activeSignal.adjustTitle;
@@ -412,6 +846,41 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         statusLive={!!(start && end && isOptimized)}
         onGoMain={onGoMain} onGoMap={onGoMap} onGoNews={onGoNews} onGoCctv={onGoCctv}
         onGoSimulation={() => {}} onGoComplaints={onGoComplaints} onGoMyPage={onGoMyPage} onLogout={onLogout}
+        rightExtra={(
+          <>
+            {onToggleMute && (
+              <button
+                onClick={onToggleMute}
+                title={isMuted ? "음소거 해제" : "음소거"}
+                style={{
+                  background: isMuted ? "#1a0a0a" : "transparent",
+                  border: 0,
+                  borderRadius: 999,
+                  width: 32,
+                  height: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                <img
+                  src={isMuted ? "/icons/mute.png" : "/icons/speaker.png"}
+                  alt=""
+                  style={{
+                    width: 18,
+                    height: 18,
+                    objectFit: "contain",
+                    filter: "invert(1)",
+                    opacity: isMuted ? 1 : 0.9,
+                  }}
+                />
+              </button>
+            )}
+          </>
+        )}
+
       />
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: driveView ? "minmax(0, 1fr) 400px" : "minmax(0, 1fr) 330px 400px", minHeight: 0 }}>
 
@@ -423,6 +892,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               isOptimized={isOptimized} onStatsChange={setStats} onAutoWaypointsChange={setAutoWaypoints}
               onRouteTrafficChange={setRouteTraffic} onCurrentSignalChange={setCurrentVehicleSignal}
               onResetRoute={resetSimulation} routeTraffic={routeTraffic}
+              optimizedRouteTraffic={optimizedRouteTraffic}
               onDriveViewChange={setDriveView}
             />
           </div>
@@ -455,7 +925,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                     <MetricBox label="전체 거리" value={formatDistance(stats.distanceMeters)} />
                     <MetricBox label="병목구간" value={stats.bottleneckCount != null ? `${stats.bottleneckCount}개` : routeAnalysisLoading ? "수집 중..." : "-"} />
                   </div>
-                  <div style={{ padding: 10, borderRadius: 5, fontSize: 12, lineHeight: 1.6, background: routeAnalysisLoading ? "rgba(96,165,250,0.06)" : isOptimized ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${routeAnalysisLoading ? "rgba(96,165,250,0.2)" : isOptimized ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.25)"}`, color: isOptimized ? "#bbf7d0" : "#fecaca" }}>
+                  <div style={{ padding: 10, borderRadius: 5, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", background: routeAnalysisLoading ? "rgba(96,165,250,0.06)" : isOptimized ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${routeAnalysisLoading ? "rgba(96,165,250,0.2)" : isOptimized ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.25)"}`, color: isOptimized ? "#bbf7d0" : "#fecaca" }}>
                     {speedUnavailable
                       ? <span style={{ color: "#64748b" }}>속도 수집 불가 — TOPIS 미수집 구간입니다. 신호계획 기반으로 수동 조정하세요.</span>
                       : routeAnalysisLoading ? <AnalysisLoadingBlock />
@@ -476,7 +946,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
                     <MetricBox label="제어 전" value={formatSec(stats.beforeSec)} color="#ef4444" sub={`${stats.beforeSpeedKph}km/h`} animate />
-                    <MetricBox label="제어 후" value={formatSec(stats.afterSec)} color="#22c55e" sub={`${stats.afterSpeedKph}km/h`} animate />
+                    <MetricBox label="제어 후" value={formatSec(stats.afterSec)} color="#22c55e" sub={stats.afterSpeedKph != null ? `${stats.afterSpeedKph}km/h` : "신호 재계산 대기"} animate />
                   </div>
                   <div style={{ padding: "12px 10px", borderRadius: 5, background: "rgba(34,197,94,0.10)", border: "1px solid rgba(34,197,94,0.35)", textAlign: "center" }}>
                     <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>예상 단축 시간</div>
@@ -610,6 +1080,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                 onAutoApplied={handleAutoApplied}
                 aiSuggestedValues={aiSuggestedValues}
                 aiAdjustKey={aiAdjustKey}
+                initialPhases={activeContext?.phases ?? null}
+                initialCycleVal={activeContext?.cycleVal ?? null}
               />
             </div>
           )}

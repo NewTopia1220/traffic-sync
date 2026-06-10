@@ -61,37 +61,79 @@ function TrafficLight({ status, rmndCs, elapsed }) {
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 }}>
 
       {/* 신호등 하우징: 어두운 케이스에 3개 원형 등 세로 배치 */}
-      <div style={{
+      {/* <div style={{
         background: "#111",
         border: "2px solid #333",
         borderRadius: 8,
         padding: "6px 0",
         display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
         width: 28, flexShrink: 0,
+      }}> */}
+      <div style={{
+        background: "linear-gradient(180deg, #1b2330 0%, #070b12 100%)",
+        border: "2px solid rgba(226,232,240,0.38)",
+        borderRadius: 9,
+        padding: "6px 0",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 4,
+        width: 30,
+        flexShrink: 0,
+        boxShadow: "0 0 0 1px rgba(0,0,0,0.85), 0 4px 12px rgba(0,0,0,0.65)",
       }}>
+
         {/* 빨간불: isRed일 때만 밝은 빨강 + glow, 꺼진 상태는 매우 어두운 빨강 */}
-        <div style={{
+        {/* <div style={{
           width: 16, height: 16, borderRadius: "50%",
           background: isRed ? "#ef4444" : "#3f1010",
           boxShadow: isRed ? "0 0 8px #ef4444" : "none",
           transition: "all 0.3s", // 신호 전환 시 부드럽게 변화
+        }} /> */}
+        <div style={{
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          background: isRed ? "#ff3b3b" : "#2a0b0b",
+          boxShadow: isRed ? "0 0 10px #ff3b3b, 0 0 18px rgba(255,59,59,0.55)" : "none",
+          border: isRed ? "3px solid rgba(255,255,255,0.22)" : "3px solid rgba(239,68,68,0.35)",
+          transition: "all 0.3s",
         }} />
 
         {/* 노란불: 초록도 빨강도 아닐 때 (gray 상태, 전환 중간) */}
-        <div style={{
+        {/* <div style={{
           width: 16, height: 16, borderRadius: "50%",
           background: (!isRed && !isGreen) ? "#f59e0b" : "#3f3010",
           boxShadow: (!isRed && !isGreen) ? "0 0 8px #f59e0b" : "none",
           transition: "all 0.3s",
+        }} /> */}
+        <div style={{
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          background: (!isRed && !isGreen) ? "#ffb020" : "#2b210b",
+          boxShadow: (!isRed && !isGreen) ? "0 0 10px #ffb020, 0 0 18px rgba(255,176,32,0.5)" : "none",
+          border: (!isRed && !isGreen) ? "3px solid rgba(255,255,255,0.22)" : "3px solid rgba(245,158,11,0.35)",
+          transition: "all 0.3s",
         }} />
 
         {/* 초록불: isGreen일 때만 밝은 초록 + glow */}
-        <div style={{
+        {/* <div style={{
           width: 16, height: 16, borderRadius: "50%",
           background: isGreen ? "#22c55e" : "#0a2810",
           boxShadow: isGreen ? "0 0 8px #22c55e" : "none",
           transition: "all 0.3s",
+        }} /> */}
+        <div style={{
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          background: isGreen ? "#20e070" : "#082414",
+          boxShadow: isGreen ? "0 0 10px #20e070, 0 0 18px rgba(32,224,112,0.55)" : "none",
+          border: isGreen ? "3px solid rgba(255,255,255,0.22)" : "3px solid rgba(34,197,94,0.35)",
+          transition: "all 0.3s",
         }} />
+
       </div>
 
       {/* 남은 시간 카운트다운 (rmndCs가 null이면 표시 안 함) */}

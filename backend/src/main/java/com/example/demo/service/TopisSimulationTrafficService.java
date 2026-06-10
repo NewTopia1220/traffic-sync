@@ -47,6 +47,7 @@ public class TopisSimulationTrafficService {
     private final TopisLinkVertexRepository linkVertexRepository;
     private final TopisApiService topisApiService;
     private final SupplementalDataCacheService supplementalDataCacheService;
+    private final SignalService signalService;
 
     @Value("${topis.route-traffic.max-match-distance-meters:90}")
     private double maxMatchDistanceMeters;
@@ -790,6 +791,285 @@ public class TopisSimulationTrafficService {
                 .vertices(points)
                 .build()));
         return geometries;
+    }
+
+
+    /**
+     * 시뮬레이션 도착시간 재계산.
+     *
+     * 기존 프론트 방식처럼 병목 속도를 임의로 35% 증가시키지 않고,
+     * 1) TOPIS 기반 구간 속도로 주행시간을 계산하고,
+     * 2) 교차로 신호 context와 AI/수동 조정 현시값을 이용해 대기시간을 재계산한다.
+     *
+     * 완전한 미시 교통 시뮬레이터는 아니지만, 화면의 "제어 후" 값이 더 이상 프론트 더미 공식(s * 1.35)에 의존하지 않도록 한다.
+     */
+    public Map<String, Object> calculateRouteTravelTime(Map<String, Object> request) {
+        List<RouteNode> nodes = routeNodes(request == null ? null : request.get("routeNodes"));
+        List<Map<String, Object>> routeTraffic = mapList(request == null ? null : request.get("routeTraffic"));
+        List<Map<String, Object>> adjustments = mapList(request == null ? null : request.get("adjustments"));
+        List<Map<String, Object>> contexts = mapList(request == null ? null : request.get("contexts"));
+        boolean optimized = booleanValue(request, "optimized");
+
+        Map<String, Map<String, Object>> contextByIntNo = new LinkedHashMap<>();
+        for (Map<String, Object> ctx : contexts) {
+            String intNo = stringValue(ctx, "intNo");
+            if (intNo != null && !intNo.isBlank()) {
+                contextByIntNo.put(intNo, ctx);
+            }
+        }
+
+        Map<String, Map<String, Object>> adjustmentByIntNo = new LinkedHashMap<>();
+        for (Map<String, Object> adj : adjustments) {
+            String intNo = stringValue(adj, "intNo");
+            if (intNo != null && !intNo.isBlank()) {
+                adjustmentByIntNo.put(intNo, adj);
+            }
+        }
+
+        double totalDistance = 0.0;
+        double beforeTravelSec = 0.0;
+        double beforeDelaySec = 0.0;
+        double afterDelaySec = 0.0;
+        List<Double> segmentSpeeds = new ArrayList<>();
+        List<Map<String, Object>> segmentResults = new ArrayList<>();
+
+        int segmentCount = Math.max(0, nodes.size() - 1);
+        for (int i = 0; i < segmentCount; i++) {
+            RouteNode from = nodes.get(i);
+            RouteNode to = nodes.get(i + 1);
+            Map<String, Object> segment = i < routeTraffic.size() ? routeTraffic.get(i) : Map.of();
+            Double speedKph = extractSegmentSpeedKph(segment);
+            if (speedKph == null || speedKph <= 0) {
+                speedKph = 20.0;
+            }
+
+            double distance = GeoDistanceUtils.haversineMeters(from.point(), to.point());
+            double travelSec = distance / (speedKph / 3.6);
+            totalDistance += distance;
+            beforeTravelSec += travelSec;
+            segmentSpeeds.add(speedKph);
+
+            double arrivalBefore = beforeTravelSec + beforeDelaySec;
+            double arrivalAfter = beforeTravelSec + afterDelaySec;
+
+            Map<String, Object> ctx = contextByIntNo.get(to.intNo());
+            if (ctx == null && to.intNo() != null) {
+                try {
+                    ctx = getSignalContextForTravelTime(to.intNo());
+                    if (ctx != null) contextByIntNo.put(to.intNo(), ctx);
+                } catch (Exception ignored) {
+                    ctx = null;
+                }
+            }
+
+            Map<String, Object> adjustment = adjustmentByIntNo.get(to.intNo());
+            int beforeWait = estimateSignalWaitSec(ctx, null, arrivalBefore);
+            int afterWait = optimized
+                    ? estimateSignalWaitSec(ctx, adjustment, arrivalAfter)
+                    : beforeWait;
+
+            // 목적지는 통과 대기 대상이 아니라 도착 지점이므로, 마지막 노드에서는 과도한 대기를 줄인다.
+            if (i == segmentCount - 1) {
+                beforeWait = Math.min(beforeWait, 5);
+                afterWait = Math.min(afterWait, 5);
+            }
+
+            beforeDelaySec += beforeWait;
+            afterDelaySec += afterWait;
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("fromIntNo", from.intNo());
+            row.put("toIntNo", to.intNo());
+            row.put("distanceMeters", Math.round(distance));
+            row.put("speedKph", round1(speedKph));
+            row.put("travelSec", Math.round(travelSec));
+            row.put("beforeSignalWaitSec", beforeWait);
+            row.put("afterSignalWaitSec", optimized ? afterWait : null);
+            row.put("adjusted", adjustment != null);
+            segmentResults.add(row);
+        }
+
+        int beforeSec = (int) Math.round(beforeTravelSec + beforeDelaySec);
+        int afterSec = optimized ? (int) Math.round(beforeTravelSec + afterDelaySec) : beforeSec;
+        int savedSec = Math.max(0, beforeSec - afterSec);
+        double beforeAvgSpeed = beforeSec > 0 ? (totalDistance / beforeSec) * 3.6 : 0.0;
+        double afterAvgSpeed = afterSec > 0 ? (totalDistance / afterSec) * 3.6 : beforeAvgSpeed;
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("source", "backend-signal-timing-recalculation");
+        response.put("method", "segmentSpeed + signalPhaseDelay");
+        response.put("optimized", optimized);
+        response.put("distanceMeters", Math.round(totalDistance));
+        response.put("beforeSec", beforeSec);
+        response.put("afterSec", optimized ? afterSec : null);
+        response.put("savedSec", optimized ? savedSec : null);
+        response.put("beforeSpeedKph", round1(beforeAvgSpeed));
+        response.put("afterSpeedKph", optimized ? round1(afterAvgSpeed) : null);
+        response.put("avgSegmentSpeedKph", average(segmentSpeeds));
+        response.put("beforeSignalDelaySec", Math.round(beforeDelaySec));
+        response.put("afterSignalDelaySec", optimized ? Math.round(afterDelaySec) : null);
+        response.put("segments", segmentResults);
+        response.put("generatedAtMs", System.currentTimeMillis());
+        return response;
+    }
+
+    private Map<String, Object> getSignalContextForTravelTime(String intNo) {
+        if (intNo == null || intNo.isBlank()) {
+            return null;
+        }
+        try {
+            Map<String, Object> ctx = signalService.getSimulationContext(intNo);
+            if (ctx == null || ctx.containsKey("error")) {
+                return null;
+            }
+            return ctx;
+        } catch (Exception e) {
+            log.debug("Signal context fallback fetch failed for intNo={}: {}", intNo, e.getMessage());
+            return null;
+        }
+    }
+
+    private int estimateSignalWaitSec(Map<String, Object> context, Map<String, Object> adjustment, double arrivalOffsetSec) {
+        if (context == null) return 0;
+        List<Map<String, Object>> beforePhases = mapList(context.get("phases"));
+        if (beforePhases.isEmpty()) return 0;
+
+        List<Map<String, Object>> afterPhases = adjustment == null
+                ? beforePhases
+                : mergeAdjustedPhases(beforePhases, mapList(adjustment.get("phases")));
+
+        int cycle = intValue(context, "cycleVal", sumPhaseSeconds(afterPhases));
+        if (cycle <= 0) cycle = sumPhaseSeconds(afterPhases);
+        if (cycle <= 0) return 0;
+
+        Object targetPhaseNo = selectTargetPhaseNo(beforePhases, afterPhases);
+        int planStartSec = intValue(context, "planStartSec", 0);
+        long nowSec = (System.currentTimeMillis() / 1000L) % 86400L;
+        double projectedSec = nowSec + arrivalOffsetSec;
+        double elapsed = ((projectedSec - planStartSec) % cycle + cycle) % cycle;
+
+        int acc = 0;
+        for (Map<String, Object> phase : afterPhases) {
+            int sec = intValue(phase, "sec", 0);
+            if (sec <= 0) continue;
+            Object no = phase.get("no");
+            int start = acc;
+            int end = acc + sec;
+            if (String.valueOf(no).equals(String.valueOf(targetPhaseNo))) {
+                if (elapsed >= start && elapsed < end) return 0;
+                if (elapsed < start) return Math.max(0, (int) Math.ceil(start - elapsed));
+                return Math.max(0, (int) Math.ceil(cycle - elapsed + start));
+            }
+            acc = end;
+        }
+        return 0;
+    }
+
+    private List<Map<String, Object>> mergeAdjustedPhases(List<Map<String, Object>> beforePhases, List<Map<String, Object>> adjustedPhases) {
+        if (adjustedPhases == null || adjustedPhases.isEmpty()) return beforePhases;
+        Map<String, Map<String, Object>> adjustedByNo = new LinkedHashMap<>();
+        for (Map<String, Object> phase : adjustedPhases) {
+            Object no = phase.get("no");
+            if (no != null) adjustedByNo.put(String.valueOf(no), phase);
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> phase : beforePhases) {
+            Object no = phase.get("no");
+            Map<String, Object> next = new LinkedHashMap<>(phase);
+            Map<String, Object> adj = adjustedByNo.get(String.valueOf(no));
+            if (adj != null && adj.get("sec") != null) {
+                next.put("sec", intValue(adj, "sec", intValue(phase, "sec", 0)));
+            }
+            result.add(next);
+        }
+        return result;
+    }
+
+    private Object selectTargetPhaseNo(List<Map<String, Object>> beforePhases, List<Map<String, Object>> afterPhases) {
+        Object bestNo = null;
+        int bestIncrease = Integer.MIN_VALUE;
+        int bestSec = -1;
+        Map<String, Integer> beforeSecByNo = new LinkedHashMap<>();
+        for (Map<String, Object> phase : beforePhases) {
+            beforeSecByNo.put(String.valueOf(phase.get("no")), intValue(phase, "sec", 0));
+        }
+        for (Map<String, Object> phase : afterPhases) {
+            Object no = phase.get("no");
+            int sec = intValue(phase, "sec", 0);
+            int inc = sec - beforeSecByNo.getOrDefault(String.valueOf(no), sec);
+            if (inc > bestIncrease || (inc == bestIncrease && sec > bestSec)) {
+                bestIncrease = inc;
+                bestSec = sec;
+                bestNo = no;
+            }
+        }
+        return bestNo != null ? bestNo : beforePhases.get(0).get("no");
+    }
+
+    private int sumPhaseSeconds(List<Map<String, Object>> phases) {
+        int sum = 0;
+        for (Map<String, Object> phase : phases) {
+            sum += Math.max(0, intValue(phase, "sec", 0));
+        }
+        return sum;
+    }
+
+    private static Double extractSegmentSpeedKph(Map<String, Object> segment) {
+        Double direct = doubleValue(segment, "speedKph");
+        if (direct != null && direct > 0) {
+            return direct;
+        }
+
+        Object selected = segment == null ? null : segment.get("selectedTraffic");
+        if (selected instanceof Map<?, ?> selectedMap) {
+            Double selectedSpeed = doubleValue(selectedMap, "speedKph");
+            if (selectedSpeed != null && selectedSpeed > 0) {
+                return selectedSpeed;
+            }
+        }
+
+        Object up = segment == null ? null : segment.get("up");
+        if (up instanceof Map<?, ?> upMap) {
+            Double upSpeed = doubleValue(upMap, "speedKph");
+            if (upSpeed != null && upSpeed > 0) {
+                return upSpeed;
+            }
+        }
+
+        Object down = segment == null ? null : segment.get("down");
+        if (down instanceof Map<?, ?> downMap) {
+            Double downSpeed = doubleValue(downMap, "speedKph");
+            if (downSpeed != null && downSpeed > 0) {
+                return downSpeed;
+            }
+        }
+
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> mapList(Object raw) {
+        if (!(raw instanceof List<?> list)) return List.of();
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map) {
+                Map<String, Object> typed = new LinkedHashMap<>();
+                map.forEach((k, v) -> typed.put(String.valueOf(k), v));
+                result.add(typed);
+            }
+        }
+        return result;
+    }
+
+    private static int intValue(Map<?, ?> map, String key, int fallback) {
+        Object value = map == null ? null : map.get(key);
+        if (value instanceof Number number) return number.intValue();
+        if (value == null || String.valueOf(value).isBlank()) return fallback;
+        try {
+            return (int) Math.round(Double.parseDouble(String.valueOf(value).trim()));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 
     private List<RouteNode> routeNodes(Object raw) {
