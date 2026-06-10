@@ -8,12 +8,12 @@ function normalizeTrafficStatuses(list) {
     const ms = mapKeys(s.signals);
     // 속도/위험도/혼잡도는 더 이상 프론트에서 더미로 만들지 않는다.
     // 백엔드 TrafficStatus에 합쳐진 실제 API 값만 기존 UI 필드명으로 매핑한다.
-    const speed = s.speedKph == null ? null : Math.round(s.speedKph);
-    // 방향별 진입 속도: 키를 nt/et/... → north/east/... 로 변환하고 반올림.
+    const speed = s.speedKph == null ? null : Math.round(s.speedKph * 10) / 10;
+    // 방향별 진입 속도: 키를 nt/et/... → north/east/... 로 변환하고 소수점 1자리로 정규화.
     const speedByDirection = s.speedKphByDirection
       ? Object.fromEntries(
           Object.entries(mapKeys(s.speedKphByDirection))
-            .map(([k, v]) => [k, v == null ? null : Math.round(v)])
+            .map(([k, v]) => [k, v == null ? null : Math.round(v * 10) / 10])
         )
       : null;
     const riskIndex = s.riskIndex == null ? null : Number(s.riskIndex);

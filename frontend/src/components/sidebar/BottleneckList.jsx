@@ -1,5 +1,6 @@
 function speedColor(speed) {
-  if (!Number.isFinite(speed) || speed < 15) return "#ff5566";
+  if (!Number.isFinite(speed)) return "#94a3b8";
+  if (speed < 15) return "#ff5566";
   if (speed < 25) return "#ffaa33";
   return "#2ee07a";
 }
@@ -22,7 +23,8 @@ function worstDirection(speedByDirection) {
     }
   }
   if (worstKey == null) return null;
-  return `${DIR_LABEL[worstKey] || worstKey}측 진입 ${worstSpeed}km/h`;
+  const ws = Number.isFinite(worstSpeed) ? (worstSpeed % 1 === 0 ? worstSpeed : worstSpeed.toFixed(1)) : worstSpeed;
+  return `${DIR_LABEL[worstKey] || worstKey}측 진입 ${ws}km/h`;
 }
 
 export default function BottleneckList({ bottlenecks, selected, onSelect, crossroadsCount }) {
@@ -39,9 +41,14 @@ export default function BottleneckList({ bottlenecks, selected, onSelect, crossr
       ) : (
         bottlenecks.map(cr => {
           const isSelected = selected?.crsrdId === cr.crsrdId;
-          const speed = Number.isFinite(cr.speed) ? cr.speed : "-";
+          const hasSpeed = Number.isFinite(cr.speed);
+          const speed = hasSpeed ? cr.speed : "-";
           const color = speedColor(cr.speed);
           const worst = worstDirection(cr.speedByDirection);
+          const congestionLabel = !hasSpeed ? "정보없음"
+            : cr.speed < 15 ? "정체"
+            : cr.speed < 25 ? "서행"
+            : "원활";
           return (
             <div
               key={cr.crsrdId}
@@ -73,7 +80,7 @@ export default function BottleneckList({ bottlenecks, selected, onSelect, crossr
                   {speed}<span style={{ fontSize: 11 }}>km/h</span>
                 </div>
                 <div style={{ fontSize: 11, color: "#7a7a7a", marginTop: 2 }}>
-                  {cr.congestion || "혼잡"}
+                  {congestionLabel}
                 </div>
               </div>
             </div>
