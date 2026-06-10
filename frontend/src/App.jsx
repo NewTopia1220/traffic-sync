@@ -252,6 +252,7 @@ export default function App() {
             onToggleMic={assistant.onFloatingClick}
             notifQueue={notifQueue}
             onDismissNotif={onDismissNotif}
+            wsData={wsData}
           />
         </div>
       )}
