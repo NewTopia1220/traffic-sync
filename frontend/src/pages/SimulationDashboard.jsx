@@ -301,6 +301,10 @@ function estimateTravelTimeLocally({ routeNodes, routeTraffic, optimizedRouteTra
 
 
 export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu, isMuted, onToggleMute, isMicActive, onToggleMic, }) {
+  useEffect(() => {
+    console.log('[SimDashboard] MOUNTED, viewer:', !!window.ws3d?.viewer)
+    return () => console.log('[SimDashboard] UNMOUNTED')
+  }, [])
   const [selectedList, setSelectedList] = useState([]);
   const [isOptimized, setIsOptimized] = useState(false);
   const [stats, setStats] = useState(null);

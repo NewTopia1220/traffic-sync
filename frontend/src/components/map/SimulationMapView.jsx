@@ -242,7 +242,7 @@ export default function SimulationMapView({
     crossroads.forEach(cr => {
       const lon = toCoord(cr.xCoord);
       const lat = toCoord(cr.yCoord);
-      if (!lon || !lat) return;
+      if (!lon || !lat || !Number.isFinite(lon) || !Number.isFinite(lat)) return;
       const isStart = start?.intNo === cr.intNo;
       const isEnd = end?.intNo === cr.intNo;
       const viaIndex = viaCrossroads.findIndex(v => v.intNo === cr.intNo);
@@ -258,7 +258,7 @@ export default function SimulationMapView({
           image: createMarkerCanvas(color, size, markerText),
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          disableDepthTestDistance: 1e10,
         },
         label: (isStart || isEnd || isVia) ? {
           text: isVia ? `경유 ${viaIndex + 1} · ${cr.intNm}` : `${isStart ? "출발" : "도착"} · ${cr.intNm}`,
@@ -268,7 +268,7 @@ export default function SimulationMapView({
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           pixelOffset: new Cesium.Cartesian2(0, -32),
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          disableDepthTestDistance: 1e10,
         } : undefined,
         properties: { intNo: cr.intNo, intNm: cr.intNm, xCoord: cr.xCoord, yCoord: cr.yCoord },
       });
