@@ -10,34 +10,33 @@ import {
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 
-function formatSec(sec) {
-  if (sec == null) return "-";
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return m > 0 ? `${m}분 ${s}초` : `${s}초`;
-}
-
 function formatDistance(meters) {
   if (!meters) return "-";
   return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${meters} m`;
 }
 
-function resolveSegments(segments) {
+function resolveSegments(segments, options = {}) {
   if (!segments?.length) return [];
+  const includeMissing = !!options.includeMissing;
   return segments
     .map(seg => {
       const speed = seg.selectedTraffic ?? seg.up;
-      if (!speed?.speedKph) return null;
-      return { fromIntNo: seg.fromIntNo, toIntNo: seg.toIntNo, axisName: seg.axisName, speedKph: speed.speedKph, congestion: speed.congestion, beforeSpeedKph: seg.beforeSpeedKph ?? speed.beforeSpeedKph, afterSpeedKph: seg.afterSpeedKph ?? speed.afterSpeedKph, optimized: !!(seg.optimized || speed.optimized) };
+      const speedKph = numberOrNull(speed?.speedKph);
+      if (speedKph == null && !includeMissing) return null;
+      return { fromIntNo: seg.fromIntNo, toIntNo: seg.toIntNo, axisName: seg.axisName, speedKph, congestion: speed?.congestion, beforeSpeedKph: seg.beforeSpeedKph ?? speed?.beforeSpeedKph, afterSpeedKph: seg.afterSpeedKph ?? speed?.afterSpeedKph, optimized: !!(seg.optimized || speed?.optimized) };
     })
     .filter(Boolean);
 }
 
 function hasAppliedAdjustmentForSegment(segment, adjustmentByIntNo = {}) {
   if (!segment) return false;
-  const fromKey = String(segment.fromIntNo ?? "");
   const toKey = String(segment.toIntNo ?? "");
-  return !!(adjustmentByIntNo[toKey] || adjustmentByIntNo[fromKey]);
+  return !!adjustmentByIntNo[toKey];
+}
+
+function segmentKey(segment) {
+  if (!segment) return "";
+  return `${segment.fromIntNo ?? ""}->${segment.toIntNo ?? ""}`;
 }
 
 function improveBottleneckSpeedKph(speedKph, hasAdjustment = false) {
@@ -130,175 +129,6 @@ function numberOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function sumPhaseSeconds(phases) {
-  return (phases || []).reduce((sum, phase) => sum + Math.max(0, Number(phase?.sec || 0)), 0);
-}
-
-function mergeAdjustedPhases(beforePhases, adjustedPhases) {
-  if (!adjustedPhases?.length) return beforePhases || [];
-  const adjustedByNo = Object.fromEntries(
-    adjustedPhases
-      .filter(phase => phase?.no != null)
-      .map(phase => [String(phase.no), phase])
-  );
-
-  return (beforePhases || []).map(phase => {
-    const adjusted = adjustedByNo[String(phase?.no)];
-    if (!adjusted || adjusted.sec == null) return phase;
-    return { ...phase, sec: Number(adjusted.sec) };
-  });
-}
-
-function selectTargetPhaseNo(beforePhases, afterPhases) {
-  const beforeSecByNo = Object.fromEntries(
-    (beforePhases || []).map(phase => [String(phase?.no), Number(phase?.sec || 0)])
-  );
-
-  let bestNo = beforePhases?.[0]?.no ?? afterPhases?.[0]?.no ?? null;
-  let bestIncrease = Number.NEGATIVE_INFINITY;
-  let bestSec = -1;
-
-  (afterPhases || []).forEach(phase => {
-    const no = phase?.no;
-    const sec = Number(phase?.sec || 0);
-    const inc = sec - (beforeSecByNo[String(no)] ?? sec);
-    if (inc > bestIncrease || (inc === bestIncrease && sec > bestSec)) {
-      bestIncrease = inc;
-      bestSec = sec;
-      bestNo = no;
-    }
-  });
-
-  return bestNo;
-}
-
-function estimateSignalWaitSec(context, adjustment, arrivalOffsetSec) {
-  const beforePhases = context?.phases || [];
-  if (!beforePhases.length) return 0;
-
-  const afterPhases = adjustment
-    ? mergeAdjustedPhases(beforePhases, adjustment.phases || [])
-    : beforePhases;
-
-  let cycle = Number(context?.cycleVal) || sumPhaseSeconds(afterPhases);
-  if (!cycle || cycle <= 0) cycle = sumPhaseSeconds(afterPhases);
-  if (!cycle || cycle <= 0) return 0;
-
-  const targetPhaseNo = selectTargetPhaseNo(beforePhases, afterPhases);
-  if (targetPhaseNo == null) return 0;
-
-  const planStartSec = Number(context?.planStartSec || 0);
-  const nowSec = Math.floor(Date.now() / 1000) % 86400;
-  const projectedSec = nowSec + Number(arrivalOffsetSec || 0);
-  const elapsed = ((projectedSec - planStartSec) % cycle + cycle) % cycle;
-
-  let acc = 0;
-  for (const phase of afterPhases) {
-    const sec = Math.max(0, Number(phase?.sec || 0));
-    if (sec <= 0) continue;
-
-    const start = acc;
-    const end = acc + sec;
-
-    if (String(phase?.no) === String(targetPhaseNo)) {
-      if (elapsed >= start && elapsed < end) return 0;
-      if (elapsed < start) return Math.max(0, Math.ceil(start - elapsed));
-      return Math.max(0, Math.ceil(cycle - elapsed + start));
-    }
-
-    acc = end;
-  }
-
-  return 0;
-}
-
-function estimateTravelTimeLocally({ routeNodes, routeTraffic, optimizedRouteTraffic, contexts, adjustments, optimized, fallbackDistanceMeters }) {
-  const nodes = routeNodes || [];
-  const segments = routeTraffic || [];
-  const afterSegments = optimized && optimizedRouteTraffic?.length ? optimizedRouteTraffic : segments;
-  const contextByIntNo = Object.fromEntries(
-    (contexts || [])
-      .filter(ctx => ctx?.intNo != null)
-      .map(ctx => [String(ctx.intNo), ctx])
-  );
-  const adjustmentByIntNo = Object.fromEntries(
-    (adjustments || [])
-      .filter(adj => adj?.intNo != null)
-      .map(adj => [String(adj.intNo), adj])
-  );
-
-  if (!segments.length) return null;
-
-  const speeds = segments
-    .map(seg => numberOrNull(seg?.speedKph))
-    .filter(speed => speed && speed > 0);
-
-  const avgSpeed = speeds.length
-    ? speeds.reduce((sum, speed) => sum + speed, 0) / speeds.length
-    : 20;
-
-  const totalDistance = numberOrNull(fallbackDistanceMeters) || 0;
-  const segmentDistance = totalDistance > 0 && segments.length
-    ? totalDistance / segments.length
-    : 0;
-
-  let beforeTravelSec = 0;
-  let afterTravelSec = 0;
-  let beforeDelaySec = 0;
-  let afterDelaySec = 0;
-  let afterSpeedSum = 0;
-  let afterSpeedCount = 0;
-
-  segments.forEach((segment, index) => {
-    const afterSegment = afterSegments[index] || segment;
-    const speedKph = numberOrNull(segment?.speedKph) || avgSpeed || 20;
-    const toIntNo = segment?.toIntNo ?? nodes[index + 1]?.intNo;
-    const fromIntNo = segment?.fromIntNo ?? nodes[index]?.intNo;
-    const context = contextByIntNo[String(toIntNo)];
-    const adjustment = adjustmentByIntNo[String(toIntNo)] || adjustmentByIntNo[String(fromIntNo)];
-    const hasAdjustment = !!adjustment;
-
-    const afterSpeedKph = optimized
-      ? (numberOrNull(afterSegment?.speedKph) || numberOrNull(afterSegment?.afterSpeedKph) || improveBottleneckSpeedKph(speedKph, hasAdjustment))
-      : speedKph;
-
-    const beforeTravel = segmentDistance > 0 ? segmentDistance / (speedKph / 3.6) : 0;
-    const afterTravel = segmentDistance > 0 ? segmentDistance / (afterSpeedKph / 3.6) : 0;
-
-    beforeTravelSec += beforeTravel;
-    afterTravelSec += afterTravel;
-    afterSpeedSum += afterSpeedKph;
-    afterSpeedCount++;
-
-    const arrivalBefore = beforeTravelSec + beforeDelaySec;
-    const arrivalAfter = afterTravelSec + afterDelaySec;
-
-    let beforeWait = estimateSignalWaitSec(context, null, arrivalBefore);
-    let afterWait = optimized ? estimateSignalWaitSec(context, adjustment, arrivalAfter) : beforeWait;
-
-    if (index === segments.length - 1) {
-      beforeWait = Math.min(beforeWait, 5);
-      afterWait = Math.min(afterWait, 5);
-    }
-
-    beforeDelaySec += beforeWait;
-    afterDelaySec += afterWait;
-  });
-
-  const beforeSec = Math.round(beforeTravelSec + beforeDelaySec);
-  const afterSec = optimized ? Math.round(afterTravelSec + afterDelaySec) : null;
-  const savedSec = optimized && afterSec != null ? Math.max(0, beforeSec - afterSec) : null;
-
-  return {
-    beforeSec,
-    afterSec,
-    savedSec,
-    beforeSpeedKph: beforeSec > 0 && totalDistance > 0 ? Math.round(((totalDistance / beforeSec) * 3.6) * 10) / 10 : Math.round(avgSpeed * 10) / 10,
-    afterSpeedKph: optimized && afterSec > 0 && totalDistance > 0 ? Math.round(((totalDistance / afterSec) * 3.6) * 10) / 10 : (optimized && afterSpeedCount ? Math.round((afterSpeedSum / afterSpeedCount) * 10) / 10 : null),
-    source: "frontend-signal-timing-fallback",
-  };
-}
-
 
 export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu, isMuted, onToggleMute, isMicActive, onToggleMic, }) {
   const [selectedList, setSelectedList] = useState([]);
@@ -332,6 +162,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [driveView, setDriveView] = useState(false);
   const llmCalledRouteRef = useRef(null);
   const llmTimerRef = useRef(null);
+  const routeStatsKeyRef = useRef(null);
+  const selectedGuKeyRef = useRef(null);
 
   const start = selectedList[0] ?? null;
   const end = selectedList.length >= 2 ? selectedList[selectedList.length - 1] : null;
@@ -383,6 +215,38 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     () => buildOptimizedRouteTraffic(routeTraffic, appliedAdjustmentsMap, isOptimized),
     [routeTraffic, isOptimized, JSON.stringify(appliedAdjustmentsMap)]
   );
+
+  const handleMapStatsChange = useCallback((nextStats) => {
+    if (!nextStats) {
+      routeStatsKeyRef.current = null;
+      setStats(null);
+      return;
+    }
+
+    const routeKey = `${start?.intNo || ""}>${end?.intNo || ""}`;
+    if (routeStatsKeyRef.current !== routeKey) {
+      routeStatsKeyRef.current = routeKey;
+      setStats(nextStats);
+      return;
+    }
+
+    setStats(prev => {
+      if (!prev) {
+        return nextStats;
+      }
+
+      return {
+        ...prev,
+        distanceMeters: prev.distanceMeters ?? nextStats.distanceMeters,
+        minSpeedKph: prev.minSpeedKph ?? nextStats.minSpeedKph,
+        bottleneckCount: nextStats.bottleneckCount ?? prev.bottleneckCount,
+        viaCount: nextStats.viaCount ?? prev.viaCount,
+        speedMissing: nextStats.speedMissing,
+        realTimeSpeed: nextStats.realTimeSpeed,
+        segmentsCount: nextStats.segmentsCount ?? prev.segmentsCount,
+      };
+    });
+  }, [start?.intNo, end?.intNo]);
 
   // 현재 슬라이더 교차로에 AI 제안값이 있으면 추출
   const aiSuggestedValues = (() => {
@@ -511,31 +375,15 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setRouteAnalysisLoading(false);
   }, [routeTraffic, end?.intNo]);
 
-  // 실시간 속도 도착 시 stats 재계산
-  // 제어 후 시간은 더 이상 프론트에서 s * 1.35로 계산하지 않고,
-  // 백엔드 /api/signal/simulation/route-travel-time 결과를 사용한다.
+  // 실시간 속도 도착 시 병목구간 목록과 개수만 갱신한다.
   useEffect(() => {
     if (!routeTraffic?.segments?.length || !stats?.distanceMeters) return;
+
     const resolved = resolveSegments(routeTraffic.segments);
     const speeds = resolved.map(seg => Number(seg.speedKph)).filter(s => Number.isFinite(s) && s > 0);
     if (!speeds.length) return;
 
-    const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
-    const slowSegs = speeds.filter(s => s < 15);
-    const bottleneckCount = slowSegs.length;
-
-    // 백엔드 응답 전까지 보여줄 기본 제어 전 값만 계산한다.
-    // 제어 후/단축시간은 백엔드 신호 현시 기반 재계산값만 반영한다.
-    const fallbackBeforeSec = Math.round(stats.distanceMeters / (avgSpeed / 3.6));
-    setStats(prev => ({
-      ...prev,
-      beforeSec: prev?.beforeSec ?? fallbackBeforeSec,
-      afterSec: isOptimized ? prev?.afterSec ?? null : null,
-      savedSec: isOptimized ? prev?.savedSec ?? null : null,
-      beforeSpeedKph: Math.round(avgSpeed * 10) / 10,
-      afterSpeedKph: isOptimized ? prev?.afterSpeedKph ?? null : null,
-      bottleneckCount,
-    }));
+    const bottleneckCount = speeds.filter(s => s < 15).length;
 
     const nodeMap = {};
     (routeTraffic.requestedRouteNodes || []).forEach(n => { nodeMap[String(n.intNo)] = n; });
@@ -547,9 +395,6 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
 
     setBottleneckCrossroads(bCrossroads);
 
-    // 병목 교차로 context 미리 fetch (DB fallback)
-    // 매번 전체 map을 비우면 route-travel-time effect가 반복 실행되면서
-    // 제어 후 시간이 계속 null로 되돌아갈 수 있어 필요한 항목만 정리/보강한다.
     const bottleneckKeys = new Set(bCrossroads.map(cr => String(cr.intNo)));
     setBottleneckContextMap(prev => {
       const next = {};
@@ -577,103 +422,14 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         .catch(() => {});
     });
 
-    const contexts = [originContext, waypointContext, destContext, ...Object.values(bottleneckContextMap || {})]
-      .filter(Boolean)
-      .filter((ctx, idx, arr) => arr.findIndex(x => String(x.intNo) === String(ctx.intNo)) === idx);
-
-    const adjustments = isOptimized
-      ? Object.values(appliedAdjustmentsMap || {})
-      : [];
-
-    const optimizedResolved = isOptimized
-      ? resolveSegments(optimizedRouteTraffic?.segments)
-      : resolved;
-
-    const travelTimePayload = {
-      routeNodes: routeTraffic.requestedRouteNodes || [],
-      routeTraffic: resolved,
-      optimizedRouteTraffic: optimizedResolved,
-      contexts,
-      adjustments,
-      optimized: isOptimized,
-    };
-
-    const localEstimate = estimateTravelTimeLocally({
-      ...travelTimePayload,
-      routeTraffic: resolved,
-      optimizedRouteTraffic: optimizedResolved,
-      fallbackDistanceMeters: stats.distanceMeters,
-    });
-
-    fetch(`${API_BASE}/api/signal/simulation/route-travel-time`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(travelTimePayload),
-    })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(data => {
-        const nextBeforeSec = data.beforeSec ?? localEstimate?.beforeSec ?? fallbackBeforeSec;
-        const backendAfterSec = Number.isFinite(Number(data.afterSec)) ? Number(data.afterSec) : null;
-        const localAfterSec = Number.isFinite(Number(localEstimate?.afterSec)) ? Number(localEstimate.afterSec) : null;
-        const nextAfterSec = isOptimized
-          ? (backendAfterSec != null && localAfterSec != null
-              ? Math.min(backendAfterSec, localAfterSec)
-              : backendAfterSec ?? localAfterSec ?? null)
-          : null;
-        const nextSavedSec = isOptimized
-          ? (nextAfterSec != null ? Math.max(0, nextBeforeSec - nextAfterSec) : null)
-          : null;
-        const usedLocalAfter = isOptimized && nextAfterSec != null && localAfterSec != null && nextAfterSec === localAfterSec;
-
-        setStats(prev => ({
-          ...prev,
-          beforeSec: nextBeforeSec,
-          afterSec: nextAfterSec,
-          savedSec: nextSavedSec,
-          beforeSpeedKph: data.beforeSpeedKph ?? localEstimate?.beforeSpeedKph ?? Math.round(avgSpeed * 10) / 10,
-          afterSpeedKph: isOptimized ? (usedLocalAfter ? localEstimate?.afterSpeedKph : data.afterSpeedKph ?? localEstimate?.afterSpeedKph ?? null) : null,
-          bottleneckCount,
-          travelTimeSource: usedLocalAfter ? localEstimate?.source : data.source ?? localEstimate?.source,
-          beforeSignalDelaySec: data.beforeSignalDelaySec,
-          afterSignalDelaySec: data.afterSignalDelaySec,
-          travelTimeError: null,
-        }));
-      })
-      .catch((e) => {
-        console.warn("도착시간 재계산 API 호출 실패", e);
-
-        const nextBeforeSec = localEstimate?.beforeSec ?? fallbackBeforeSec;
-        setStats(prev => {
-          const safeAfterSec = isOptimized
-            ? localEstimate?.afterSec ?? prev?.afterSec ?? null
-            : null;
-          const safeBeforeSec = localEstimate?.beforeSec ?? prev?.beforeSec ?? fallbackBeforeSec;
-          return {
-            ...prev,
-            beforeSec: safeBeforeSec,
-            afterSec: safeAfterSec,
-            savedSec: isOptimized && safeAfterSec != null ? Math.max(0, safeBeforeSec - safeAfterSec) : null,
-            beforeSpeedKph: localEstimate?.beforeSpeedKph ?? Math.round(avgSpeed * 10) / 10,
-            afterSpeedKph: isOptimized ? localEstimate?.afterSpeedKph ?? prev?.afterSpeedKph ?? null : null,
-            bottleneckCount,
-            travelTimeSource: localEstimate?.source ?? "frontend-fallback-after-api-error",
-            travelTimeError: e?.message || "route-travel-time failed",
-          };
-        });
-      });
+    setStats(prev => ({
+      ...prev,
+      bottleneckCount,
+    }));
   }, [
     routeTraffic,
     stats?.distanceMeters,
-    isOptimized,
-    originContext,
-    waypointContext,
-    destContext,
     JSON.stringify(bottleneckContextMap),
-    JSON.stringify(appliedAdjustmentsMap),
-    optimizedRouteTraffic,
   ]);
 
   // 출발지/목적지 변경 시 상태 초기화
@@ -748,9 +504,25 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setSpeedUnavailable(false);
     setBottleneckCrossroads([]);
     setDriveView(false);
+    routeStatsKeyRef.current = null;
     llmCalledRouteRef.current = null;
     if (llmTimerRef.current) { clearTimeout(llmTimerRef.current); llmTimerRef.current = null; }
   };
+
+  useEffect(() => {
+    const nextGuKey = selectedGu
+      ? `${selectedGu.name || ""}:${selectedGu.lat || ""}:${selectedGu.lon || ""}`
+      : "none";
+
+    if (selectedGuKeyRef.current == null) {
+      selectedGuKeyRef.current = nextGuKey;
+      return;
+    }
+
+    if (selectedGuKeyRef.current === nextGuKey) return;
+    selectedGuKeyRef.current = nextGuKey;
+    resetSimulation();
+  }, [selectedGu?.name, selectedGu?.lat, selectedGu?.lon]);
 
   const handleManualSave = (simulation) => {
     setSimPhases(simulation);
@@ -795,8 +567,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
     setAppliedIntNos(prev => new Set([...prev, String(target.intNo)]));
     setAppliedAdjustmentsMap(prev => ({ ...prev, [String(target.intNo)]: target }));
 
-    // 모두 적용됐으면 완료 처리
-    if (unapplied.length <= 1) setIsOptimized(true);
+    setIsOptimized(true);
   };
 
   const handleAutoApplied = (simulation) => {
@@ -885,7 +656,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
           <div style={{ height: "100%", borderRadius: 11, overflow: "hidden", border: `1px solid ${isOptimized ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.08)"}`, boxShadow: isOptimized ? "0 0 20px rgba(34,197,94,0.1)" : "none" }}>
             <SimulationMapView
               selectedList={selectedList} selectedGu={selectedGu} onSelect={handleSelect}
-              isOptimized={isOptimized} onStatsChange={setStats} onAutoWaypointsChange={setAutoWaypoints}
+              isOptimized={isOptimized} onStatsChange={handleMapStatsChange} onAutoWaypointsChange={setAutoWaypoints}
               onRouteTrafficChange={setRouteTraffic} onCurrentSignalChange={setCurrentVehicleSignal}
               onResetRoute={resetSimulation} routeTraffic={routeTraffic}
               optimizedRouteTraffic={optimizedRouteTraffic}
@@ -927,30 +698,11 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
                       : routeAnalysisLoading ? <AnalysisLoadingBlock />
                       : routeAnalysis ? routeAnalysis
                       : isOptimized ? "관제사가 병목구간의 직진 신호 시간을 늘려 통과속도가 개선된 상태입니다."
-                      : "경로 중간 구간에서 속도 저하가 발생했습니다. 신호제어를 적용하면 예상 도착시간을 줄일 수 있습니다."}
+                      : "경로 중간 구간에서 속도 저하가 발생했습니다. AI 병목 분석 후 신호제어를 적용할 수 있습니다."}
                   </div>
                 </>
               ) : (
                 <div style={{ color: "#64748b", fontSize: 13, lineHeight: 1.7 }}>출발지와 목적지를 모두 선택하면 경로와 병목구간이 표시됩니다.</div>
-              )}
-            </div>
-
-            {/* 도착시간 비교 */}
-            <div style={cardStyle}>
-              <div style={{ fontWeight: 800, color: "#ffffff", fontSize: 14, marginBottom: 10 }}>도착시간 비교</div>
-              {stats?.beforeSec != null ? (
-                <>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                    <MetricBox label="제어 전" value={formatSec(stats.beforeSec)} color="#ef4444" sub={`${stats.beforeSpeedKph}km/h`} animate />
-                    <MetricBox label="제어 후" value={formatSec(stats.afterSec)} color="#22c55e" sub={stats.afterSpeedKph != null ? `${stats.afterSpeedKph}km/h` : "신호 재계산 대기"} animate />
-                  </div>
-                  <div style={{ padding: "12px 10px", borderRadius: 5, background: "rgba(34,197,94,0.10)", border: "1px solid rgba(34,197,94,0.35)", textAlign: "center" }}>
-                    <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>예상 단축 시간</div>
-                    <div style={{ fontSize: 24, color: "#22c55e", fontWeight: 900 }}>{formatSec(stats.savedSec)}</div>
-                  </div>
-                </>
-              ) : (
-                <div style={{ color: "#64748b", fontSize: 13 }}>{stats ? "속도 데이터 수집 후 표시됩니다." : "경로 선택 후 비교 결과가 표시됩니다."}</div>
               )}
             </div>
 
