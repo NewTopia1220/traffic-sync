@@ -218,12 +218,13 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
 
   // ── 멀티에이전트 스트리밍 ──────────────────────────────────────
   async function _sendMulti(q, coordOverride = null) {
-    // coordOverride: route_multi 이벤트에서 받은 { lat, lon, crsrdId, crsrdNm }
+    // coordOverride: route_multi 이벤트에서 받은 { lat, lon, crsrdId, crsrdNm, preSteps }
     // selected가 null(교차로 미선택)일 때 백엔드가 찾아준 좌표 사용
-    const lat     = coordOverride?.lat     ?? selected?.lat;
-    const lon     = coordOverride?.lon     ?? selected?.lon;
-    const crsrdId = coordOverride?.crsrdId ?? selected?.crsrdId;
-    const crsrdNm = coordOverride?.crsrdNm ?? selected?.crsrdNm ?? "선택 교차로";
+    const lat      = coordOverride?.lat      ?? selected?.lat;
+    const lon      = coordOverride?.lon      ?? selected?.lon;
+    const crsrdId  = coordOverride?.crsrdId  ?? selected?.crsrdId;
+    const crsrdNm  = coordOverride?.crsrdNm  ?? selected?.crsrdNm ?? "선택 교차로";
+    const preSteps = coordOverride?.preSteps ?? [];
 
     setMessages(prev => [...prev, { role: "user", text: q, steps: [] }]);
     setInput("");
@@ -232,7 +233,7 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
     const multiMsgIdx = { current: -1 };
     setMessages(prev => {
       multiMsgIdx.current = prev.length;
-      return [...prev, { role: "multi_group", centerName: crsrdNm, workers: [], discussions: [], orchestrator: null, loadingWorkers: true, loadingDiscuss: false, currentRound: 0 }];
+      return [...prev, { role: "multi_group", centerName: crsrdNm, preSteps, workers: [], discussions: [], orchestrator: null, loadingWorkers: true, loadingDiscuss: false, currentRound: 0 }];
     });
 
     const abortCtrl = new AbortController();
@@ -405,7 +406,7 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
           if (data.type === "route_multi") {
             // 백엔드 LLM이 멀티에이전트 분석으로 판단 → 재라우팅
             routedToMulti = true;
-            routeMultiData = data; // lat, lon, crsrdId, crsrdNm 저장
+            routeMultiData = { ...data, preSteps: [...currentSteps] }; // 탐색 과정 스텝 포함
             reader.cancel().catch(() => {});
             break outer;
           }
@@ -431,6 +432,7 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
         clearTimeout(abortTimer);
         abortCtrlRef.current = null;
         setLoading(false);
+        setLiveSteps([]);
         // _send가 추가한 유저 메시지 제거 — _sendMulti가 다시 추가
         setMessages(prev => prev.slice(0, -1));
         await _sendMulti(q, routeMultiData);
@@ -581,6 +583,16 @@ export default function AIChatBot({ selected, onClose, isMuted = false }) {
           {messages.map((m, idx) =>
             m.role === "multi_group" ? (
               <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: "98%" }}>
+
+                {/* 교차로 탐색 과정 (좌표 자동검색 시) */}
+                {m.preSteps?.length > 0 && (
+                  <InlineSteps
+                    steps={m.preSteps}
+                    label={`교차로 탐색 과정 · ${m.preSteps.length}단계`}
+                    collapsed={collapsedSteps[`${idx}-pre`] === true}
+                    onToggle={() => setCollapsedSteps(p => ({ ...p, [`${idx}-pre`]: !p[`${idx}-pre`] }))}
+                  />
+                )}
 
                 {/* 워커 분석 블록 — InlineSteps 스타일 */}
                 {(m.loadingWorkers || m.workers.length > 0) && (() => {

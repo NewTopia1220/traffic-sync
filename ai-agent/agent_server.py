@@ -741,15 +741,17 @@ async def free_chat(req: ChatRequest):
 
 
 TOOL_LABELS = {
-    "get_traffic_data":        "교차로 실시간 데이터 조회",
-    "get_bottleneck_list":     "전체 병목 목록 조회",
-    "search_crossroad_by_name":"교차로 이름 검색",
-    "get_district_traffic":    "자치구 교통 현황 조회",
-    "set_signal_timing":       "신호 타이밍 조정",
-    "send_alert":              "관제사 알림 전송",
-    "send_email_report":       "이메일 리포트 전송",
-    "get_simulation_context":  "신호계획 조회",
-    "search_project_docs":     "도메인 지식 검색",
+    "get_traffic_data":           "교차로 실시간 데이터 조회",
+    "get_bottleneck_list":        "전체 병목 목록 조회",
+    "search_crossroad_by_name":   "교차로 이름 검색",
+    "get_district_traffic":       "자치구 교통 현황 조회",
+    "set_signal_timing":          "신호 타이밍 조정",
+    "send_alert":                 "관제사 알림 전송",
+    "send_email_report":          "이메일 리포트 전송",
+    "get_simulation_context":     "신호계획 조회",
+    "search_project_docs":        "도메인 지식 검색",
+    "classify_intent":            "의도 분류",
+    "search_crossroad_location":  "교차로 좌표 검색",
 }
 
 
@@ -820,8 +822,14 @@ async def free_chat_stream(req: ChatRequest, request: Request):
                     lat, lon = req.lat, req.lon
                     crsrd_id, crsrd_nm = req.crsrdId, req.crsrdNm
 
+                    # Step 1: 의도 분류 완료 알림
+                    loc_label = location or "(현재 위치)"
+                    yield f"data: {_json.dumps({'type': 'action', 'tool': 'classify_intent', 'label': '의도 분류', 'args': req.question[:60]}, ensure_ascii=False)}\n\n"
+                    yield f"data: {_json.dumps({'type': 'observation', 'content': f'주변 분석 의도 확인 · 장소명: {loc_label}'}, ensure_ascii=False)}\n\n"
+
                     # 좌표 없으면 장소명으로 신호 캐시에서 교차로 검색
                     if lat is None and location:
+                        yield f"data: {_json.dumps({'type': 'action', 'tool': 'search_crossroad_location', 'label': '교차로 좌표 검색', 'args': location}, ensure_ascii=False)}\n\n"
                         async with httpx.AsyncClient(timeout=5.0) as cl:
                             sig_r = await cl.get(f"{SPRING_BASE}/api/signals")
                             signals = sig_r.json() if sig_r.status_code == 200 else []
@@ -835,6 +843,9 @@ async def free_chat_stream(req: ChatRequest, request: Request):
                             lon      = first.get("lon")
                             crsrd_id = str(first.get("crsrdId", ""))
                             crsrd_nm = first.get("crsrdNm", location)
+                            yield f"data: {_json.dumps({'type': 'observation', 'content': f'{crsrd_nm} 발견 ({lat:.4f}, {lon:.4f})'}, ensure_ascii=False)}\n\n"
+                        else:
+                            yield f"data: {_json.dumps({'type': 'observation', 'content': f'{location} 교차로 없음 — 현재 위치 사용'}, ensure_ascii=False)}\n\n"
 
                     if lat is not None:
                         yield f"data: {_json.dumps({'type': 'route_multi', 'lat': lat, 'lon': lon, 'crsrdId': crsrd_id, 'crsrdNm': crsrd_nm}, ensure_ascii=False)}\n\n"
