@@ -340,6 +340,7 @@ export default function App() {
           queue={notifQueue}
           onDismiss={onDismissNotif}
           isMuted={assistant.isMuted}
+          popupOpen={!!assistant.pendingBriefing}
         />
       )}
 
