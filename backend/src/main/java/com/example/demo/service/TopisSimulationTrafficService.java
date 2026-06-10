@@ -47,6 +47,7 @@ public class TopisSimulationTrafficService {
     private final TopisLinkVertexRepository linkVertexRepository;
     private final TopisApiService topisApiService;
     private final SupplementalDataCacheService supplementalDataCacheService;
+    private final SignalService signalService;
 
     @Value("${topis.route-traffic.max-match-distance-meters:90}")
     private double maxMatchDistanceMeters;
@@ -837,7 +838,7 @@ public class TopisSimulationTrafficService {
             RouteNode from = nodes.get(i);
             RouteNode to = nodes.get(i + 1);
             Map<String, Object> segment = i < routeTraffic.size() ? routeTraffic.get(i) : Map.of();
-            Double speedKph = doubleValue(segment, "speedKph");
+            Double speedKph = extractSegmentSpeedKph(segment);
             if (speedKph == null || speedKph <= 0) {
                 speedKph = 20.0;
             }
@@ -913,13 +914,19 @@ public class TopisSimulationTrafficService {
     }
 
     private Map<String, Object> getSignalContextForTravelTime(String intNo) {
-        SignalCrossroadEntity crossroad = signalCrossroadRepository.findById(intNo).orElse(null);
-        if (crossroad == null) {
+        if (intNo == null || intNo.isBlank()) {
             return null;
         }
-        // 상세 신호 context는 SignalService가 담당하지만, 여기서는 순환참조를 피하기 위해
-        // request.contexts가 없을 때 대기시간 0으로 처리되도록 null을 반환한다.
-        return null;
+        try {
+            Map<String, Object> ctx = signalService.getSimulationContext(intNo);
+            if (ctx == null || ctx.containsKey("error")) {
+                return null;
+            }
+            return ctx;
+        } catch (Exception e) {
+            log.debug("Signal context fallback fetch failed for intNo={}: {}", intNo, e.getMessage());
+            return null;
+        }
     }
 
     private int estimateSignalWaitSec(Map<String, Object> context, Map<String, Object> adjustment, double arrivalOffsetSec) {
@@ -1005,6 +1012,39 @@ public class TopisSimulationTrafficService {
             sum += Math.max(0, intValue(phase, "sec", 0));
         }
         return sum;
+    }
+
+    private static Double extractSegmentSpeedKph(Map<String, Object> segment) {
+        Double direct = doubleValue(segment, "speedKph");
+        if (direct != null && direct > 0) {
+            return direct;
+        }
+
+        Object selected = segment == null ? null : segment.get("selectedTraffic");
+        if (selected instanceof Map<?, ?> selectedMap) {
+            Double selectedSpeed = doubleValue(selectedMap, "speedKph");
+            if (selectedSpeed != null && selectedSpeed > 0) {
+                return selectedSpeed;
+            }
+        }
+
+        Object up = segment == null ? null : segment.get("up");
+        if (up instanceof Map<?, ?> upMap) {
+            Double upSpeed = doubleValue(upMap, "speedKph");
+            if (upSpeed != null && upSpeed > 0) {
+                return upSpeed;
+            }
+        }
+
+        Object down = segment == null ? null : segment.get("down");
+        if (down instanceof Map<?, ?> downMap) {
+            Double downSpeed = doubleValue(downMap, "speedKph");
+            if (downSpeed != null && downSpeed > 0) {
+                return downSpeed;
+            }
+        }
+
+        return null;
     }
 
     @SuppressWarnings("unchecked")

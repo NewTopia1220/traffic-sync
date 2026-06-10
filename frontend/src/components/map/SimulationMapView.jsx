@@ -24,6 +24,7 @@ export default function SimulationMapView({
   onResetRoute,
   onDriveViewChange,
   carReady = false,
+  optimizedRouteTraffic = null,
 }) {
   const markerEntitiesRef = useRef({});
   const routePointsRef = useRef([]);
@@ -92,6 +93,14 @@ export default function SimulationMapView({
     onRouteTrafficChange,
     onBlockedLeftTurn: handleBlockedLeftTurn,
   });
+
+  const activeRouteTraffic = isOptimized && optimizedRouteTraffic?.segments?.length
+    ? optimizedRouteTraffic
+    : routeTraffic;
+
+  useEffect(() => {
+    routeTrafficRef.current = activeRouteTraffic;
+  }, [activeRouteTraffic, routeTrafficRef]);
 
   const {
     animationRef, progressRef, reverseProgressRef,
@@ -329,6 +338,7 @@ export default function SimulationMapView({
     viaCrossroadsRef.current = viaCrossroads;
     startRef.current = start;
     endRef.current = end;
+    routeTrafficRef.current = activeRouteTraffic;
     renderRouteSimulation(routePoints, viaCrossroads, startLL, endLL);
     prefetchSignals(viaCrossroads, start, end, signalCacheRef, signalFetchingRef);
     animationRef.current = requestAnimationFrame(startCarAnimation);
@@ -354,7 +364,7 @@ export default function SimulationMapView({
       realTimeSpeed: currentStats.realTimeSpeed,
       segmentsCount: currentStats.segmentsCount,
     });
-  }, [selectedList, isOptimized, mapReady, routePlan, driveView, routeTraffic]);
+  }, [selectedList, isOptimized, mapReady, routePlan, driveView, routeTraffic, activeRouteTraffic]);
 
   // 주행뷰 전환 시 카메라
   useEffect(() => {
