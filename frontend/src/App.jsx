@@ -30,6 +30,8 @@ import VoiceAssistantPanel from './components/assistant/VoiceAssistantPanel'
 import AIFloatingButton from './components/assistant/AIFloatingButton'
 import PendingBriefingPopup from './components/assistant/PendingBriefingPopup'
 import { AssistantKeyframes } from './components/assistant/assistantStyles'
+import ComplaintNotificationBanner from './components/common/ComplaintNotificationBanner'
+import { useComplaintNotification } from './hooks/useComplaintNotification'
 
 export default function App() {
   // localStorage에 로그인 정보 있으면 바로 메인, 없으면 로그인 페이지
@@ -72,6 +74,19 @@ export default function App() {
   const [areaFetchState, setAreaFetchState] = useState({ status: 'idle', guName: null, count: 0 })
   const [readyArea, setReadyArea] = useState({ guName: null, count: 0 })
   const [navNotice, setNavNotice] = useState('')
+  const [notifQueue, setNotifQueue] = useState([])
+
+  const isLoggedIn = page !== 'login' && page !== 'civil'
+
+  const handleNewComplaint = useCallback((c) => {
+    if (isLoggedIn) setNotifQueue(prev => [...prev, c])
+  }, [isLoggedIn])
+  useComplaintNotification(handleNewComplaint)
+
+
+  const onDismissNotif = useCallback((id) => {
+    setNotifQueue(prev => prev.filter(c => c.id !== id))
+  }, [])
 
   // 로그인 브리핑 카드
   const [loginBriefing, setLoginBriefing] = useState(null) // { name, gu, weatherDesc, temp, pendingCount }
@@ -235,6 +250,8 @@ export default function App() {
             onToggleMute={assistant.toggleMute}
             isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
             onToggleMic={assistant.onFloatingClick}
+            notifQueue={notifQueue}
+            onDismissNotif={onDismissNotif}
           />
         </div>
       )}
@@ -250,6 +267,8 @@ export default function App() {
           onGoMyPage={() => setPage('mypage')}
           onLogout={() => setPage('login')}
           selectedGu={null}
+          notifQueue={notifQueue}
+          onDismissNotif={onDismissNotif}
         />
       )}
 
@@ -263,6 +282,8 @@ export default function App() {
           onGoMyPage={() => setPage('mypage')}
           onLogout={() => setPage('login')}
           selectedGu={null}
+          notifQueue={notifQueue}
+          onDismissNotif={onDismissNotif}
         />
       )}
 
@@ -286,6 +307,8 @@ export default function App() {
           onToggleMute={assistant.toggleMute}
           isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
           onToggleMic={assistant.onFloatingClick}
+          notifQueue={notifQueue}
+          onDismissNotif={onDismissNotif}
         />
       )}
       {page === 'mypage' && (
@@ -304,10 +327,20 @@ export default function App() {
           onLogout={() => setPage('login')}
           headerSelectedGu={selectedGu}
           onBack={() => setPage('map')}
+          notifQueue={notifQueue}
+          onDismissNotif={onDismissNotif}
         />
       )}
 
       <NavBlockToast message={assistant.navBlockMsg || navNotice} />
+
+      {showMain && (
+        <ComplaintNotificationBanner
+          queue={notifQueue}
+          onDismiss={onDismissNotif}
+          isMuted={assistant.isMuted}
+        />
+      )}
 
       {/* 음성 어시스턴트 채팅 팝업 (최소화 상태가 아닐 때만) */}
       {showMain && showAssistantOverlay && assistant.voiceUI.active && !assistant.voiceMinimized && (
@@ -345,6 +378,8 @@ export default function App() {
           onToggleMute={assistant.toggleMute}
           isMicActive={assistant.voiceUI.active && !assistant.voiceMinimized}
           onToggleMic={assistant.onFloatingClick}
+          notifQueue={notifQueue}
+          onDismissNotif={onDismissNotif}
         />
       )}
 

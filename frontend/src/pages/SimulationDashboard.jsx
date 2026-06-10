@@ -33,7 +33,7 @@ function resolveSegments(segments) {
     .filter(Boolean);
 }
 
-export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu, isMuted, onToggleMute, isMicActive, onToggleMic, }) {
+export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoCctv, onGoComplaints, onGoMyPage, onLogout, selectedGu, isMuted, onToggleMute, isMicActive, onToggleMic, notifQueue = [], onDismissNotif, }) {
   useEffect(() => {
     console.log('[SimDashboard] MOUNTED, viewer:', !!window.ws3d?.viewer)
     return () => console.log('[SimDashboard] UNMOUNTED')
@@ -518,6 +518,8 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
         statusLive={!!(start && end && isOptimized)}
         onGoMain={onGoMain} onGoMap={onGoMap} onGoNews={onGoNews} onGoCctv={onGoCctv}
         onGoSimulation={() => {}} onGoComplaints={onGoComplaints} onGoMyPage={onGoMyPage} onLogout={onLogout}
+        notifQueue={notifQueue}
+        onDismissNotif={onDismissNotif}
         rightExtra={(
           <>
             {onToggleMute && (
