@@ -53,8 +53,8 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
         zIndex:        10002,
         display:       'flex',
         flexDirection: 'column',
-        gap:           8,
-        width:         360,
+        gap:           12,
+        width:         432,
         maxHeight:     'calc(100vh - 120px)',
         overflowY:     'auto',
         overflowX:     'hidden',
@@ -66,9 +66,9 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
 
         {hiddenCt > 0 && (
           <div style={{
-            fontSize:   11,
+            fontSize:   16,
             color:      '#5a5a5a',
-            padding:    '2px 6px',
+            padding:    '3px 9px',
             fontFamily: "'IBM Plex Mono',monospace",
           }}>
             ↑ 이전 알림 {hiddenCt}개 더
@@ -87,19 +87,19 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
               <div style={{
                 display:      'flex',
                 alignItems:   'flex-start',
-                gap:          12,
-                padding:      '12px 14px',
+                gap:          18,
+                padding:      '18px 21px',
                 background:   'linear-gradient(135deg, #12100a 0%, #0f0d08 100%)',
                 border:       '1px solid #3a3020',
-                borderLeft:   '4px solid #ffaa33',
-                borderRadius: 8,
+                borderLeft:   '6px solid #ffaa33',
+                borderRadius: 12,
                 boxShadow:    '0 8px 32px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,170,51,0.08)',
               }}>
 
                 {/* 종 아이콘 (테두리/배경 없음) */}
                 <div style={{
                   flexShrink:     0,
-                  fontSize:       22,
+                  fontSize:       33,
                   lineHeight:     1,
                   marginTop:      2,
                   animation:      isNewest ? 'bellRing 0.7s ease 0.1s' : 'none',
@@ -109,18 +109,18 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontSize:      11,
+                    fontSize:      16,
                     color:         '#ffaa33',
                     fontWeight:    700,
                     letterSpacing: '0.1em',
-                    marginBottom:  5,
+                    marginBottom:  7,
                     fontFamily:    "'IBM Plex Mono',monospace",
                     textTransform: 'uppercase',
                   }}>
                     NEW · 민원 접수
                   </div>
                   <div style={{
-                    fontSize:     15,
+                    fontSize:     22,
                     color:        '#e7ecf5',
                     fontWeight:   700,
                     overflow:     'hidden',
@@ -131,9 +131,9 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
                   </div>
                   {c.title && (
                     <div style={{
-                      fontSize:     12,
+                      fontSize:     18,
                       color:        '#8a96a8',
-                      marginTop:    4,
+                      marginTop:    6,
                       overflow:     'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace:   'nowrap',
@@ -145,8 +145,8 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
                   onClick={() => onDismiss(c.id)}
                   style={{
                     flexShrink:     0,
-                    width:          26,
-                    height:         26,
+                    width:          39,
+                    height:         39,
                     borderRadius:   '50%',
                     background:     'transparent',
                     border:         '1px solid #3a3a3a',
@@ -155,7 +155,7 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
                     display:        'flex',
                     alignItems:     'center',
                     justifyContent: 'center',
-                    fontSize:       13,
+                    fontSize:       19,
                     padding:        0,
                     transition:     'all 0.15s',
                   }}

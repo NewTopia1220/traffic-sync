@@ -14,18 +14,23 @@ warn() { echo "${YELLOW}[WAIT ]${NC} $1"; }
 info() { echo "${CYAN}[INFO ]${NC} $1"; }
 
 # ══════════════════════════════════════════════════════════════
-# 1. Ollama 메인 서버 (port 11434) — qwen2.5:14b
+# 1. 기존 Ollama 프로세스 정리 (포트 충돌 방지)
 # ══════════════════════════════════════════════════════════════
-log "Ollama 메인 서버 시작 (port 11434 / qwen2.5:14b)"
 if pgrep -f "ollama serve" | grep -q .; then
-  warn "Ollama 메인 이미 실행 중"
-else
-  OLLAMA_HOST="0.0.0.0:11434" ollama serve &>/tmp/ollama_11434.log &
-  sleep 3
+  warn "기존 Ollama 프로세스 정리 중..."
+  pkill -f "ollama serve" 2>/dev/null
+  sleep 2
 fi
 
 # ══════════════════════════════════════════════════════════════
-# 2. Ollama 워커 × 4 (port 11435~11438) — exaone3.5:2.4b
+# 2. Ollama 메인 서버 (port 11434) — qwen2.5:14b
+# ══════════════════════════════════════════════════════════════
+log "Ollama 메인 서버 시작 (port 11434 / qwen2.5:14b)"
+OLLAMA_HOST="0.0.0.0:11434" ollama serve &>/tmp/ollama_11434.log &
+sleep 3
+
+# ══════════════════════════════════════════════════════════════
+# 3. Ollama 워커 × 4 (port 11435~11438) — exaone3.5:2.4b
 # ══════════════════════════════════════════════════════════════
 for PORT in 11435 11436 11437 11438; do
   log "Ollama 워커 시작 (port $PORT / exaone3.5:2.4b)"

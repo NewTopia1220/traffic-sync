@@ -297,7 +297,30 @@ export default function KakaoMapView({ crossroads, selected, onSelect, initialCe
 
     if (zoom < CLUSTER_LEVEL) {
       // ── 줌인 상태: 교차로별 개별 CustomOverlay 표시 ──
-      crossroads.forEach(cr => {
+      // 픽셀 거리 기반 겹침 방지: 선택 마커 우선, 그 다음 속도 낮은 순(위험 우선)
+      const MIN_PX = 52; // 마커 간 최소 픽셀 거리
+      const projection = mapObj.current.getProjection();
+      const placedPoints = [];
+
+      const sorted = [...crossroads].sort((a, b) => {
+        if (selected?.crsrdId === a.crsrdId) return -1;
+        if (selected?.crsrdId === b.crsrdId) return 1;
+        const sa = Number.isFinite(a.speed) ? a.speed : 999;
+        const sb = Number.isFinite(b.speed) ? b.speed : 999;
+        return sa - sb;
+      });
+
+      const visibleCrossroads = sorted.filter(cr => {
+        const pt = projection.pointFromCoords(new kakao.maps.LatLng(cr.lat, cr.lon));
+        const overlaps = placedPoints.some(p => {
+          const dx = p.x - pt.x, dy = p.y - pt.y;
+          return Math.sqrt(dx * dx + dy * dy) < MIN_PX;
+        });
+        if (!overlaps) { placedPoints.push(pt); return true; }
+        return false;
+      });
+
+      visibleCrossroads.forEach(cr => {
         const pos   = new kakao.maps.LatLng(cr.lat, cr.lon);
         const isSel = selected?.crsrdId === cr.crsrdId;
         // domColor: mappedSignals의 신호 상태 → 빨강/노랑/초록 색상 반환
