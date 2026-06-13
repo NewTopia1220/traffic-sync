@@ -239,19 +239,21 @@ export default function MapDashboard({ onGoMain, onGoCctv, onGoNews, onGoSimulat
                     width: 54, height: 54,
                     borderRadius: "50%",
                     background: chatOpen
-                      ? "linear-gradient(135deg, rgba(96,165,250,0.95), rgba(168,85,247,0.95))"
+                      ? "linear-gradient(135deg, rgba(30,41,59,0.98), rgba(59,130,246,0.94))"
                       : "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(59,130,246,0.9))",
-                    border: `2px solid ${chatOpen ? "rgba(255,255,255,0.38)" : "rgba(147,197,253,0.55)"}`,
+                    border: `2px solid ${chatOpen ? "rgba(147,197,253,0.72)" : "rgba(147,197,253,0.55)"}`,
                     backdropFilter: "blur(12px)",
                     WebkitBackdropFilter: "blur(12px)",
                     cursor: "pointer",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    boxShadow: "0 4px 18px rgba(0,0,0,0.62), 0 0 16px rgba(96,165,250,0.28)",
+                    boxShadow: chatOpen
+                      ? "0 8px 24px rgba(0,0,0,0.62), 0 0 20px rgba(96,165,250,0.34)"
+                      : "0 4px 18px rgba(0,0,0,0.62), 0 0 16px rgba(96,165,250,0.28)",
                     transition: "all .2s",
                   }}
                 >
                   {chatOpen
-                    ? <span style={{ fontSize: 16, color: "rgba(255,255,255,0.55)" }}>✕</span>
+                    ? <span style={{ fontSize: 16, color: "rgba(226,232,240,0.86)" }}>✕</span>
                     : (
                       <img
                         src={CHATBOT_ICON}

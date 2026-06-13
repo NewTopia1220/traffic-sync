@@ -53,8 +53,8 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
         zIndex:        10002,
         display:       'flex',
         flexDirection: 'column',
-        gap:           12,
-        width:         432,
+        gap:           8,
+        width:         360,
         maxHeight:     'calc(100vh - 120px)',
         overflowY:     'auto',
         overflowX:     'hidden',
@@ -66,9 +66,9 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
 
         {hiddenCt > 0 && (
           <div style={{
-            fontSize:   16,
+            fontSize:   11,
             color:      '#5a5a5a',
-            padding:    '3px 9px',
+            padding:    '2px 6px',
             fontFamily: "'IBM Plex Mono',monospace",
           }}>
             ↑ 이전 알림 {hiddenCt}개 더
@@ -87,21 +87,22 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
               <div style={{
                 display:      'flex',
                 alignItems:   'flex-start',
-                gap:          18,
-                padding:      '18px 21px',
-                background:   'linear-gradient(135deg, #12100a 0%, #0f0d08 100%)',
-                border:       '1px solid #3a3020',
-                borderLeft:   '6px solid #ffaa33',
-                borderRadius: 12,
-                boxShadow:    '0 8px 32px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,170,51,0.08)',
+                gap:          12,
+                padding:      '14px 15px',
+                background:   'linear-gradient(135deg, rgba(255,250,232,0.98) 0%, rgba(255,238,199,0.96) 100%)',
+                border:       '1px solid rgba(255,170,51,0.72)',
+                borderLeft:   '5px solid #ffaa33',
+                borderRadius: 8,
+                boxShadow:    '0 18px 42px rgba(0,0,0,0.48), 0 0 0 1px rgba(255,255,255,0.72), 0 0 24px rgba(255,170,51,0.28)',
               }}>
 
                 {/* 종 아이콘 (테두리/배경 없음) */}
                 <div style={{
                   flexShrink:     0,
-                  fontSize:       33,
+                  fontSize:       22,
                   lineHeight:     1,
                   marginTop:      2,
+                  color:          '#b45309',
                   animation:      isNewest ? 'bellRing 0.7s ease 0.1s' : 'none',
                 }}>
                   🔔
@@ -109,19 +110,19 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontSize:      16,
-                    color:         '#ffaa33',
+                    fontSize:      11,
+                    color:         '#b45309',
                     fontWeight:    700,
                     letterSpacing: '0.1em',
-                    marginBottom:  7,
+                    marginBottom:  5,
                     fontFamily:    "'IBM Plex Mono',monospace",
                     textTransform: 'uppercase',
                   }}>
                     NEW · 민원 접수
                   </div>
                   <div style={{
-                    fontSize:     22,
-                    color:        '#e7ecf5',
+                    fontSize:     15,
+                    color:        '#111827',
                     fontWeight:   700,
                     overflow:     'hidden',
                     textOverflow: 'ellipsis',
@@ -131,9 +132,9 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
                   </div>
                   {c.title && (
                     <div style={{
-                      fontSize:     18,
-                      color:        '#8a96a8',
-                      marginTop:    6,
+                      fontSize:     12,
+                      color:        '#475569',
+                      marginTop:    4,
                       overflow:     'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace:   'nowrap',
@@ -145,29 +146,29 @@ export default function ComplaintNotificationBanner({ queue, onDismiss, isMuted 
                   onClick={() => onDismiss(c.id)}
                   style={{
                     flexShrink:     0,
-                    width:          39,
-                    height:         39,
+                    width:          26,
+                    height:         26,
                     borderRadius:   '50%',
-                    background:     'transparent',
-                    border:         '1px solid #3a3a3a',
-                    color:          '#7a7a7a',
+                    background:     'rgba(255,255,255,0.55)',
+                    border:         '1px solid rgba(180,83,9,0.25)',
+                    color:          '#92400e',
                     cursor:         'pointer',
                     display:        'flex',
                     alignItems:     'center',
                     justifyContent: 'center',
-                    fontSize:       19,
+                    fontSize:       13,
                     padding:        0,
                     transition:     'all 0.15s',
                   }}
                   onMouseEnter={e => {
                     e.currentTarget.style.borderColor = '#ffaa33'
-                    e.currentTarget.style.color = '#ffaa33'
-                    e.currentTarget.style.background = 'rgba(255,170,51,0.08)'
+                    e.currentTarget.style.color = '#7c2d12'
+                    e.currentTarget.style.background = 'rgba(255,170,51,0.22)'
                   }}
                   onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = '#3a3a3a'
-                    e.currentTarget.style.color = '#7a7a7a'
-                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.borderColor = 'rgba(180,83,9,0.25)'
+                    e.currentTarget.style.color = '#92400e'
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.55)'
                   }}
                 >✕</button>
               </div>
