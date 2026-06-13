@@ -20,7 +20,7 @@ db_config = {
      "password": "Heeyoun1220!",
      "dsn": "koreapoint_medium",
 
-     "wallet_location": "/Users/parkheeyoun/traffic-sync-git/backend/src/main/resources/wallet"
+     "wallet_location": "C:/Final!!!!!!!/traffic-sync/backend/src/main/resources/wallet"
 
 }
 

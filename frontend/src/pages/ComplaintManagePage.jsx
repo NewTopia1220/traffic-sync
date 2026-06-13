@@ -321,7 +321,7 @@ export default function ComplaintManagePage({
             <span>총 {filtered.length}건</span>
             <span style={{ color: V.line }}>·</span>
             <span>전체 {complaints.length}건</span>
-            <span style={{ marginLeft: "auto" }}>TrafficSync 민원 관리 시스템</span>
+            <span style={{ marginLeft: "auto" }}>Syncro 민원 관리 시스템</span>
           </div>
         </div>
       </div>
