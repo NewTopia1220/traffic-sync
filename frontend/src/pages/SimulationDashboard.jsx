@@ -154,6 +154,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
   const [routeTraffic, setRouteTraffic] = useState(null);
   const [routeAnalysis, setRouteAnalysis] = useState(null);
   const [routeReport, setRouteReport] = useState(null);
+  const [emailSending, setEmailSending] = useState(false);
   const [routeAnalysisLoading, setRouteAnalysisLoading] = useState(false);
   const [aiAdjustment, setAiAdjustment] = useState(null);
   const [aiAdjustKey, setAiAdjustKey] = useState(0);
@@ -570,16 +571,45 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
       : unapplied[0];
 
     if (!target?.intNo || !target?.phases?.length) {
-      // 모두 적용 완료
       setIsOptimized(true);
       return;
     }
 
     applyAdjustment(target);
-    setAppliedIntNos(prev => new Set([...prev, String(target.intNo)]));
+    const newApplied = new Set([...appliedIntNos, String(target.intNo)]);
+    setAppliedIntNos(newApplied);
     setAppliedAdjustmentsMap(prev => ({ ...prev, [String(target.intNo)]: target }));
-
     setIsOptimized(true);
+
+    // 모두 적용 완료 시 이메일 자동 발송
+    const allDone = newApplied.size >= adjustments.length;
+    if (allDone && routeReport) {
+      const userEmail = JSON.parse(localStorage.getItem("ts_user") || "{}").email;
+      if (!userEmail || emailSending) return;
+      setEmailSending(true);
+
+      // 변경 요약 텍스트 생성
+      const summary = Object.values({ ...appliedAdjustmentsMap, [String(target.intNo)]: target })
+        .map(adj => {
+          const name = bottleneckCrossroads.find(c => String(c.intNo) === String(adj.intNo))?.crsrdNm || adj.intNo;
+          const lines = (adj.phases || []).map(p => `현시${p.no}: ${p.sec}s`).join(", ");
+          return `${name} — ${lines}`;
+        })
+        .join("\n");
+
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일 ${now.getHours()}:${String(now.getMinutes()).padStart(2,"0")}`;
+      const subject = `[Syncro] 신호제어 적용 완료 — ${dateStr}`;
+      const body = `[AI 신호 자동조정 분석 보고서]\n발행일시: ${dateStr}\n\n━━━ 적용 요약 ━━━\n${summary}\n\n━━━ 상세 분석 ━━━\n${routeReport}`;
+
+      fetch(`${API_BASE}/api/email/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: userEmail, subject, body }),
+      })
+        .catch(() => {/* 이메일 실패는 제어 흐름에 영향 없음 */})
+        .finally(() => setEmailSending(false));
+    }
   };
 
   const handleAutoApplied = (simulation) => {
@@ -756,7 +786,7 @@ export default function SimulationDashboard({ onGoMain, onGoMap, onGoNews, onGoC
               const allApplied = totalAdj > 0 && appliedCount >= totalAdj;
               return (
                 <div style={{ border: "none", borderRadius: 6, padding: "12px 14px", textAlign: "center", background: allApplied ? "#166534" : routeAnalysisLoading ? "rgba(96,165,250,0.1)" : "#1f2937", color: allApplied ? "#fff" : routeAnalysisLoading ? "#60a5fa" : "#94a3b8", fontSize: 13, fontWeight: 900 }}>
-                  {allApplied ? `✓ ${totalAdj}개 교차로 제어 완료 — AI 분석 포함 이메일 발송됨`
+                  {allApplied ? (emailSending ? `✓ ${totalAdj}개 교차로 제어 완료 — 이메일 발송 중...` : `✓ ${totalAdj}개 교차로 제어 완료 — AI 분석 포함 이메일 발송됨`)
                     : routeAnalysisLoading ? "● AI 병목 분석 중..."
                     : totalAdj > 0 && appliedCount > 0 ? `병목지 ${appliedCount}/${totalAdj} 적용 완료 — 나머지 병목지를 선택 후 제어하세요`
                     : totalAdj > 0 ? `AI 분석 완료 (${totalAdj}개 교차로) — 병목지 선택 후 관제사 제어 버튼 클릭`
