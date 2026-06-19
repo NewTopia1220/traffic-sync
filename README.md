@@ -374,7 +374,7 @@ cd frontend && npm install && npm run dev
 <div align="center">
 
 **Syncro** · 서울 실시간 V2X 기반 AI 교통 관제 시스템<br/>
-<sub>TEAM FINAL · 박하윤 · 장수아 · 설석현 · 진민경</sub><br/>
-<sub>© 2025 · 완전 로컬 LLM · MCP 멀티에이전트 · Human-in-the-loop</sub>
+<sub>TEAM FINAL · 박희윤 · 김수아 · 설석현 · 진민경</sub><br/>
+<sub>© 2026 · 완전 로컬 LLM · MCP 멀티에이전트 · Human-in-the-loop</sub>
 
 </div>
